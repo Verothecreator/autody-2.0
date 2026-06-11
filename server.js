@@ -48,15 +48,22 @@ const defaultDemoDb = {
         {
             id: PRACTICE_USER_ID,
             name: "Vero Demo",
-            email: "practice@autody.local",
+            email: "ontold7@gmail.com",
             mode: "paper",
             currency: "USD",
             startingBalance: 50000,
             cashBalance: 50000,
             reservedCash: 0,
-            createdAt: "2026-06-11T00:00:00.000Z"
+            createdAt: "2026-06-11T00:00:00.000Z",
+            auth: {
+                passwordAlgorithm: "scrypt",
+                passwordSalt: "e347422aa66d3ca056c6a13fc341e4c8",
+                passwordHash: "7809fccd8f63f1516a811717074eef89debc3a4f834b21ca822dfdf035b6f8988b2e4c221814c87faa02b5609a03a428fc5b01cba3cb22bf98cfbe572392a06e",
+                passwordUpdatedAt: "2026-06-11T00:00:00.000Z"
+            }
         }
     ],
+    sessions: [],
     wallets: {
         [PRACTICE_USER_ID]: {
             cash: {
@@ -98,6 +105,64 @@ function ensureDemoDb() {
 function loadDemoDb() {
     ensureDemoDb();
     return JSON.parse(fs.readFileSync(DEMO_DB_STORE, "utf8"));
+}
+
+function saveDemoDb(data) {
+    ensureDemoDb();
+    fs.writeFileSync(DEMO_DB_STORE, JSON.stringify(data, null, 2));
+}
+
+function publicUser(user) {
+    const { auth, ...safeUser } = user;
+    return safeUser;
+}
+
+function parseJsonBody(req) {
+    const raw = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
+    return raw ? JSON.parse(raw) : {};
+}
+
+function normalizeEmail(email) {
+    return String(email || "").trim().toLowerCase();
+}
+
+function hashPassword(password, salt) {
+    return crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
+}
+
+function verifyPassword(password, auth) {
+    if (!auth?.passwordSalt || !auth?.passwordHash) return false;
+
+    const expected = Buffer.from(auth.passwordHash, "hex");
+    const actual = Buffer.from(hashPassword(password, auth.passwordSalt), "hex");
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function createDemoSession(db, userId) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 8);
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    db.sessions = (db.sessions || [])
+        .filter((session) => Date.parse(session.expiresAt) > Date.now())
+        .filter((session) => session.userId !== userId);
+
+    db.sessions.push({
+        id: crypto.randomUUID(),
+        userId,
+        tokenHash,
+        createdAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString()
+    });
+
+    saveDemoDb(db);
+
+    return {
+        token,
+        userId,
+        expiresAt: expiresAt.toISOString()
+    };
 }
 
 function getPracticeAccount() {
@@ -649,12 +714,40 @@ app.get("/api/news", async (req, res) => {
   }
 });
 
+app.post("/api/auth/sign-in", (req, res) => {
+  try {
+    const db = loadDemoDb();
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || "");
+    const user = db.users.find((item) => normalizeEmail(item.email) === email);
+
+    if (!user || !verifyPassword(password, user.auth)) {
+      return res.status(401).json({
+        success: false,
+        error: "Email or password is incorrect."
+      });
+    }
+
+    const session = createDemoSession(db, user.id);
+    return res.json({
+      success: true,
+      user: publicUser(user),
+      session,
+      next: "demo-wallet.html"
+    });
+  } catch (err) {
+    console.error("Sign in error:", err);
+    return res.status(500).json({ success: false, error: "Sign in unavailable" });
+  }
+});
+
 app.get("/api/demo/practice-user", (req, res) => {
   try {
     const account = getPracticeAccount();
     return res.json({
       success: true,
-      user: account.user,
+      user: publicUser(account.user),
       wallet: account.wallet,
       orders: account.orders,
       watchlist: account.watchlist,
@@ -675,7 +768,7 @@ app.get("/api/demo/wallet", (req, res) => {
 
     return res.json({
       success: true,
-      user: account.user,
+      user: publicUser(account.user),
       wallet: {
         currency: account.user.currency,
         startingBalance: account.user.startingBalance,
@@ -696,7 +789,7 @@ app.get("/api/demo/orders", (req, res) => {
     const account = getPracticeAccount();
     return res.json({
       success: true,
-      user: account.user,
+      user: publicUser(account.user),
       orders: account.orders
     });
   } catch (err) {
@@ -710,7 +803,7 @@ app.get("/api/demo/watchlist", (req, res) => {
     const account = getPracticeAccount();
     return res.json({
       success: true,
-      user: account.user,
+      user: publicUser(account.user),
       watchlist: account.watchlist
     });
   } catch (err) {

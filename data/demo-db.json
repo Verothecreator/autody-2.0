@@ -3,15 +3,22 @@
     {
       "id": "practice-user",
       "name": "Vero Demo",
-      "email": "practice@autody.local",
+      "email": "ontold7@gmail.com",
       "mode": "paper",
       "currency": "USD",
       "startingBalance": 50000,
       "cashBalance": 50000,
       "reservedCash": 0,
-      "createdAt": "2026-06-11T00:00:00.000Z"
+      "createdAt": "2026-06-11T00:00:00.000Z",
+      "auth": {
+        "passwordAlgorithm": "scrypt",
+        "passwordSalt": "e347422aa66d3ca056c6a13fc341e4c8",
+        "passwordHash": "7809fccd8f63f1516a811717074eef89debc3a4f834b21ca822dfdf035b6f8988b2e4c221814c87faa02b5609a03a428fc5b01cba3cb22bf98cfbe572392a06e",
+        "passwordUpdatedAt": "2026-06-11T00:00:00.000Z"
+      }
     }
   ],
+  "sessions": [],
   "wallets": {
     "practice-user": {
       "cash": {
