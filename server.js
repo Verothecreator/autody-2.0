@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const bodyParser = require("body-parser");
 const { ethers } = require("ethers");
+const { Pool } = require("pg");
 require("dotenv").config();
 
 const app = express();
@@ -35,6 +36,12 @@ if (!fs.existsSync(ORDER_STORE)) fs.writeFileSync(ORDER_STORE, "{}");
 
 const DEMO_DB_STORE = path.join(__dirname, "data", "demo-db.json");
 const PRACTICE_USER_ID = "practice-user";
+const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
+const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
+const dbPool = DATABASE_URL ? new Pool({
+    connectionString: DATABASE_URL,
+    ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
+}) : null;
 
 function loadOrders() {
     return JSON.parse(fs.readFileSync(ORDER_STORE));
@@ -48,7 +55,7 @@ const defaultDemoDb = {
         {
             id: PRACTICE_USER_ID,
             name: "Vero Demo",
-            email: "ontold7@gmail.com",
+            email: PRACTICE_USER_EMAIL,
             mode: "paper",
             currency: "USD",
             startingBalance: 50000,
@@ -201,6 +208,304 @@ function getPracticeAccount() {
         performance: db.performance?.[PRACTICE_USER_ID],
         settings: db.settings?.[PRACTICE_USER_ID]
     };
+}
+
+function databaseConfigured() {
+    return Boolean(dbPool);
+}
+
+function numberValue(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+}
+
+function safeIsoDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function mapDbUser(row) {
+    return {
+        id: row.profile_id,
+        name: row.display_name,
+        email: row.email,
+        mode: "paper",
+        currency: row.currency || "USD",
+        startingBalance: numberValue(row.starting_balance, 50000),
+        cashBalance: numberValue(row.cash_balance, 50000),
+        reservedCash: numberValue(row.reserved_cash, 0),
+        createdAt: row.created_at
+    };
+}
+
+function mapDbHolding(row) {
+    return {
+        symbol: row.symbol,
+        name: row.asset_name,
+        category: row.asset_type,
+        balance: numberValue(row.quantity, 0),
+        valueUsd: numberValue(row.value_usd, 0),
+        status: numberValue(row.quantity, 0) > 0 ? "Held" : row.symbol === "AU" ? "Not held" : "Ready"
+    };
+}
+
+async function getPracticeAccountFromDatabase() {
+    if (!databaseConfigured()) return null;
+
+    const accountResult = await dbPool.query(`
+        select
+            p.id as profile_id,
+            p.email,
+            p.display_name,
+            p.created_at,
+            am.id as account_mode_id,
+            w.id as wallet_id,
+            w.currency,
+            w.cash_balance,
+            w.reserved_cash,
+            w.starting_balance
+        from profiles p
+        join account_modes am on am.profile_id = p.id and am.mode = 'demo'
+        join wallets w on w.account_mode_id = am.id
+        where lower(p.email) = lower($1)
+        limit 1
+    `, [PRACTICE_USER_EMAIL]);
+
+    const row = accountResult.rows[0];
+    if (!row) return null;
+
+    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult] = await Promise.all([
+        dbPool.query(`
+            select symbol, asset_name, asset_type, quantity, value_usd
+            from holdings
+            where wallet_id = $1
+            order by case symbol when 'USD' then 0 when 'AU' then 1 when 'CRYPTO' then 2 when 'STOCKS' then 3 else 4 end, symbol
+        `, [row.wallet_id]),
+        dbPool.query(`
+            select symbol, asset_type, side, order_type, status, quantity, notional_usd, limit_price, filled_price, created_at, filled_at
+            from orders
+            where account_mode_id = $1
+            order by created_at desc
+            limit 50
+        `, [row.account_mode_id]),
+        dbPool.query(`
+            select symbol, asset_type
+            from watchlists
+            where profile_id = $1
+            order by created_at asc
+        `, [row.profile_id]),
+        dbPool.query(`
+            select topic
+            from research_preferences
+            where profile_id = $1
+            order by created_at asc
+        `, [row.profile_id]),
+        dbPool.query(`
+            select portfolio_value, starting_balance, unrealized_profit_loss, realized_profit_loss,
+                   today_profit_loss, today_profit_loss_pct, win_rate_pct, trades_placed
+            from demo_performance
+            where account_mode_id = $1
+            limit 1
+        `, [row.account_mode_id]),
+        dbPool.query(`
+            select default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts
+            from account_settings
+            where profile_id = $1
+            limit 1
+        `, [row.profile_id])
+    ]);
+
+    const holdings = holdingsResult.rows.map(mapDbHolding);
+    const cashHolding = holdings.find((holding) => holding.symbol === "USD");
+    const cash = {
+        symbol: "USD",
+        name: "USD Cash",
+        balance: numberValue(row.cash_balance, cashHolding?.balance || 0),
+        valueUsd: numberValue(row.cash_balance, cashHolding?.valueUsd || 0),
+        status: "Available"
+    };
+    const nonCashHoldings = holdings.filter((holding) => holding.symbol !== "USD");
+    const watchlist = watchlistResult.rows.reduce((groups, item) => {
+        const key = item.asset_type === "stock" || item.asset_type === "etf" ? "stocks" : "crypto";
+        groups[key].push(item.symbol);
+        return groups;
+    }, { crypto: [], stocks: [] });
+
+    const performanceRow = performanceResult.rows[0] || {};
+    const settingsRow = settingsResult.rows[0] || {};
+
+    return {
+        user: mapDbUser(row),
+        wallet: { cash, holdings: nonCashHoldings },
+        orders: ordersResult.rows,
+        watchlist,
+        researchPreferences: researchResult.rows.map((item) => item.topic),
+        performance: {
+            portfolioValue: numberValue(performanceRow.portfolio_value, 50000),
+            startingBalance: numberValue(performanceRow.starting_balance, 50000),
+            unrealizedProfitLoss: numberValue(performanceRow.unrealized_profit_loss, 0),
+            realizedProfitLoss: numberValue(performanceRow.realized_profit_loss, 0),
+            todayProfitLoss: numberValue(performanceRow.today_profit_loss, 0),
+            todayProfitLossPct: numberValue(performanceRow.today_profit_loss_pct, 0),
+            winRatePct: numberValue(performanceRow.win_rate_pct, 0),
+            tradesPlaced: numberValue(performanceRow.trades_placed, 0)
+        },
+        settings: {
+            defaultMode: settingsRow.default_mode || "demo",
+            currency: settingsRow.currency || "USD",
+            riskLevel: settingsRow.risk_level || "practice",
+            orderConfirmation: settingsRow.order_confirmation ?? true,
+            marketAlerts: settingsRow.market_alerts ?? true,
+            newsAlerts: settingsRow.news_alerts ?? true
+        }
+    };
+}
+
+async function getPracticeAccountAny() {
+    if (databaseConfigured()) {
+        try {
+            const account = await getPracticeAccountFromDatabase();
+            if (account) return { ...account, source: "supabase" };
+        } catch (err) {
+            console.error("Supabase practice account read failed, using JSON fallback:", err);
+        }
+    }
+
+    return { ...getPracticeAccount(), source: "json" };
+}
+
+async function createDatabaseSession(profileId) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 8);
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    await dbPool.query(`
+        delete from app_sessions
+        where profile_id = $1 or expires_at <= now()
+    `, [profileId]);
+
+    await dbPool.query(`
+        insert into app_sessions (profile_id, token_hash, created_at, expires_at)
+        values ($1, $2, $3, $4)
+    `, [profileId, tokenHash, now.toISOString(), expiresAt.toISOString()]);
+
+    return {
+        token,
+        userId: profileId,
+        expiresAt: expiresAt.toISOString()
+    };
+}
+
+async function signInFromDatabase(email, password) {
+    if (!databaseConfigured()) return null;
+
+    const result = await dbPool.query(`
+        select
+            p.id as profile_id,
+            p.email,
+            p.display_name,
+            p.created_at,
+            pc.password_algorithm,
+            pc.password_salt,
+            pc.password_hash
+        from profiles p
+        join profile_credentials pc on pc.profile_id = p.id
+        where lower(p.email) = lower($1)
+        limit 1
+    `, [email]);
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    const auth = {
+        passwordSalt: row.password_salt,
+        passwordHash: row.password_hash
+    };
+    if (!verifyPassword(password, auth)) return null;
+
+    const session = await createDatabaseSession(row.profile_id);
+    return {
+        user: {
+            id: row.profile_id,
+            name: row.display_name,
+            email: row.email,
+            mode: "paper",
+            currency: "USD",
+            createdAt: row.created_at
+        },
+        session
+    };
+}
+
+async function saveMarketSnapshots(provider, assetType, assets = []) {
+    if (!databaseConfigured() || !assets.length) return;
+
+    try {
+        const values = [];
+        const placeholders = assets
+            .filter((asset) => asset?.symbol)
+            .map((asset, index) => {
+                const offset = index * 7;
+                values.push(
+                    provider,
+                    asset.symbol,
+                    asset.name || asset.symbol,
+                    assetType,
+                    asset.price ?? asset.value ?? null,
+                    asset.changePct ?? null,
+                    asset.marketCap ?? null
+                );
+                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+            });
+
+        if (!placeholders.length) return;
+
+        await dbPool.query(`
+            insert into market_snapshots (provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd)
+            values ${placeholders.join(", ")}
+        `, values);
+    } catch (err) {
+        console.error("Market snapshot save failed:", err);
+    }
+}
+
+async function saveNewsSnapshots(provider, articles = []) {
+    if (!databaseConfigured() || !articles.length) return;
+
+    try {
+        const values = [];
+        const placeholders = articles
+            .filter((article) => article?.title)
+            .map((article, index) => {
+                const offset = index * 7;
+                values.push(
+                    provider,
+                    article.source || "Market news",
+                    article.subject || "Markets",
+                    article.title,
+                    article.image || null,
+                    article.url || null,
+                    safeIsoDate(article.publishedAt)
+                );
+                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+            });
+
+        if (!placeholders.length) return;
+
+        await dbPool.query(`
+            insert into news_snapshots (provider, source, subject, title, image_url, article_url, published_at)
+            values ${placeholders.join(", ")}
+            on conflict (title, source) do update
+            set image_url = excluded.image_url,
+                article_url = excluded.article_url,
+                published_at = excluded.published_at,
+                captured_at = now()
+        `, values);
+    } catch (err) {
+        console.error("News snapshot save failed:", err);
+    }
 }
 
 // ------------------ EXPRESS --------------------
@@ -532,6 +837,86 @@ function uniqueArticles(articles) {
   });
 }
 
+app.get("/api/db/status", async (req, res) => {
+  if (!databaseConfigured()) {
+    return res.json({
+      success: true,
+      configured: false,
+      provider: "json",
+      message: "DATABASE_URL is not set. Autody is using the local JSON seed."
+    });
+  }
+
+  try {
+    const result = await dbPool.query("select now() as connected_at");
+    return res.json({
+      success: true,
+      configured: true,
+      provider: "supabase-postgres",
+      connectedAt: result.rows[0]?.connected_at
+    });
+  } catch (err) {
+    console.error("Database status error:", err);
+    return res.status(500).json({
+      success: false,
+      configured: true,
+      provider: "supabase-postgres",
+      error: "Database connection failed"
+    });
+  }
+});
+
+app.get("/api/markets/snapshots", async (req, res) => {
+  if (!databaseConfigured()) {
+    return res.json({ success: true, configured: false, snapshots: [] });
+  }
+
+  try {
+    const symbol = String(req.query.symbol || "").trim().toUpperCase();
+    const limit = Math.min(Number(req.query.limit || 30), 100);
+    const result = symbol
+      ? await dbPool.query(`
+          select provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, captured_at
+          from market_snapshots
+          where upper(symbol) = $1
+          order by captured_at desc
+          limit $2
+        `, [symbol, limit])
+      : await dbPool.query(`
+          select distinct on (symbol) provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, captured_at
+          from market_snapshots
+          order by symbol, captured_at desc
+          limit $1
+        `, [limit]);
+
+    return res.json({ success: true, configured: true, snapshots: result.rows });
+  } catch (err) {
+    console.error("Market snapshot read failed:", err);
+    return res.status(500).json({ success: false, error: "Market snapshots unavailable" });
+  }
+});
+
+app.get("/api/news/snapshots", async (req, res) => {
+  if (!databaseConfigured()) {
+    return res.json({ success: true, configured: false, articles: [] });
+  }
+
+  try {
+    const limit = Math.min(Number(req.query.limit || 9), 30);
+    const result = await dbPool.query(`
+        select provider, source, subject, title, image_url as image, article_url as url, published_at, captured_at
+        from news_snapshots
+        order by coalesce(published_at, captured_at) desc
+        limit $1
+      `, [limit]);
+
+    return res.json({ success: true, configured: true, articles: result.rows });
+  } catch (err) {
+    console.error("News snapshot read failed:", err);
+    return res.status(500).json({ success: false, error: "News snapshots unavailable" });
+  }
+});
+
 app.get("/api/markets/crypto", async (req, res) => {
   try {
     const ids = "bitcoin,ethereum,solana,dogecoin,cardano,polygon-ecosystem-token";
@@ -564,22 +949,27 @@ app.get("/api/markets/crypto", async (req, res) => {
       "polygon-ecosystem-token": "POL"
     };
 
+    const assets = Object.entries(json).map(([id, data]) => ({
+      id,
+      name: labels[id] || id,
+      symbol: symbols[id] || id.toUpperCase(),
+      price: data.usd ?? null,
+      changePct: data.usd_24h_change ?? null,
+      marketCap: data.usd_market_cap ?? null
+    }));
+
+    saveMarketSnapshots("coingecko", "crypto", assets);
+
     return res.json({
       success: true,
       provider: "coingecko",
-      assets: Object.entries(json).map(([id, data]) => ({
-        id,
-        name: labels[id] || id,
-        symbol: symbols[id] || id.toUpperCase(),
-        price: data.usd ?? null,
-        changePct: data.usd_24h_change ?? null,
-        marketCap: data.usd_market_cap ?? null
-      }))
+      assets
     });
   } catch (err) {
     console.error("Crypto market proxy error:", err);
     try {
       const assets = await fetchCoinbaseCrypto();
+      saveMarketSnapshots("coinbase", "crypto", assets);
       return res.json({ success: true, provider: "coinbase", assets });
     } catch (fallbackErr) {
       console.error("Coinbase crypto fallback error:", fallbackErr);
@@ -616,11 +1006,13 @@ app.get("/api/markets/stocks", async (req, res) => {
       time: quote.regularMarketTime ?? null
     })).filter((asset) => asset.price != null);
 
+    saveMarketSnapshots("yahoo", "stock", assets);
     return res.json({ success: true, provider: "yahoo", assets });
   } catch (err) {
     console.error("Stock market proxy error:", err);
     try {
       const assets = await fetchStooqQuotes("spy.us,qqq.us,aapl.us,nvda.us,tsla.us,msft.us,amzn.us");
+      saveMarketSnapshots("stooq", "stock", assets);
       return res.json({ success: true, provider: "stooq", assets });
     } catch (fallbackErr) {
       console.error("Stooq stock fallback error:", fallbackErr);
@@ -642,6 +1034,10 @@ app.get("/api/markets/signals", async (req, res) => {
     ]);
     const gold = goldResult.status === "fulfilled" ? goldResult.value : null;
     const economy = economyResult.status === "fulfilled" ? economyResult.value : null;
+    saveMarketSnapshots("yahoo", "signal", [
+      gold ? { symbol: "GC=F", name: gold.name, price: gold.price, changePct: gold.changePct } : null,
+      economy ? { symbol: "^TNX", name: economy.name, price: economy.price, changePct: economy.changePct } : null
+    ].filter(Boolean));
     return res.json({
       success: true,
       gold: gold ? {
@@ -727,6 +1123,8 @@ app.get("/api/news", async (req, res) => {
       .slice(0, 9)
       .map(ensureArticleImage);
 
+    saveNewsSnapshots("gdelt-rss", importantArticles);
+
     return res.json({
       success: true,
       articles: importantArticles.length ? importantArticles : fallbackNews.map(ensureArticleImage),
@@ -738,12 +1136,27 @@ app.get("/api/news", async (req, res) => {
   }
 });
 
-app.post("/api/auth/sign-in", (req, res) => {
+app.post("/api/auth/sign-in", async (req, res) => {
   try {
-    const db = loadDemoDb();
     const body = parseJsonBody(req);
     const email = normalizeEmail(body.email);
     const password = String(body.password || "");
+    const databaseSignIn = await signInFromDatabase(email, password).catch((err) => {
+      console.error("Supabase sign in failed, using JSON fallback:", err);
+      return null;
+    });
+
+    if (databaseSignIn) {
+      return res.json({
+        success: true,
+        user: databaseSignIn.user,
+        session: databaseSignIn.session,
+        next: "account.html",
+        source: "supabase"
+      });
+    }
+
+    const db = loadDemoDb();
     const user = db.users.find((item) => normalizeEmail(item.email) === email);
 
     if (!user || !verifyPassword(password, user.auth)) {
@@ -758,7 +1171,8 @@ app.post("/api/auth/sign-in", (req, res) => {
       success: true,
       user: publicUser(user),
       session,
-      next: "account.html"
+      next: "account.html",
+      source: "json"
     });
   } catch (err) {
     console.error("Sign in error:", err);
@@ -766,9 +1180,9 @@ app.post("/api/auth/sign-in", (req, res) => {
   }
 });
 
-app.get("/api/demo/practice-user", (req, res) => {
+app.get("/api/demo/practice-user", async (req, res) => {
   try {
-    const account = getPracticeAccount();
+    const account = await getPracticeAccountAny();
     return res.json({
       success: true,
       user: publicUser(account.user),
@@ -777,7 +1191,8 @@ app.get("/api/demo/practice-user", (req, res) => {
       watchlist: account.watchlist,
       researchPreferences: account.researchPreferences,
       performance: account.performance,
-      settings: account.settings
+      settings: account.settings,
+      source: account.source
     });
   } catch (err) {
     console.error("Practice user API error:", err);
@@ -785,9 +1200,9 @@ app.get("/api/demo/practice-user", (req, res) => {
   }
 });
 
-app.get("/api/demo/wallet", (req, res) => {
+app.get("/api/demo/wallet", async (req, res) => {
   try {
-    const account = getPracticeAccount();
+    const account = await getPracticeAccountAny();
     const cash = account.wallet.cash;
     const holdings = [cash, ...account.wallet.holdings];
     const totalValue = holdings.reduce((sum, asset) => sum + Number(asset.valueUsd || 0), 0);
@@ -802,7 +1217,8 @@ app.get("/api/demo/wallet", (req, res) => {
         reservedCash: account.user.reservedCash,
         totalValue,
         holdings
-      }
+      },
+      source: account.source
     });
   } catch (err) {
     console.error("Demo wallet API error:", err);
@@ -810,13 +1226,14 @@ app.get("/api/demo/wallet", (req, res) => {
   }
 });
 
-app.get("/api/demo/orders", (req, res) => {
+app.get("/api/demo/orders", async (req, res) => {
   try {
-    const account = getPracticeAccount();
+    const account = await getPracticeAccountAny();
     return res.json({
       success: true,
       user: publicUser(account.user),
-      orders: account.orders
+      orders: account.orders,
+      source: account.source
     });
   } catch (err) {
     console.error("Demo orders API error:", err);
@@ -824,13 +1241,14 @@ app.get("/api/demo/orders", (req, res) => {
   }
 });
 
-app.get("/api/demo/watchlist", (req, res) => {
+app.get("/api/demo/watchlist", async (req, res) => {
   try {
-    const account = getPracticeAccount();
+    const account = await getPracticeAccountAny();
     return res.json({
       success: true,
       user: publicUser(account.user),
-      watchlist: account.watchlist
+      watchlist: account.watchlist,
+      source: account.source
     });
   } catch (err) {
     console.error("Demo watchlist API error:", err);
@@ -838,13 +1256,14 @@ app.get("/api/demo/watchlist", (req, res) => {
   }
 });
 
-app.get("/api/demo/performance", (req, res) => {
+app.get("/api/demo/performance", async (req, res) => {
   try {
-    const account = getPracticeAccount();
+    const account = await getPracticeAccountAny();
     return res.json({
       success: true,
       user: publicUser(account.user),
-      performance: account.performance
+      performance: account.performance,
+      source: account.source
     });
   } catch (err) {
     console.error("Demo performance API error:", err);
@@ -852,13 +1271,14 @@ app.get("/api/demo/performance", (req, res) => {
   }
 });
 
-app.get("/api/demo/settings", (req, res) => {
+app.get("/api/demo/settings", async (req, res) => {
   try {
-    const account = getPracticeAccount();
+    const account = await getPracticeAccountAny();
     return res.json({
       success: true,
       user: publicUser(account.user),
-      settings: account.settings
+      settings: account.settings,
+      source: account.source
     });
   } catch (err) {
     console.error("Demo settings API error:", err);

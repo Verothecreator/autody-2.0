@@ -32,3 +32,23 @@ Setup order:
 3. Run `database/schema.sql`.
 4. Add Supabase connection variables to Render.
 5. Replace JSON helpers in `server.js` with Postgres queries.
+
+Current implementation status:
+- `server.js` already checks `DATABASE_URL`, `SUPABASE_DB_URL`, or `POSTGRES_URL`.
+- If one is present, account APIs try Supabase first.
+- If Supabase is not configured or the schema has not been run yet, the app falls back to `data/demo-db.json`.
+- Live market/news routes now save snapshots into `market_snapshots` and `news_snapshots` when Supabase is connected.
+
+Render environment variable:
+
+```text
+DATABASE_URL=postgresql://...
+```
+
+Useful check after deployment:
+
+```text
+/api/db/status
+```
+
+If it returns `provider: "supabase-postgres"`, the website is connected to Supabase. If it returns `provider: "json"`, Render is still missing the database connection string.

@@ -31,7 +31,7 @@ function dotClass(asset) {
   if (symbol === "usd") return "cash";
   if (symbol === "au") return "au";
   if (asset.category === "crypto") return "btc";
-  if (asset.category === "stocks") return "stk";
+  if (symbol === "stocks" || asset.category === "stock" || asset.category === "stocks" || asset.category === "etf") return "stk";
   return "gold";
 }
 

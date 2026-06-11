@@ -11,6 +11,7 @@
     "@walletconnect/modal": "^2.6.2",
     "node-fetch": "^2.6.7",
     "ethers": "^6.13.2",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1"
   }
 }
