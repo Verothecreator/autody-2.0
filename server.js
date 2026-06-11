@@ -7,10 +7,9 @@ const { ethers } = require("ethers");
 require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 
 const RPC = process.env.POLYGON_RPC;
-const provider = new ethers.JsonRpcProvider(RPC);
 
 // BUY CONTRACT
 const BUY_CONTRACT_ADDRESS = process.env.BUY_CONTRACT_ADDRESS;
@@ -24,11 +23,8 @@ const BUY_ABI = [
 // BACKEND PRIVATE KEY (VERY IMPORTANT)
 const PRIVATE_KEY = process.env.BACKEND_PK;
 if (!PRIVATE_KEY) {
-    console.error("❌ ERROR: BACKEND_PK environment variable missing.");
-    process.exit(1);
+    console.warn("BACKEND_PK is not set. Public site will run, but Transak webhook credits are disabled.");
 }
-
-const backendWallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
 // Transak Secret
 const TRANSAK_SECRET = process.env.TRANSAK_SECRET;
@@ -54,7 +50,7 @@ app.use(bodyParser.raw({ type: "*/*" }));
 // ----------------------
 function validTransakSignature(req) {
     const signature = req.headers["x-transak-signature"];
-    if (!signature) return false;
+    if (!signature || !TRANSAK_SECRET) return false;
 
     const computed = crypto
         .createHmac("sha256", TRANSAK_SECRET)
@@ -71,6 +67,11 @@ function validTransakSignature(req) {
 
 app.post("/webhook/transak", async (req, res) => {
     try {
+        if (!PRIVATE_KEY || !RPC || !BUY_CONTRACT_ADDRESS || !TRANSAK_SECRET) {
+            console.error("Transak webhook is not configured. Missing BACKEND_PK, POLYGON_RPC, BUY_CONTRACT_ADDRESS, or TRANSAK_SECRET.");
+            return res.status(503).send("Webhook not configured");
+        }
+
         if (!validTransakSignature(req)) {
             console.log("❌ Invalid Transak signature");
             return res.status(401).send("Invalid signature");
@@ -108,6 +109,8 @@ app.post("/webhook/transak", async (req, res) => {
         // ---------------------------
         // CALL THE BUY CONTRACT
         // ---------------------------
+        const provider = new ethers.JsonRpcProvider(RPC);
+        const backendWallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
         const contract = new ethers.Contract(
             BUY_CONTRACT_ADDRESS,
@@ -139,6 +142,123 @@ app.post("/webhook/transak", async (req, res) => {
 });
 
 // ------------------ SERVE FRONTEND --------------------
+
+const fallbackNews = [
+  {
+    title: "Markets watch inflation, rates, and consumer strength for the next signal.",
+    source: "Autody market brief",
+    url: "#",
+    subject: "Economy"
+  },
+  {
+    title: "Crypto traders keep liquidity, wallet activity, and risk appetite in focus.",
+    source: "Autody market brief",
+    url: "#",
+    subject: "Crypto"
+  },
+  {
+    title: "Stocks react to earnings guidance, AI spending, and global demand.",
+    source: "Autody market brief",
+    url: "#",
+    subject: "Business"
+  }
+];
+
+function parseStooqCsv(csv) {
+  const lines = csv.trim().split(/\r?\n/);
+  const headers = lines.shift().split(",");
+  return lines.map((line) => {
+    const values = line.split(",");
+    const row = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+    const close = Number(row.Close);
+    const open = Number(row.Open);
+    const change = isFinite(close) && isFinite(open) && open > 0 ? ((close - open) / open) * 100 : null;
+    return {
+      symbol: row.Symbol,
+      name: row.Symbol?.replace(".US", "").replace(".us", "").toUpperCase(),
+      price: isFinite(close) ? close : null,
+      changePct: change,
+      date: row.Date,
+      time: row.Time
+    };
+  });
+}
+
+app.get("/api/markets/crypto", async (req, res) => {
+  try {
+    const ids = "bitcoin,ethereum,solana,polygon-ecosystem-token";
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
+    const json = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => {
+      if (!r.ok) throw new Error(`CoinGecko HTTP ${r.status}`);
+      return r.json();
+    });
+
+    const labels = {
+      bitcoin: "Bitcoin",
+      ethereum: "Ethereum",
+      solana: "Solana",
+      "polygon-ecosystem-token": "Polygon"
+    };
+
+    return res.json({
+      success: true,
+      assets: Object.entries(json).map(([id, data]) => ({
+        id,
+        name: labels[id] || id,
+        price: data.usd ?? null,
+        changePct: data.usd_24h_change ?? null,
+        marketCap: data.usd_market_cap ?? null
+      }))
+    });
+  } catch (err) {
+    console.error("Crypto market proxy error:", err);
+    return res.status(502).json({ success: false, error: "Failed to fetch crypto markets" });
+  }
+});
+
+app.get("/api/markets/stocks", async (req, res) => {
+  try {
+    const symbols = "spy.us,qqq.us,aapl.us,nvda.us,tsla.us";
+    const url = `https://stooq.com/q/l/?s=${symbols}&f=sd2t2ohlcv&h&e=csv`;
+    const text = await fetch(url, { headers: { Accept: "text/csv" } }).then((r) => {
+      if (!r.ok) throw new Error(`Stooq HTTP ${r.status}`);
+      return r.text();
+    });
+
+    return res.json({ success: true, assets: parseStooqCsv(text) });
+  } catch (err) {
+    console.error("Stock market proxy error:", err);
+    return res.status(502).json({ success: false, error: "Failed to fetch stock markets" });
+  }
+});
+
+app.get("/api/news", async (req, res) => {
+  try {
+    const query = encodeURIComponent("(finance OR markets OR stocks OR crypto OR economy OR business)");
+    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=ArtList&maxrecords=9&format=json&sort=HybridRel`;
+    const json = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => {
+      if (!r.ok) throw new Error(`GDELT HTTP ${r.status}`);
+      return r.json();
+    });
+
+    const articles = (json.articles || []).slice(0, 9).map((article) => ({
+      title: article.title,
+      source: article.domain || article.sourceCountry || "Market news",
+      url: article.url,
+      image: article.socialimage || null,
+      publishedAt: article.seendate || null,
+      subject: article.title?.toLowerCase().includes("crypto") ? "Crypto"
+        : article.title?.toLowerCase().includes("stock") ? "Stocks"
+        : article.title?.toLowerCase().includes("business") ? "Business"
+        : "Economy"
+    }));
+
+    return res.json({ success: true, articles: articles.length ? articles : fallbackNews });
+  } catch (err) {
+    console.error("News proxy error:", err);
+    return res.json({ success: true, articles: fallbackNews, fallback: true });
+  }
+});
 
 
 // Dexscreener proxy (avoids CORS issues)

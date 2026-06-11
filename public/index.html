@@ -3,215 +3,140 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autody | Multi-Asset Account</title>
+  <title>Autody | Markets, Wallets, and Finance Intelligence</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="site-header">
     <nav class="nav container" aria-label="Main navigation">
-      <a href="#" class="brand" aria-label="Autody home">
+      <a href="index.html" class="brand" aria-label="Autody home">
         <img src="Autody-Logo.png" alt="" class="brand-mark" />
         <span>Autody</span>
       </a>
       <div class="nav-links">
-        <a href="#market">Markets</a>
-        <a href="#account">Demo Account</a>
-        <a href="#token">AU Token</a>
+        <a href="#markets">Markets</a>
+        <a href="#subjects">Subjects</a>
         <a href="#news">News</a>
+        <a href="#why">Why Autody</a>
       </div>
       <div class="nav-actions">
-        <a href="demo-account.html" class="btn btn-ghost">Demo Account</a>
-        <a href="#" id="join-community-btn" class="btn">Join Waitlist</a>
+        <a href="demo-account.html" class="btn btn-ghost">Sign In</a>
+        <a href="demo-account.html" class="btn">Sign Up</a>
       </div>
     </nav>
   </header>
 
   <main>
-    <section class="hero">
+    <section class="hero intelligence-hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow">Autody financial account</p>
-          <h1>One account for AU, crypto, stocks, and market moves.</h1>
+          <p class="eyebrow">Markets in one account</p>
+          <h1>Follow money, news, and assets before you make a move.</h1>
           <p class="hero-text">
-            Autody is becoming a multi-purpose wallet and account experience where people can hold your token, track other assets, and follow finance news that actually helps them make sense of the market.
+            Autody brings crypto, stocks, business headlines, and economic signals into one account experience. The public homepage gives visitors a live taste of what the signed-in account will organize for them.
           </p>
           <div class="hero-actions">
-            <a href="demo-account.html" class="btn btn-large">View Demo Account</a>
-            <a href="#market" class="btn btn-large btn-ghost">Explore Markets</a>
+            <a href="demo-account.html" class="btn btn-large">Create Account</a>
+            <a href="demo-account.html" class="btn btn-large btn-ghost">Sign In</a>
           </div>
-          <div class="trust-row" aria-label="Supported asset types">
-            <span>AU Token</span>
+          <div class="trust-row" aria-label="Autody subjects">
             <span>Crypto</span>
             <span>Stocks</span>
-            <span>Market News</span>
+            <span>Economy</span>
+            <span>Business</span>
+            <span>Wallets</span>
           </div>
         </div>
 
-        <div class="hero-panel" aria-label="Autody account preview">
-          <div class="account-shell">
-            <div class="account-topbar">
+        <div class="hero-panel market-command" aria-label="Live market summary">
+          <div class="command-header">
+            <div>
+              <p class="muted-label">Live market pulse</p>
+              <strong id="market-status">Connecting</strong>
+            </div>
+            <span class="status-pill">Public preview</span>
+          </div>
+          <div class="pulse-grid" id="hero-market-grid">
+            <div class="pulse-card loading"><span>Crypto</span><strong>Loading</strong><small>Live feed</small></div>
+            <div class="pulse-card loading"><span>Stocks</span><strong>Loading</strong><small>Live feed</small></div>
+            <div class="pulse-card loading"><span>News</span><strong>Loading</strong><small>Live feed</small></div>
+            <div class="pulse-card loading"><span>Economy</span><strong>Watching</strong><small>Rates and data</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="market-strip" id="markets">
+      <div class="container">
+        <div class="section-heading compact">
+          <p class="eyebrow">Live markets</p>
+          <h2>Crypto and stocks, refreshed through Autody.</h2>
+          <p>These public cards show a small preview of the market intelligence Autody can turn into personalized watchlists, holdings, and alerts after sign in.</p>
+        </div>
+
+        <div class="live-grid">
+          <div class="live-panel">
+            <div class="card-heading">
               <div>
-                <p class="muted-label">Total balance</p>
-                <strong>$12,480.30</strong>
+                <span class="muted-label">Crypto</span>
+                <h3>Digital assets</h3>
               </div>
-              <span class="status-pill">Demo</span>
+              <span class="live-badge">Live</span>
             </div>
-            <div class="balance-row">
-              <span>Today</span>
-              <strong class="gain">+$328.14</strong>
+            <div class="market-list" id="crypto-market-list">
+              <div class="market-row skeleton"></div>
+              <div class="market-row skeleton"></div>
+              <div class="market-row skeleton"></div>
             </div>
-            <div class="mini-chart" aria-hidden="true">
-              <span style="height: 38%"></span>
-              <span style="height: 52%"></span>
-              <span style="height: 45%"></span>
-              <span style="height: 68%"></span>
-              <span style="height: 61%"></span>
-              <span style="height: 84%"></span>
-              <span style="height: 76%"></span>
+          </div>
+
+          <div class="live-panel">
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Stocks</span>
+                <h3>Equities and ETFs</h3>
+              </div>
+              <span class="live-badge">Live</span>
             </div>
-            <div class="asset-list">
-              <div class="asset-row">
-                <div><span class="asset-dot au"></span><strong>Autody</strong><small>AU token</small></div>
-                <span>$4,210.80</span>
-              </div>
-              <div class="asset-row">
-                <div><span class="asset-dot btc"></span><strong>Bitcoin</strong><small>BTC</small></div>
-                <span>$3,840.00</span>
-              </div>
-              <div class="asset-row">
-                <div><span class="asset-dot stk"></span><strong>Apple</strong><small>AAPL stock</small></div>
-                <span>$2,126.50</span>
-              </div>
+            <div class="market-list" id="stock-market-list">
+              <div class="market-row skeleton"></div>
+              <div class="market-row skeleton"></div>
+              <div class="market-row skeleton"></div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="market-strip" id="market">
-      <div class="container market-grid">
-        <div>
-          <p class="eyebrow">Market pulse</p>
-          <h2>Designed for people who watch money move.</h2>
-        </div>
-        <div class="ticker-card">
-          <span>S&P 500</span>
-          <strong>6,086.42</strong>
-          <small class="gain">+0.42%</small>
-        </div>
-        <div class="ticker-card">
-          <span>BTC</span>
-          <strong>$104,820</strong>
-          <small class="loss">-0.18%</small>
-        </div>
-        <div class="ticker-card">
-          <span>AU</span>
-          <strong id="kpi-price">Loading</strong>
-          <small>Live token data</small>
-        </div>
-      </div>
-    </section>
-
-    <section class="section account-section" id="account">
-      <div class="container split-layout">
-        <div>
-          <p class="eyebrow">Product direction</p>
-          <h2>Homepage first, then real account screens page by page.</h2>
-          <p>
-            The public homepage introduces the Autody account. The demo account page shows what a logged-in user interface can become before we connect sign up, sign in, wallets, orders, and live balances.
-          </p>
-          <div class="feature-list">
-            <div>
-              <strong>Multi-asset wallet</strong>
-              <span>Hold AU beside crypto, stocks, and future supported assets.</span>
-            </div>
-            <div>
-              <strong>Controlled token experience</strong>
-              <span>Present AU with your own context, utility, price data, and actions.</span>
-            </div>
-            <div>
-              <strong>Financial learning layer</strong>
-              <span>News, economic updates, and business stories built into the account.</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="dashboard-panel">
-          <div class="dashboard-header">
-            <div>
-              <span class="muted-label">Next page</span>
-              <strong>Logged-in demo account</strong>
-            </div>
-            <a href="demo-account.html" class="btn btn-small">Open Demo</a>
-          </div>
-          <div class="allocation">
-            <span class="allocation-au" style="width: 42%"></span>
-            <span class="allocation-crypto" style="width: 31%"></span>
-            <span class="allocation-stocks" style="width: 27%"></span>
-          </div>
-          <div class="allocation-key">
-            <span><i class="asset-dot au"></i> AU 42%</span>
-            <span><i class="asset-dot btc"></i> Crypto 31%</span>
-            <span><i class="asset-dot stk"></i> Stocks 27%</span>
-          </div>
-          <div class="actions-grid">
-            <a href="demo-account.html">Portfolio</a>
-            <a href="demo-account.html">Wallet</a>
-            <a href="demo-account.html">Orders</a>
-            <a href="demo-account.html">Research</a>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section token-section" id="token">
+    <section class="section subjects-section" id="subjects">
       <div class="container">
         <div class="section-heading">
-          <p class="eyebrow">AU token center</p>
-          <h2>Keep the token visible, but make the account bigger than the token.</h2>
-          <p>AU still has a dedicated market view, live chart area, liquidity data, and wallet actions. It now sits inside a broader finance product instead of carrying the whole website by itself.</p>
+          <p class="eyebrow">What Autody watches</p>
+          <h2>Intentional signals, not random market noise.</h2>
+          <p>Each subject can become a signed-in page later, with user-specific watchlists, saved articles, holdings, alerts, and AI-style summaries.</p>
         </div>
 
-        <div class="token-grid">
-          <div class="chart-container">
-            <iframe
-              id="geckoterminal-embed"
-              title="Autody price chart"
-              src="https://www.geckoterminal.com/polygon_pos/pools/0x30dA748C76D1c87b2893035b60fDc50a31439d8D?embed=1&info=0&swaps=0&grayscale=0&light_chart=0&chart_type=price&resolution=15m"
-              frameborder="0"
-              allow="clipboard-write"
-              allowfullscreen
-            ></iframe>
-          </div>
-
-          <div class="token-stats">
-            <div class="token-data">
-              <p><strong>Token Symbol:</strong> AU</p>
-              <p><strong>Chain:</strong> Polygon</p>
-              <p><strong>Contract:</strong> <span>0xa274...2c57</span></p>
-            </div>
-
-            <div class="gt-tabs" id="gt-tabs">
-              <button data-win="m5" class="gt-tab"><span>5M</span><div class="gt-pct" id="pct-m5">0%</div></button>
-              <button data-win="h1" class="gt-tab"><span>1H</span><div class="gt-pct" id="pct-h1">0%</div></button>
-              <button data-win="h6" class="gt-tab"><span>6H</span><div class="gt-pct" id="pct-h6">0%</div></button>
-              <button data-win="h24" class="gt-tab active"><span>24H</span><div class="gt-pct" id="pct-h24">0%</div></button>
-            </div>
-
-            <div class="gt-stats">
-              <div class="gt-card"><div class="gt-k" id="lbl-txn">24H Txn</div><div class="gt-v" id="tf-txn">-</div></div>
-              <div class="gt-card"><div class="gt-k" id="lbl-vol">24H Vol</div><div class="gt-v" id="tf-vol">-</div></div>
-              <div class="gt-card"><div class="gt-k">Buys</div><div class="gt-v" id="tf-buys">-</div></div>
-              <div class="gt-card"><div class="gt-k">Sells</div><div class="gt-v" id="tf-sells">-</div></div>
-              <div class="gt-card"><div class="gt-k">Liquidity</div><div class="gt-v" id="kpi-liq">-</div></div>
-              <div class="gt-card"><div class="gt-k">FDV</div><div class="gt-v" id="kpi-fdv">-</div></div>
-              <div class="gt-card"><div class="gt-k">Market Cap</div><div class="gt-v" id="kpi-mcap">-</div></div>
-              <div class="gt-card"><div class="gt-k">24h Vol</div><div class="gt-v" id="kpi-vol24">-</div></div>
-            </div>
-
-            <a href="#" id="open-buy-card-btn" class="btn btn-full">Buy AU</a>
-            <a href="https://app.uniswap.org/swap?inputCurrency=MATIC&outputCurrency=0xa2746a48211CD3cb0fC6356dEB10D79FeB792c57&chain=polygon" target="_blank" class="btn btn-full btn-ghost">Swap to AU</a>
-          </div>
+        <div class="subject-grid">
+          <article class="subject-card">
+            <span>01</span>
+            <h3>Crypto momentum</h3>
+            <p>Track major coins, liquidity, wallet activity, token movements, and risk appetite across the market.</p>
+          </article>
+          <article class="subject-card">
+            <span>02</span>
+            <h3>Stocks and companies</h3>
+            <p>Follow ETFs, large-cap stocks, earnings stories, AI spending, and business moves that shape portfolios.</p>
+          </article>
+          <article class="subject-card">
+            <span>03</span>
+            <h3>Economic pressure</h3>
+            <p>Watch rates, inflation, jobs, consumer strength, and policy shifts that can move both stocks and crypto.</p>
+          </article>
+          <article class="subject-card">
+            <span>04</span>
+            <h3>Wallet decisions</h3>
+            <p>Turn market information into account actions: deposit, swap, order, hold, research, or wait.</p>
+          </article>
         </div>
       </div>
     </section>
@@ -219,25 +144,41 @@
     <section class="section news-section" id="news">
       <div class="container">
         <div class="section-heading compact">
-          <p class="eyebrow">Finance and business</p>
-          <h2>News that gives the account a reason to come back.</h2>
+          <p class="eyebrow">Live finance news</p>
+          <h2>Interesting business and market stories, pulled into one feed.</h2>
         </div>
-        <div class="news-grid">
-          <article class="news-card">
-            <span>Economy</span>
-            <h3>Rate decisions, inflation, and jobs data shape weekly market confidence.</h3>
-            <p>Autody can surface economic explainers beside portfolio moves so users understand why assets are changing.</p>
-          </article>
-          <article class="news-card">
-            <span>Crypto</span>
-            <h3>Liquidity and wallet activity remain key signals for token holders.</h3>
-            <p>AU updates can sit next to wider crypto market context instead of feeling isolated.</p>
-          </article>
-          <article class="news-card">
-            <span>Business</span>
-            <h3>Company earnings, AI spending, and consumer demand keep moving stocks.</h3>
-            <p>The account can grow into a place where people follow stocks and business trends together.</p>
-          </article>
+        <div class="news-grid live-news-grid" id="news-feed">
+          <article class="news-card"><span>Loading</span><h3>Fetching finance news...</h3><p>Autody is connecting to the live news feed.</p></article>
+          <article class="news-card"><span>Loading</span><h3>Fetching market stories...</h3><p>Crypto, economy, stocks, and business updates will appear here.</p></article>
+          <article class="news-card"><span>Loading</span><h3>Preparing summaries...</h3><p>This is the kind of feed users can personalize after sign in.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section why-section" id="why">
+      <div class="container split-layout">
+        <div>
+          <p class="eyebrow">Why this direction works</p>
+          <h2>The token becomes part of a useful account, not the whole story.</h2>
+          <p>
+            Visitors first see a serious finance product. After sign up, the account can introduce AU, wallet actions, balances, orders, rewards, and token controls in the right place.
+          </p>
+        </div>
+        <div class="dashboard-panel">
+          <div class="feature-list compact-list">
+            <div>
+              <strong>Public homepage</strong>
+              <span>Live markets, news, subjects, and a clear reason to create an account.</span>
+            </div>
+            <div>
+              <strong>Signed-in account</strong>
+              <span>Portfolio, AU token, wallets, stocks, orders, and personalized market intelligence.</span>
+            </div>
+            <div>
+              <strong>Next functionality</strong>
+              <span>Real auth, saved watchlists, live holdings, and account-specific pages.</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -247,99 +188,12 @@
     <div class="container footer-grid">
       <div>
         <strong>Autody</strong>
-        <p>Multi-asset wallet and account experience for AU, crypto, stocks, and market intelligence.</p>
+        <p>Markets, wallet accounts, and finance intelligence for crypto, stocks, and business.</p>
       </div>
       <p>&copy; 2026 Autody. All rights reserved.</p>
     </div>
   </footer>
 
-  <div id="buy-card-popup" class="popup-overlay">
-    <div class="popup-content">
-      <span id="close-popup" class="close-btn">&times;</span>
-
-      <div id="buy-step">
-        <div class="buy-card">
-          <h2>Buy Autody with USD</h2>
-          <p>Use your debit card, credit card, or bank transfer to get AU.</p>
-
-          <div class="form-group">
-            <label for="usdAmount">USD</label>
-            <input type="number" id="usdAmount" placeholder="Enter USD">
-          </div>
-
-          <div class="form-group">
-            <label for="tokenAmount">AU</label>
-            <input type="text" id="tokenAmount" readonly>
-          </div>
-
-          <button id="open-wallets" class="wallet-btn">Connect Wallet</button>
-          <button class="buy-btn" id="buy-autody-btn">Buy Now</button>
-
-          <p class="secure">
-            Secure payment powered by Transak.<br>
-            Autody does not store your card or wallet details.
-          </p>
-          <p id="walletAddressDisplay"></p>
-        </div>
-      </div>
-
-      <div id="wallet-step" style="display:none;">
-        <h2 class="wallet-title">Connect your wallet</h2>
-        <p class="wallet-sub">To continue, connect with one of our available wallet providers.</p>
-
-        <div class="wallet-list">
-          <button class="wallet-option" data-wallet="metamask">
-            <img src="assets/icons/metamask.svg" alt="MetaMask" />
-            MetaMask
-          </button>
-          <button class="wallet-option" data-wallet="walletconnect">
-            <img src="assets/icons/walletconnect.svg" alt="WalletConnect" />
-            WalletConnect
-          </button>
-          <button class="wallet-option" data-wallet="coinbase">
-            <img src="assets/icons/coinbase.svg" alt="Coinbase" />
-            Coinbase Wallet
-          </button>
-          <button class="wallet-option" data-wallet="blockchain">
-            <img src="assets/icons/blockchain.svg" alt="Blockchain" />
-            Blockchain Wallet
-          </button>
-          <button class="wallet-option" data-wallet="trust">
-            <img src="assets/icons/trustwallet.svg" alt="Trust Wallet" />
-            Trust Wallet
-          </button>
-          <button class="wallet-option" data-wallet="ledger">
-            <img src="assets/icons/ledger.svg" alt="Ledger" />
-            Ledger
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="join-popup" class="popup-overlay">
-    <div class="popup-content">
-      <span id="join-close" class="close-btn">&times;</span>
-      <div class="buy-card">
-        <h2>Join the Autody Waitlist</h2>
-        <p>Get product updates, demo access, AU updates, and market notes.</p>
-
-        <form id="join-form" novalidate>
-          <div class="form-group">
-            <label for="join-email">Email</label>
-            <input type="email" id="join-email" placeholder="you@example.com" required />
-          </div>
-
-          <button type="submit" class="buy-btn" id="join-submit">Join</button>
-          <p id="join-msg" class="secure" style="display:none;"></p>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <script type="module" src="walletconnect-shim.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
-  <script src="https://unpkg.com/@uniswap/v4-sdk@latest/dist/uniswap-v4-sdk.umd.js"></script>
-  <script src="main.js"></script>
+  <script src="home.js"></script>
 </body>
 </html>
