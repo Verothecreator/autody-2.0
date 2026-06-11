@@ -30,6 +30,15 @@ function changeClass(value) {
   return number > 0 ? "gain" : "loss";
 }
 
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function getJson(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url} returned ${response.status}`);
@@ -95,18 +104,34 @@ function renderNews(articles) {
   const target = document.getElementById("news-feed");
   if (!target) return;
 
-  target.innerHTML = articles.slice(0, 6).map((article) => `
+  target.innerHTML = articles.slice(0, 6).map((article, index) => `
     <article class="news-card ${article.image ? "has-image" : ""}">
-      ${article.image ? `<img src="${article.image}" alt="" loading="lazy">` : ""}
+      ${article.image ? `<img src="${escapeHtml(article.image)}" alt="" loading="lazy">` : ""}
       <div>
-        <span>${article.subject || "Markets"}</span>
-        <h3>${article.title || "Market story"}</h3>
-        <p>${article.source || "Finance news"}</p>
-        ${article.url && article.url !== "#" ? `<a href="${article.url}" target="_blank" rel="noopener">Read story</a>` : ""}
+        <span>${escapeHtml(article.subject || "Markets")}</span>
+        <h3>${escapeHtml(article.title || "Market story")}</h3>
+        <p>Source: ${escapeHtml(article.source || "Finance news")}</p>
+        <p class="news-summary" id="news-summary-${index}" hidden>${escapeHtml(article.summary || "Open the source for the full report and market context.")}</p>
+        <div class="news-actions">
+          <button type="button" class="news-more" data-summary="news-summary-${index}">Read more</button>
+          ${article.url && article.url !== "#" ? `<a href="${escapeHtml(article.url)}" target="_blank" rel="noopener">Open source</a>` : ""}
+        </div>
       </div>
     </article>
   `).join("");
 }
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest(".news-more");
+  if (!button) return;
+
+  const summary = document.getElementById(button.dataset.summary);
+  if (!summary) return;
+
+  const isHidden = summary.hasAttribute("hidden");
+  summary.toggleAttribute("hidden", !isHidden);
+  button.textContent = isHidden ? "Show less" : "Read more";
+});
 
 async function loadHomeData() {
   const status = document.getElementById("market-status");

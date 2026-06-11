@@ -156,6 +156,7 @@ const fallbackNews = [
     source: "Autody market brief",
     url: "#",
     subject: "Economy",
+    summary: "A quick economy brief focused on the market signals that can affect stocks, crypto, and consumer confidence.",
     image: "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=900&q=80"
   },
   {
@@ -163,6 +164,7 @@ const fallbackNews = [
     source: "Autody market brief",
     url: "#",
     subject: "Crypto",
+    summary: "A quick crypto brief focused on the conditions that can affect digital assets and wallet decisions.",
     image: "https://images.unsplash.com/photo-1640340434855-6084b1f4901c?auto=format&fit=crop&w=900&q=80"
   },
   {
@@ -170,6 +172,7 @@ const fallbackNews = [
     source: "Autody market brief",
     url: "#",
     subject: "Business",
+    summary: "A quick business brief focused on company news and market pressure that can shape account decisions.",
     image: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=900&q=80"
   }
 ];
@@ -234,7 +237,7 @@ function parseRss(xml, fallbackSubject) {
   const items = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
   return items.map((item) => {
     const title = pickTag(item, "title");
-    const description = pickTag(item, "description");
+    const description = pickTag(item, "description").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     const imageFromMedia = (item.match(/<media:content[^>]*>/i) || item.match(/<media:thumbnail[^>]*>/i) || [""])[0];
     const imageFromEnclosure = (item.match(/<enclosure[^>]*>/i) || [""])[0];
     const imageFromDescription = description.match(/<img[^>]+src=["']([^"']+)["']/i);
@@ -245,6 +248,7 @@ function parseRss(xml, fallbackSubject) {
       source: pickTag(item, "source") || new URL(rawLink || "https://news.google.com").hostname.replace("www.", ""),
       url: rawLink,
       image: pickAttr(imageFromMedia, "url") || pickAttr(imageFromEnclosure, "url") || decodeXml(imageFromDescription?.[1] || ""),
+      summary: description || "Open the source for the full story and market context.",
       publishedAt: pickTag(item, "pubDate") || pickTag(item, "dc:date") || null,
       subject: inferNewsSubject(title, fallbackSubject)
     };
@@ -268,6 +272,23 @@ function scoreNews(article) {
   if (article.image) score += 2;
   if (article.publishedAt) score += 1;
   return score;
+}
+
+function subjectImage(subject = "Markets") {
+  const key = subject.toLowerCase();
+  if (key.includes("crypto")) return "https://images.unsplash.com/photo-1640340434855-6084b1f4901c?auto=format&fit=crop&w=900&q=80";
+  if (key.includes("stock")) return "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=900&q=80";
+  if (key.includes("business")) return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=80";
+  if (key.includes("economy")) return "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=900&q=80";
+  return "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=900&q=80";
+}
+
+function ensureArticleImage(article) {
+  return {
+    ...article,
+    image: article.image || subjectImage(article.subject),
+    summary: article.summary || "Open the source for the full story and market context."
+  };
 }
 
 function uniqueArticles(articles) {
@@ -389,6 +410,7 @@ app.get("/api/news", async (req, res) => {
       source: article.domain || article.sourceCountry || "Market news",
       url: article.url,
       image: article.socialimage || null,
+      summary: article.title ? `Important ${inferNewsSubject(article.title, "market").toLowerCase()} story from ${article.domain || "a market news source"}. Open the original source for the full report.` : "Open the source for the full story and market context.",
       publishedAt: article.seendate || null,
       subject: inferNewsSubject(article.title, "Markets")
     })));
@@ -410,16 +432,17 @@ app.get("/api/news", async (req, res) => {
 
     const importantArticles = uniqueArticles(articles)
       .sort((a, b) => scoreNews(b) - scoreNews(a))
-      .slice(0, 9);
+      .slice(0, 9)
+      .map(ensureArticleImage);
 
     return res.json({
       success: true,
-      articles: importantArticles.length ? importantArticles : fallbackNews,
+      articles: importantArticles.length ? importantArticles : fallbackNews.map(ensureArticleImage),
       fallback: importantArticles.length === 0
     });
   } catch (err) {
     console.error("News proxy error:", err);
-    return res.json({ success: true, articles: fallbackNews, fallback: true });
+    return res.json({ success: true, articles: fallbackNews.map(ensureArticleImage), fallback: true });
   }
 });
 
