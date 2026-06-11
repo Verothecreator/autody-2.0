@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Demo Account</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="#overview" class="active">Overview</a>
+        <a href="#wallet">Wallet</a>
+        <a href="#orders">Orders</a>
+        <a href="#research">Research</a>
+        <a href="#settings">Settings</a>
+      </nav>
+      <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Demo account</p>
+          <h1>Welcome back, Vero.</h1>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="icon-btn">?</button>
+          <button type="button" class="btn btn-ghost">Sign In Later</button>
+          <button type="button" class="btn">Connect Wallet</button>
+        </div>
+      </header>
+
+      <section class="account-overview" id="overview">
+        <div class="balance-card">
+          <span class="muted-label">Total demo balance</span>
+          <strong>$24,918.72</strong>
+          <p><span class="gain">+$842.19</span> across the last 24 hours</p>
+          <div class="account-line-chart" aria-hidden="true">
+            <span style="height: 36%"></span>
+            <span style="height: 54%"></span>
+            <span style="height: 48%"></span>
+            <span style="height: 70%"></span>
+            <span style="height: 66%"></span>
+            <span style="height: 82%"></span>
+            <span style="height: 76%"></span>
+            <span style="height: 91%"></span>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <button type="button">Deposit</button>
+          <button type="button">Swap</button>
+          <button type="button">Buy AU</button>
+          <button type="button">Place Order</button>
+        </div>
+      </section>
+
+      <section class="account-grid">
+        <div class="app-card holdings-card" id="wallet">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Holdings</span>
+              <h2>Assets</h2>
+            </div>
+            <button type="button" class="btn btn-small btn-ghost">Manage</button>
+          </div>
+          <div class="asset-table">
+            <div class="asset-table-row head">
+              <span>Asset</span>
+              <span>Balance</span>
+              <span>Value</span>
+              <span>24h</span>
+            </div>
+            <div class="asset-table-row">
+              <span><i class="asset-dot au"></i> Autody AU</span>
+              <span>88,400 AU</span>
+              <span>$8,420.80</span>
+              <span class="gain">+4.8%</span>
+            </div>
+            <div class="asset-table-row">
+              <span><i class="asset-dot btc"></i> Bitcoin</span>
+              <span>0.083 BTC</span>
+              <span>$8,704.20</span>
+              <span class="loss">-0.6%</span>
+            </div>
+            <div class="asset-table-row">
+              <span><i class="asset-dot stk"></i> Apple</span>
+              <span>18 shares</span>
+              <span>$3,624.12</span>
+              <span class="gain">+1.2%</span>
+            </div>
+            <div class="asset-table-row">
+              <span><i class="asset-dot cash"></i> USD Cash</span>
+              <span>$4,169.60</span>
+              <span>$4,169.60</span>
+              <span>0.0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="app-card watchlist-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Watchlist</span>
+              <h2>Markets</h2>
+            </div>
+          </div>
+          <div class="watchlist">
+            <div><span>ETH</span><strong>$3,980.12</strong><small class="gain">+2.1%</small></div>
+            <div><span>NVDA</span><strong>$141.36</strong><small class="loss">-0.4%</small></div>
+            <div><span>TSLA</span><strong>$184.29</strong><small class="gain">+0.9%</small></div>
+            <div><span>MATIC</span><strong>$0.72</strong><small class="gain">+1.8%</small></div>
+          </div>
+        </div>
+
+        <div class="app-card orders-card" id="orders">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Recent activity</span>
+              <h2>Orders</h2>
+            </div>
+            <button type="button" class="btn btn-small">New Order</button>
+          </div>
+          <div class="activity-list">
+            <div><span>Buy</span><strong>AU token</strong><small>Pending wallet confirmation</small></div>
+            <div><span>Swap</span><strong>MATIC to USDT</strong><small>Completed 18 minutes ago</small></div>
+            <div><span>Stock</span><strong>AAPL market order</strong><small>Filled today</small></div>
+          </div>
+        </div>
+
+        <div class="app-card research-card" id="research">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Finance feed</span>
+              <h2>Research</h2>
+            </div>
+          </div>
+          <div class="research-list">
+            <article>
+              <span>Economy</span>
+              <h3>Inflation data and rate expectations are driving risk appetite.</h3>
+            </article>
+            <article>
+              <span>Crypto</span>
+              <h3>Liquidity, active wallets, and exchange flows stay important for token moves.</h3>
+            </article>
+            <article>
+              <span>Stocks</span>
+              <h3>AI spending and earnings guidance are shaping large-cap momentum.</h3>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

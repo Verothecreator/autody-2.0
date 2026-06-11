@@ -13,7 +13,7 @@ window.addEventListener("load", () => {
   console.log("📜 Loaded script tags:", scripts);
 
   if (!window.Transak && !window.transakSDK && !window.TransakSDK) {
-    console.error("❌ TRANSAK SCRIPT NOT LOADED INTO BROWSER");
+    console.warn("Transak SDK globals not found; buy flow will use the hosted Transak URL fallback.");
   } else {
     console.log("✅ TRANSAK SDK FOUND");
   }
@@ -1167,3 +1167,4 @@ function wireEnhancedTabs(){
 
 // boot enhanced tabs
 document.addEventListener("DOMContentLoaded", wireEnhancedTabs);
+
