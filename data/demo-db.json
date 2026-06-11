@@ -1,0 +1,64 @@
+{
+  "users": [
+    {
+      "id": "practice-user",
+      "name": "Vero Demo",
+      "email": "practice@autody.local",
+      "mode": "paper",
+      "currency": "USD",
+      "startingBalance": 50000,
+      "cashBalance": 50000,
+      "reservedCash": 0,
+      "createdAt": "2026-06-11T00:00:00.000Z"
+    }
+  ],
+  "wallets": {
+    "practice-user": {
+      "cash": {
+        "symbol": "USD",
+        "name": "USD Cash",
+        "balance": 50000,
+        "valueUsd": 50000,
+        "status": "Available"
+      },
+      "holdings": [
+        {
+          "symbol": "AU",
+          "name": "Autody AU",
+          "category": "currency",
+          "balance": 0,
+          "valueUsd": 0,
+          "status": "Not held"
+        },
+        {
+          "symbol": "CRYPTO",
+          "name": "Crypto",
+          "category": "crypto",
+          "balance": 0,
+          "valueUsd": 0,
+          "status": "Ready"
+        },
+        {
+          "symbol": "STOCKS",
+          "name": "Stocks",
+          "category": "stocks",
+          "balance": 0,
+          "valueUsd": 0,
+          "status": "Ready"
+        }
+      ]
+    }
+  },
+  "orders": {
+    "practice-user": []
+  },
+  "watchlists": {
+    "practice-user": {
+      "crypto": ["BTC", "ETH", "SOL", "DOGE", "ADA", "AU"],
+      "stocks": ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
+    }
+  },
+  "researchPreferences": {
+    "practice-user": ["Crypto", "Stocks", "Gold", "Rates", "Inflation", "AU utility"]
+  }
+}

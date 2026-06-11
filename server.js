@@ -33,11 +33,85 @@ const TRANSAK_SECRET = process.env.TRANSAK_SECRET;
 const ORDER_STORE = path.join(__dirname, "orders.json");
 if (!fs.existsSync(ORDER_STORE)) fs.writeFileSync(ORDER_STORE, "{}");
 
+const DEMO_DB_STORE = path.join(__dirname, "data", "demo-db.json");
+const PRACTICE_USER_ID = "practice-user";
+
 function loadOrders() {
     return JSON.parse(fs.readFileSync(ORDER_STORE));
 }
 function saveOrders(data) {
     fs.writeFileSync(ORDER_STORE, JSON.stringify(data, null, 2));
+}
+
+const defaultDemoDb = {
+    users: [
+        {
+            id: PRACTICE_USER_ID,
+            name: "Vero Demo",
+            email: "practice@autody.local",
+            mode: "paper",
+            currency: "USD",
+            startingBalance: 50000,
+            cashBalance: 50000,
+            reservedCash: 0,
+            createdAt: "2026-06-11T00:00:00.000Z"
+        }
+    ],
+    wallets: {
+        [PRACTICE_USER_ID]: {
+            cash: {
+                symbol: "USD",
+                name: "USD Cash",
+                balance: 50000,
+                valueUsd: 50000,
+                status: "Available"
+            },
+            holdings: [
+                { symbol: "AU", name: "Autody AU", category: "currency", balance: 0, valueUsd: 0, status: "Not held" },
+                { symbol: "CRYPTO", name: "Crypto", category: "crypto", balance: 0, valueUsd: 0, status: "Ready" },
+                { symbol: "STOCKS", name: "Stocks", category: "stocks", balance: 0, valueUsd: 0, status: "Ready" }
+            ]
+        }
+    },
+    orders: {
+        [PRACTICE_USER_ID]: []
+    },
+    watchlists: {
+        [PRACTICE_USER_ID]: {
+            crypto: ["BTC", "ETH", "SOL", "DOGE", "ADA", "AU"],
+            stocks: ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
+        }
+    },
+    researchPreferences: {
+        [PRACTICE_USER_ID]: ["Crypto", "Stocks", "Gold", "Rates", "Inflation", "AU utility"]
+    }
+};
+
+function ensureDemoDb() {
+    const dir = path.dirname(DEMO_DB_STORE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(DEMO_DB_STORE)) {
+        fs.writeFileSync(DEMO_DB_STORE, JSON.stringify(defaultDemoDb, null, 2));
+    }
+}
+
+function loadDemoDb() {
+    ensureDemoDb();
+    return JSON.parse(fs.readFileSync(DEMO_DB_STORE, "utf8"));
+}
+
+function getPracticeAccount() {
+    const db = loadDemoDb();
+    const user = db.users.find((item) => item.id === PRACTICE_USER_ID);
+    if (!user) throw new Error("Practice user missing from demo database");
+
+    return {
+        user,
+        wallet: db.wallets[PRACTICE_USER_ID],
+        orders: db.orders[PRACTICE_USER_ID] || [],
+        watchlist: db.watchlists[PRACTICE_USER_ID],
+        researchPreferences: db.researchPreferences[PRACTICE_USER_ID] || []
+    };
 }
 
 // ------------------ EXPRESS --------------------
@@ -572,6 +646,76 @@ app.get("/api/news", async (req, res) => {
   } catch (err) {
     console.error("News proxy error:", err);
     return res.json({ success: true, articles: fallbackNews.map(ensureArticleImage), fallback: true });
+  }
+});
+
+app.get("/api/demo/practice-user", (req, res) => {
+  try {
+    const account = getPracticeAccount();
+    return res.json({
+      success: true,
+      user: account.user,
+      wallet: account.wallet,
+      orders: account.orders,
+      watchlist: account.watchlist,
+      researchPreferences: account.researchPreferences
+    });
+  } catch (err) {
+    console.error("Practice user API error:", err);
+    return res.status(500).json({ success: false, error: "Practice account unavailable" });
+  }
+});
+
+app.get("/api/demo/wallet", (req, res) => {
+  try {
+    const account = getPracticeAccount();
+    const cash = account.wallet.cash;
+    const holdings = [cash, ...account.wallet.holdings];
+    const totalValue = holdings.reduce((sum, asset) => sum + Number(asset.valueUsd || 0), 0);
+
+    return res.json({
+      success: true,
+      user: account.user,
+      wallet: {
+        currency: account.user.currency,
+        startingBalance: account.user.startingBalance,
+        cashBalance: account.user.cashBalance,
+        reservedCash: account.user.reservedCash,
+        totalValue,
+        holdings
+      }
+    });
+  } catch (err) {
+    console.error("Demo wallet API error:", err);
+    return res.status(500).json({ success: false, error: "Demo wallet unavailable" });
+  }
+});
+
+app.get("/api/demo/orders", (req, res) => {
+  try {
+    const account = getPracticeAccount();
+    return res.json({
+      success: true,
+      user: account.user,
+      orders: account.orders
+    });
+  } catch (err) {
+    console.error("Demo orders API error:", err);
+    return res.status(500).json({ success: false, error: "Demo orders unavailable" });
+  }
+});
+
+app.get("/api/demo/watchlist", (req, res) => {
+  try {
+    const account = getPracticeAccount();
+    return res.json({
+      success: true,
+      user: account.user,
+      watchlist: account.watchlist
+    });
+  } catch (err) {
+    console.error("Demo watchlist API error:", err);
+    return res.status(500).json({ success: false, error: "Demo watchlist unavailable" });
   }
 });
 

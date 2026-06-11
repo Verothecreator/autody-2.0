@@ -14,15 +14,15 @@
         <span>Autody</span>
       </a>
       <nav class="app-nav" aria-label="Account navigation">
-        <a href="demo-account.html">Overview</a>
         <a href="demo-wallet.html" class="active">Wallet</a>
         <a href="demo-markets.html">Markets</a>
         <a href="demo-orders.html">Orders</a>
+        <a href="demo-account.html">Overview</a>
         <a href="demo-research.html">Research</a>
       </nav>
       <div class="sidebar-profile">
         <span>Demo mode</span>
-        <strong>$50,000 paper USD</strong>
+        <strong id="sidebar-balance">$50,000 paper USD</strong>
       </div>
       <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
     </aside>
@@ -36,24 +36,24 @@
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Paper funds</span>
-          <strong>$50,000 USD</strong>
+          <strong id="topbar-balance">$50,000 USD</strong>
         </div>
       </header>
 
       <section class="account-kpi-grid">
         <div class="app-card mini-metric">
           <span class="muted-label">Available cash</span>
-          <strong>$50,000</strong>
+          <strong id="wallet-cash">$50,000</strong>
           <small>Ready for demo orders</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">AU balance</span>
-          <strong>0 AU</strong>
+          <strong id="wallet-au">0 AU</strong>
           <small>Add after practice swaps</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Reserved</span>
-          <strong>$0.00</strong>
+          <strong id="wallet-reserved">$0.00</strong>
           <small>No open orders yet</small>
         </div>
       </section>
@@ -66,7 +66,7 @@
               <h2>Demo holdings</h2>
             </div>
           </div>
-          <div class="asset-table">
+          <div class="asset-table" id="wallet-holdings">
             <div class="asset-table-row head">
               <span>Asset</span>
               <span>Balance</span>
@@ -117,5 +117,6 @@
       </section>
     </main>
   </div>
+  <script src="demo-wallet.js"></script>
 </body>
 </html>
