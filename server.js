@@ -164,6 +164,21 @@ const fallbackNews = [
   }
 ];
 
+const fallbackCryptoMarkets = [
+  { id: "bitcoin", name: "Bitcoin", symbol: "BTC", price: 104820, changePct: 1.24, marketCap: 2080000000000 },
+  { id: "ethereum", name: "Ethereum", symbol: "ETH", price: 3980, changePct: 0.82, marketCap: 478000000000 },
+  { id: "solana", name: "Solana", symbol: "SOL", price: 164.28, changePct: -0.36, marketCap: 78000000000 },
+  { id: "polygon-ecosystem-token", name: "Polygon", symbol: "POL", price: 0.72, changePct: 1.18, marketCap: 6200000000 }
+];
+
+const fallbackStockMarkets = [
+  { symbol: "SPY.US", name: "SPY", price: 608.42, changePct: 0.42, date: null, time: null },
+  { symbol: "QQQ.US", name: "QQQ", price: 526.18, changePct: 0.58, date: null, time: null },
+  { symbol: "AAPL.US", name: "AAPL", price: 201.34, changePct: 1.12, date: null, time: null },
+  { symbol: "NVDA.US", name: "NVDA", price: 141.36, changePct: -0.4, date: null, time: null },
+  { symbol: "TSLA.US", name: "TSLA", price: 184.29, changePct: 0.9, date: null, time: null }
+];
+
 function parseStooqCsv(csv) {
   const lines = csv.trim().split(/\r?\n/);
   const headers = lines.shift().split(",");
@@ -188,7 +203,12 @@ app.get("/api/markets/crypto", async (req, res) => {
   try {
     const ids = "bitcoin,ethereum,solana,polygon-ecosystem-token";
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
-    const json = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => {
+    const json = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Autody/1.0 market preview"
+      }
+    }).then((r) => {
       if (!r.ok) throw new Error(`CoinGecko HTTP ${r.status}`);
       return r.json();
     });
@@ -212,7 +232,12 @@ app.get("/api/markets/crypto", async (req, res) => {
     });
   } catch (err) {
     console.error("Crypto market proxy error:", err);
-    return res.status(502).json({ success: false, error: "Failed to fetch crypto markets" });
+    return res.json({
+      success: true,
+      fallback: true,
+      error: "Live crypto provider unavailable",
+      assets: fallbackCryptoMarkets
+    });
   }
 });
 
@@ -220,15 +245,26 @@ app.get("/api/markets/stocks", async (req, res) => {
   try {
     const symbols = "spy.us,qqq.us,aapl.us,nvda.us,tsla.us";
     const url = `https://stooq.com/q/l/?s=${symbols}&f=sd2t2ohlcv&h&e=csv`;
-    const text = await fetch(url, { headers: { Accept: "text/csv" } }).then((r) => {
+    const text = await fetch(url, {
+      headers: {
+        Accept: "text/csv",
+        "User-Agent": "Autody/1.0 market preview"
+      }
+    }).then((r) => {
       if (!r.ok) throw new Error(`Stooq HTTP ${r.status}`);
       return r.text();
     });
 
-    return res.json({ success: true, assets: parseStooqCsv(text) });
+    const assets = parseStooqCsv(text).filter((asset) => asset.price != null);
+    return res.json({ success: true, assets: assets.length ? assets : fallbackStockMarkets });
   } catch (err) {
     console.error("Stock market proxy error:", err);
-    return res.status(502).json({ success: false, error: "Failed to fetch stock markets" });
+    return res.json({
+      success: true,
+      fallback: true,
+      error: "Live stock provider unavailable",
+      assets: fallbackStockMarkets
+    });
   }
 });
 

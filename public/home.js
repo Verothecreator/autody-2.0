@@ -108,25 +108,31 @@ function renderNews(articles) {
 async function loadHomeData() {
   const status = document.getElementById("market-status");
 
-  try {
-    const [crypto, stocks, news] = await Promise.all([
-      getJson("/api/markets/crypto"),
-      getJson("/api/markets/stocks"),
-      getJson("/api/news")
-    ]);
+  const [cryptoResult, stocksResult, newsResult] = await Promise.allSettled([
+    getJson("/api/markets/crypto"),
+    getJson("/api/markets/stocks"),
+    getJson("/api/news")
+  ]);
 
-    const cryptoAssets = crypto.assets || [];
-    const stockAssets = stocks.assets || [];
-    const articles = news.articles || [];
+  const crypto = cryptoResult.status === "fulfilled" ? cryptoResult.value : { assets: [] };
+  const stocks = stocksResult.status === "fulfilled" ? stocksResult.value : { assets: [] };
+  const news = newsResult.status === "fulfilled" ? newsResult.value : { articles: [] };
 
-    renderMarketList("crypto-market-list", cryptoAssets, { compact: true });
-    renderMarketList("stock-market-list", stockAssets);
-    renderNews(articles);
-    renderHeroPulse(cryptoAssets, stockAssets, articles.length);
-  } catch (error) {
-    console.warn("Live homepage data failed:", error);
-    if (status) status.textContent = "Live feed retrying";
-  }
+  const cryptoAssets = crypto.assets || [];
+  const stockAssets = stocks.assets || [];
+  const articles = news.articles || [];
+
+  if (cryptoResult.status === "rejected") console.warn("Crypto market data failed:", cryptoResult.reason);
+  if (stocksResult.status === "rejected") console.warn("Stock market data failed:", stocksResult.reason);
+  if (newsResult.status === "rejected") console.warn("News data failed:", newsResult.reason);
+
+  renderMarketList("crypto-market-list", cryptoAssets, { compact: true });
+  renderMarketList("stock-market-list", stockAssets);
+  renderNews(articles);
+  renderHeroPulse(cryptoAssets, stockAssets, articles.length);
+
+  const usingFallback = crypto.fallback || stocks.fallback || news.fallback;
+  if (status) status.textContent = usingFallback ? "Market preview active" : "Live data active";
 }
 
 document.addEventListener("DOMContentLoaded", () => {
