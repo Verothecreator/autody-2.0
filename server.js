@@ -45,6 +45,13 @@ function saveOrders(data) {
 // Transak requires raw body for signature hashing
 app.use(bodyParser.raw({ type: "*/*" }));
 
+app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  next();
+});
+
 // ----------------------
 // VERIFY TRANSAK SIGNATURE
 // ----------------------
@@ -148,19 +155,22 @@ const fallbackNews = [
     title: "Markets watch inflation, rates, and consumer strength for the next signal.",
     source: "Autody market brief",
     url: "#",
-    subject: "Economy"
+    subject: "Economy",
+    image: "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=900&q=80"
   },
   {
     title: "Crypto traders keep liquidity, wallet activity, and risk appetite in focus.",
     source: "Autody market brief",
     url: "#",
-    subject: "Crypto"
+    subject: "Crypto",
+    image: "https://images.unsplash.com/photo-1640340434855-6084b1f4901c?auto=format&fit=crop&w=900&q=80"
   },
   {
     title: "Stocks react to earnings guidance, AI spending, and global demand.",
     source: "Autody market brief",
     url: "#",
-    subject: "Business"
+    subject: "Business",
+    image: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=900&q=80"
   }
 ];
 
@@ -196,6 +206,77 @@ function parseStooqCsv(csv) {
       date: row.Date,
       time: row.Time
     };
+  });
+}
+
+function decodeXml(value = "") {
+  return String(value)
+    .replace(/<!\[CDATA\[|\]\]>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
+}
+
+function pickTag(xml, tag) {
+  const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match ? decodeXml(match[1]) : "";
+}
+
+function pickAttr(xml, attr) {
+  const match = xml.match(new RegExp(`${attr}=["']([^"']+)["']`, "i"));
+  return match ? decodeXml(match[1]) : "";
+}
+
+function parseRss(xml, fallbackSubject) {
+  const items = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+  return items.map((item) => {
+    const title = pickTag(item, "title");
+    const description = pickTag(item, "description");
+    const imageFromMedia = (item.match(/<media:content[^>]*>/i) || item.match(/<media:thumbnail[^>]*>/i) || [""])[0];
+    const imageFromEnclosure = (item.match(/<enclosure[^>]*>/i) || [""])[0];
+    const imageFromDescription = description.match(/<img[^>]+src=["']([^"']+)["']/i);
+    const rawLink = pickTag(item, "link");
+
+    return {
+      title,
+      source: pickTag(item, "source") || new URL(rawLink || "https://news.google.com").hostname.replace("www.", ""),
+      url: rawLink,
+      image: pickAttr(imageFromMedia, "url") || pickAttr(imageFromEnclosure, "url") || decodeXml(imageFromDescription?.[1] || ""),
+      publishedAt: pickTag(item, "pubDate") || pickTag(item, "dc:date") || null,
+      subject: inferNewsSubject(title, fallbackSubject)
+    };
+  }).filter((article) => article.title && article.url);
+}
+
+function inferNewsSubject(title = "", fallback = "Markets") {
+  const text = title.toLowerCase();
+  if (/(bitcoin|crypto|ethereum|token|blockchain|stablecoin|coinbase|binance)/.test(text)) return "Crypto";
+  if (/(stock|shares|nasdaq|s&p|dow|earnings|nvidia|apple|tesla|market)/.test(text)) return "Stocks";
+  if (/(inflation|fed|rates|jobs|economy|tariff|gdp|dollar|treasury)/.test(text)) return "Economy";
+  if (/(company|business|ceo|startup|profit|revenue|deal|merger)/.test(text)) return "Business";
+  return fallback;
+}
+
+function scoreNews(article) {
+  const text = `${article.title || ""} ${article.source || ""}`.toLowerCase();
+  let score = 0;
+  if (/(breaking|urgent|fed|inflation|rates|jobs|earnings|bitcoin|crypto|stock|market|tariff|recession|gold|oil)/.test(text)) score += 4;
+  if (/(nvidia|apple|tesla|microsoft|amazon|coinbase|binance|ethereum|s&p|nasdaq|dow)/.test(text)) score += 3;
+  if (article.image) score += 2;
+  if (article.publishedAt) score += 1;
+  return score;
+}
+
+function uniqueArticles(articles) {
+  const seen = new Set();
+  return articles.filter((article) => {
+    const key = (article.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 90);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
@@ -243,19 +324,27 @@ app.get("/api/markets/crypto", async (req, res) => {
 
 app.get("/api/markets/stocks", async (req, res) => {
   try {
-    const symbols = "spy.us,qqq.us,aapl.us,nvda.us,tsla.us";
-    const url = `https://stooq.com/q/l/?s=${symbols}&f=sd2t2ohlcv&h&e=csv`;
-    const text = await fetch(url, {
+    const symbols = "SPY,QQQ,AAPL,NVDA,TSLA";
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketTime`;
+    const json = await fetch(url, {
       headers: {
-        Accept: "text/csv",
+        Accept: "application/json",
         "User-Agent": "Autody/1.0 market preview"
       }
     }).then((r) => {
-      if (!r.ok) throw new Error(`Stooq HTTP ${r.status}`);
-      return r.text();
+      if (!r.ok) throw new Error(`Yahoo Finance HTTP ${r.status}`);
+      return r.json();
     });
 
-    const assets = parseStooqCsv(text).filter((asset) => asset.price != null);
+    const assets = (json.quoteResponse?.result || []).map((quote) => ({
+      symbol: quote.symbol,
+      name: quote.shortName || quote.symbol,
+      price: quote.regularMarketPrice ?? null,
+      changePct: quote.regularMarketChangePercent ?? null,
+      date: quote.regularMarketTime ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
+      time: quote.regularMarketTime ?? null
+    })).filter((asset) => asset.price != null);
+
     return res.json({ success: true, assets: assets.length ? assets : fallbackStockMarkets });
   } catch (err) {
     console.error("Stock market proxy error:", err);
@@ -270,26 +359,64 @@ app.get("/api/markets/stocks", async (req, res) => {
 
 app.get("/api/news", async (req, res) => {
   try {
-    const query = encodeURIComponent("(finance OR markets OR stocks OR crypto OR economy OR business)");
-    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=ArtList&maxrecords=9&format=json&sort=HybridRel`;
-    const json = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => {
+    const gdeltQuery = encodeURIComponent("(finance OR markets OR stocks OR crypto OR economy OR business OR gold)");
+    const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${gdeltQuery}&mode=ArtList&maxrecords=12&format=json&sort=HybridRel`;
+    const rssFeeds = [
+      {
+        subject: "Markets",
+        url: "https://news.google.com/rss/search?q=finance%20markets%20stocks%20crypto%20economy%20when:1d&hl=en-US&gl=US&ceid=US:en"
+      },
+      {
+        subject: "Business",
+        url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY,AAPL,NVDA,TSLA,BTC-USD,ETH-USD&region=US&lang=en-US"
+      },
+      {
+        subject: "Economy",
+        url: "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+      }
+    ];
+
+    const gdeltPromise = fetch(gdeltUrl, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Autody/1.0 news preview"
+      }
+    }).then((r) => {
       if (!r.ok) throw new Error(`GDELT HTTP ${r.status}`);
       return r.json();
-    });
-
-    const articles = (json.articles || []).slice(0, 9).map((article) => ({
+    }).then((json) => (json.articles || []).map((article) => ({
       title: article.title,
       source: article.domain || article.sourceCountry || "Market news",
       url: article.url,
       image: article.socialimage || null,
       publishedAt: article.seendate || null,
-      subject: article.title?.toLowerCase().includes("crypto") ? "Crypto"
-        : article.title?.toLowerCase().includes("stock") ? "Stocks"
-        : article.title?.toLowerCase().includes("business") ? "Business"
-        : "Economy"
-    }));
+      subject: inferNewsSubject(article.title, "Markets")
+    })));
 
-    return res.json({ success: true, articles: articles.length ? articles : fallbackNews });
+    const rssPromises = rssFeeds.map((feed) => fetch(feed.url, {
+      headers: {
+        Accept: "application/rss+xml, application/xml, text/xml",
+        "User-Agent": "Autody/1.0 news preview"
+      }
+    }).then((r) => {
+      if (!r.ok) throw new Error(`RSS HTTP ${r.status}`);
+      return r.text();
+    }).then((xml) => parseRss(xml, feed.subject)));
+
+    const settled = await Promise.allSettled([gdeltPromise, ...rssPromises]);
+    const articles = settled
+      .filter((result) => result.status === "fulfilled")
+      .flatMap((result) => result.value);
+
+    const importantArticles = uniqueArticles(articles)
+      .sort((a, b) => scoreNews(b) - scoreNews(a))
+      .slice(0, 9);
+
+    return res.json({
+      success: true,
+      articles: importantArticles.length ? importantArticles : fallbackNews,
+      fallback: importantArticles.length === 0
+    });
   } catch (err) {
     console.error("News proxy error:", err);
     return res.json({ success: true, articles: fallbackNews, fallback: true });

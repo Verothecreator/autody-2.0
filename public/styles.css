@@ -269,6 +269,16 @@ h3 {
   color: var(--muted);
 }
 
+.pulse-card small.gain,
+.market-row span.gain {
+  color: var(--green);
+}
+
+.pulse-card small.loss,
+.market-row span.loss {
+  color: var(--red);
+}
+
 .pulse-card strong {
   display: block;
   margin: 10px 0 3px;
@@ -734,8 +744,25 @@ h3 {
 
 .news-card {
   min-height: 260px;
+  overflow: hidden;
   padding: 22px;
   border-radius: 8px;
+}
+
+.news-card.has-image {
+  padding: 0;
+}
+
+.news-card img {
+  width: 100%;
+  height: 150px;
+  display: block;
+  object-fit: cover;
+  border-bottom: 1px solid var(--line);
+}
+
+.news-card.has-image > div {
+  padding: 20px;
 }
 
 .news-card span {

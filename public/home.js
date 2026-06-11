@@ -96,11 +96,14 @@ function renderNews(articles) {
   if (!target) return;
 
   target.innerHTML = articles.slice(0, 6).map((article) => `
-    <article class="news-card">
-      <span>${article.subject || "Markets"}</span>
-      <h3>${article.title || "Market story"}</h3>
-      <p>${article.source || "Finance news"}</p>
-      ${article.url && article.url !== "#" ? `<a href="${article.url}" target="_blank" rel="noopener">Read story</a>` : ""}
+    <article class="news-card ${article.image ? "has-image" : ""}">
+      ${article.image ? `<img src="${article.image}" alt="" loading="lazy">` : ""}
+      <div>
+        <span>${article.subject || "Markets"}</span>
+        <h3>${article.title || "Market story"}</h3>
+        <p>${article.source || "Finance news"}</p>
+        ${article.url && article.url !== "#" ? `<a href="${article.url}" target="_blank" rel="noopener">Read story</a>` : ""}
+      </div>
     </article>
   `).join("");
 }
@@ -137,5 +140,5 @@ async function loadHomeData() {
 
 document.addEventListener("DOMContentLoaded", () => {
   loadHomeData();
-  setInterval(loadHomeData, 120000);
+  setInterval(loadHomeData, 60000);
 });
