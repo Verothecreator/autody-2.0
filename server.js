@@ -216,7 +216,8 @@ async function fetchCoinbaseCrypto() {
   const products = [
     { id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD" },
     { id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD" },
-    { id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD" }
+    { id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD" },
+    { id: "dogecoin", symbol: "DOGE", name: "Dogecoin", product: "DOGE-USD" }
   ];
 
   const assets = await Promise.all(products.map(async (asset) => {
@@ -343,7 +344,7 @@ function uniqueArticles(articles) {
 
 app.get("/api/markets/crypto", async (req, res) => {
   try {
-    const ids = "bitcoin,ethereum,solana,polygon-ecosystem-token";
+    const ids = "bitcoin,ethereum,solana,dogecoin,polygon-ecosystem-token";
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
     const json = await fetch(url, {
       headers: {
@@ -359,14 +360,17 @@ app.get("/api/markets/crypto", async (req, res) => {
       bitcoin: "Bitcoin",
       ethereum: "Ethereum",
       solana: "Solana",
+      dogecoin: "Dogecoin",
       "polygon-ecosystem-token": "Polygon"
     };
 
     return res.json({
       success: true,
+      provider: "coingecko",
       assets: Object.entries(json).map(([id, data]) => ({
         id,
         name: labels[id] || id,
+        symbol: id === "bitcoin" ? "BTC" : id === "ethereum" ? "ETH" : id === "solana" ? "SOL" : id === "dogecoin" ? "DOGE" : "POL",
         price: data.usd ?? null,
         changePct: data.usd_24h_change ?? null,
         marketCap: data.usd_market_cap ?? null
@@ -391,7 +395,7 @@ app.get("/api/markets/crypto", async (req, res) => {
 
 app.get("/api/markets/stocks", async (req, res) => {
   try {
-    const symbols = "SPY,QQQ,AAPL,NVDA,TSLA";
+    const symbols = "SPY,QQQ,AAPL,NVDA,TSLA,MSFT,AMZN";
     const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketTime`;
     const json = await fetch(url, {
       headers: {
@@ -412,11 +416,11 @@ app.get("/api/markets/stocks", async (req, res) => {
       time: quote.regularMarketTime ?? null
     })).filter((asset) => asset.price != null);
 
-    return res.json({ success: true, assets: assets.length ? assets : fallbackStockMarkets });
+    return res.json({ success: true, provider: "yahoo", assets });
   } catch (err) {
     console.error("Stock market proxy error:", err);
     try {
-      const assets = await fetchStooqQuotes("spy.us,qqq.us,aapl.us,nvda.us,tsla.us");
+      const assets = await fetchStooqQuotes("spy.us,qqq.us,aapl.us,nvda.us,tsla.us,msft.us,amzn.us");
       return res.json({ success: true, provider: "stooq", assets });
     } catch (fallbackErr) {
       console.error("Stooq stock fallback error:", fallbackErr);

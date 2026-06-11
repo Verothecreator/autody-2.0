@@ -28,6 +28,13 @@ function formatPct(value) {
   return `${sign}${number.toFixed(2)}%`;
 }
 
+function formatMove(value) {
+  const number = Number(value);
+  if (!isFinite(number)) return "Live feed";
+  const arrow = number > 0 ? "&uarr;" : number < 0 ? "&darr;" : "&rarr;";
+  return `${arrow} ${formatPct(number)}`;
+}
+
 function changeClass(value) {
   const number = Number(value);
   if (!isFinite(number) || number === 0) return "";
@@ -63,7 +70,7 @@ function renderMarketList(targetId, assets, options = {}) {
         </div>
         <div>
           <strong>${formatMoney(asset.price, options.compact)}</strong>
-          <span class="${changeClass(change)}">${formatPct(change)}</span>
+          <span class="${changeClass(change)}">${formatMove(change)}</span>
         </div>
       </div>
     `;
@@ -83,17 +90,17 @@ function renderHeroPulse(cryptoAssets, stockAssets, signals = {}) {
     <div class="pulse-card">
       <span>Bitcoin</span>
       <strong>${btc?.price ? formatMoney(btc.price, true) : "Unavailable"}</strong>
-      <small class="${changeClass(btc?.changePct)}">${btc?.changePct == null ? "Live feed" : formatPct(btc.changePct)}</small>
+      <small class="${changeClass(btc?.changePct)}">${formatMove(btc?.changePct)}</small>
     </div>
     <div class="pulse-card">
       <span>S&P ETF</span>
       <strong>${spy?.price ? formatMoney(spy.price) : "Unavailable"}</strong>
-      <small class="${changeClass(spy?.changePct)}">${spy?.changePct == null ? "Live feed" : formatPct(spy.changePct)}</small>
+      <small class="${changeClass(spy?.changePct)}">${formatMove(spy?.changePct)}</small>
     </div>
     <div class="pulse-card">
       <span>Gold</span>
       <strong>${gold?.price ? formatMoney(gold.price) : "Watching"}</strong>
-      <small class="${changeClass(gold?.changePct)}">${gold?.changePct == null ? "Reserve signal" : formatPct(gold.changePct)}</small>
+      <small class="${changeClass(gold?.changePct)}">${gold?.changePct == null ? "Reserve signal" : formatMove(gold.changePct)}</small>
     </div>
     <div class="pulse-card">
       <span>Economy</span>
@@ -157,37 +164,43 @@ function renderNews(articles) {
   newsSlideTimer = setInterval(() => setActiveNews(activeNewsIndex + 1), 9000);
 }
 
-async function loadHomeData() {
+async function loadMarketData() {
   const status = document.getElementById("market-status");
 
-  const [cryptoResult, stocksResult, signalsResult, newsResult] = await Promise.allSettled([
+  const [cryptoResult, stocksResult, signalsResult] = await Promise.allSettled([
     getJson("/api/markets/crypto"),
     getJson("/api/markets/stocks"),
-    getJson("/api/markets/signals"),
-    getJson("/api/news")
+    getJson("/api/markets/signals")
   ]);
 
   const crypto = cryptoResult.status === "fulfilled" ? cryptoResult.value : { assets: [] };
   const stocks = stocksResult.status === "fulfilled" ? stocksResult.value : { assets: [] };
   const signals = signalsResult.status === "fulfilled" ? signalsResult.value : {};
-  const news = newsResult.status === "fulfilled" ? newsResult.value : { articles: [] };
 
   const cryptoAssets = crypto.assets || [];
   const stockAssets = stocks.assets || [];
-  const articles = news.articles || [];
 
   if (cryptoResult.status === "rejected") console.warn("Crypto market data failed:", cryptoResult.reason);
   if (stocksResult.status === "rejected") console.warn("Stock market data failed:", stocksResult.reason);
   if (signalsResult.status === "rejected") console.warn("Signal data failed:", signalsResult.reason);
-  if (newsResult.status === "rejected") console.warn("News data failed:", newsResult.reason);
 
   renderMarketList("crypto-market-list", cryptoAssets, { compact: true });
   renderMarketList("stock-market-list", stockAssets);
-  renderNews(articles);
   renderHeroPulse(cryptoAssets, stockAssets, signals);
 
-  const usingFallback = crypto.fallback || stocks.fallback || signals.fallback || news.fallback;
+  const usingFallback = crypto.fallback || stocks.fallback || signals.fallback;
   if (status) status.textContent = usingFallback ? "Market preview active" : "Live data active";
+}
+
+async function loadNewsData() {
+  const newsResult = await Promise.allSettled([getJson("/api/news")]);
+  const news = newsResult[0].status === "fulfilled" ? newsResult[0].value : { articles: [] };
+  const articles = news.articles || [];
+
+  if (newsResult[0].status === "rejected") console.warn("News data failed:", newsResult[0].reason);
+
+  renderNews(articles);
+
   const newsUpdated = document.getElementById("news-updated");
   if (newsUpdated) {
     newsUpdated.textContent = `Checking for important stories throughout the day. Last checked ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
@@ -204,6 +217,8 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
-  loadHomeData();
-  setInterval(loadHomeData, 1800000);
+  loadMarketData();
+  loadNewsData();
+  setInterval(loadMarketData, 60000);
+  setInterval(loadNewsData, 1800000);
 });
