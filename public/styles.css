@@ -9,6 +9,8 @@
   --teal: #8b8df8;
   --blue: #4fc3ff;
   --red: #ff6b6b;
+  --positive: #2ecc71;
+  --negative: #ff5a6f;
   --gold: #f2c166;
   --shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
 }
@@ -271,12 +273,12 @@ h3 {
 
 .pulse-card small.gain,
 .market-row span.gain {
-  color: var(--green);
+  color: var(--positive);
 }
 
 .pulse-card small.loss,
 .market-row span.loss {
-  color: var(--red);
+  color: var(--negative);
 }
 
 .pulse-card strong {
@@ -337,11 +339,11 @@ h3 {
 }
 
 .gain {
-  color: var(--green);
+  color: var(--positive);
 }
 
 .loss {
-  color: var(--red);
+  color: var(--negative);
 }
 
 .balance-row {
@@ -734,11 +736,11 @@ h3 {
 }
 
 .pct-pos {
-  color: var(--green);
+  color: var(--positive);
 }
 
 .pct-neg {
-  color: var(--red);
+  color: var(--negative);
 }
 
 .news-grid {

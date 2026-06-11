@@ -60,7 +60,7 @@ function renderMarketList(targetId, assets, options = {}) {
   const target = document.getElementById(targetId);
   if (!target) return;
 
-  target.innerHTML = assets.slice(0, 5).map((asset) => {
+  target.innerHTML = assets.slice(0, 6).map((asset) => {
     const change = asset.changePct ?? 0;
     return `
       <div class="market-row">
@@ -85,6 +85,7 @@ function renderHeroPulse(cryptoAssets, stockAssets, signals = {}) {
   const btc = cryptoAssets.find((asset) => asset.id === "bitcoin") || cryptoAssets[0];
   const spy = stockAssets.find((asset) => String(asset.symbol).toLowerCase().includes("spy")) || stockAssets[0];
   const gold = signals.gold;
+  const economy = signals.economy;
 
   target.innerHTML = `
     <div class="pulse-card">
@@ -104,8 +105,8 @@ function renderHeroPulse(cryptoAssets, stockAssets, signals = {}) {
     </div>
     <div class="pulse-card">
       <span>Economy</span>
-      <strong>Watching</strong>
-      <small>Rates and inflation</small>
+      <strong>${economy?.value ? `${Number(economy.value).toFixed(2)}%` : "Watching"}</strong>
+      <small class="${changeClass(economy?.changePct)}">${economy?.changePct == null ? "10Y yield signal" : formatMove(economy.changePct)}</small>
     </div>
   `;
 

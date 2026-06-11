@@ -217,7 +217,8 @@ async function fetchCoinbaseCrypto() {
     { id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD" },
     { id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD" },
     { id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD" },
-    { id: "dogecoin", symbol: "DOGE", name: "Dogecoin", product: "DOGE-USD" }
+    { id: "dogecoin", symbol: "DOGE", name: "Dogecoin", product: "DOGE-USD" },
+    { id: "cardano", symbol: "ADA", name: "Cardano", product: "ADA-USD" }
   ];
 
   const assets = await Promise.all(products.map(async (asset) => {
@@ -243,6 +244,32 @@ async function fetchCoinbaseCrypto() {
   }));
 
   return assets.filter((asset) => asset.price != null);
+}
+
+async function fetchYahooChartSignal(symbol, name) {
+  const encoded = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=1d&interval=5m`;
+  const json = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Autody/1.0 market preview"
+    }
+  }).then((r) => {
+    if (!r.ok) throw new Error(`Yahoo chart HTTP ${r.status}`);
+    return r.json();
+  });
+
+  const result = json.chart?.result?.[0];
+  const meta = result?.meta || {};
+  const price = Number(meta.regularMarketPrice ?? meta.chartPreviousClose);
+  const previous = Number(meta.previousClose ?? meta.chartPreviousClose);
+  const changePct = isFinite(price) && isFinite(previous) && previous > 0 ? ((price - previous) / previous) * 100 : null;
+  return {
+    symbol,
+    name,
+    price: isFinite(price) ? price : null,
+    changePct
+  };
 }
 
 function decodeXml(value = "") {
@@ -344,7 +371,7 @@ function uniqueArticles(articles) {
 
 app.get("/api/markets/crypto", async (req, res) => {
   try {
-    const ids = "bitcoin,ethereum,solana,dogecoin,polygon-ecosystem-token";
+    const ids = "bitcoin,ethereum,solana,dogecoin,cardano,polygon-ecosystem-token";
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
     const json = await fetch(url, {
       headers: {
@@ -361,7 +388,17 @@ app.get("/api/markets/crypto", async (req, res) => {
       ethereum: "Ethereum",
       solana: "Solana",
       dogecoin: "Dogecoin",
+      cardano: "Cardano",
       "polygon-ecosystem-token": "Polygon"
+    };
+
+    const symbols = {
+      bitcoin: "BTC",
+      ethereum: "ETH",
+      solana: "SOL",
+      dogecoin: "DOGE",
+      cardano: "ADA",
+      "polygon-ecosystem-token": "POL"
     };
 
     return res.json({
@@ -370,7 +407,7 @@ app.get("/api/markets/crypto", async (req, res) => {
       assets: Object.entries(json).map(([id, data]) => ({
         id,
         name: labels[id] || id,
-        symbol: id === "bitcoin" ? "BTC" : id === "ethereum" ? "ETH" : id === "solana" ? "SOL" : id === "dogecoin" ? "DOGE" : "POL",
+        symbol: symbols[id] || id.toUpperCase(),
         price: data.usd ?? null,
         changePct: data.usd_24h_change ?? null,
         marketCap: data.usd_market_cap ?? null
@@ -436,22 +473,28 @@ app.get("/api/markets/stocks", async (req, res) => {
 
 app.get("/api/markets/signals", async (req, res) => {
   try {
-    const gold = (await fetchStooqQuotes("xauusd")).find((asset) => asset.price != null);
+    const [goldResult, economyResult] = await Promise.allSettled([
+      fetchYahooChartSignal("GC=F", "Gold futures"),
+      fetchYahooChartSignal("^TNX", "US 10Y Treasury Yield")
+    ]);
+    const gold = goldResult.status === "fulfilled" ? goldResult.value : null;
+    const economy = economyResult.status === "fulfilled" ? economyResult.value : null;
     return res.json({
       success: true,
       gold: gold ? {
-        symbol: "XAU/USD",
-        name: "Gold spot",
+        symbol: "GC=F",
+        name: gold.name,
         price: gold.price,
         changePct: gold.changePct,
-        date: gold.date,
-        time: gold.time
+        date: null,
+        time: null
       } : null,
-      economy: {
-        name: "Economy",
-        status: "Watching",
-        detail: "Rates and inflation"
-      }
+      economy: economy ? {
+        name: economy.name,
+        value: economy.price,
+        changePct: economy.changePct,
+        detail: "10Y yield signal"
+      } : null
     });
   } catch (err) {
     console.error("Signal proxy error:", err);
@@ -459,11 +502,7 @@ app.get("/api/markets/signals", async (req, res) => {
       success: true,
       fallback: true,
       gold: null,
-      economy: {
-        name: "Economy",
-        status: "Watching",
-        detail: "Rates and inflation"
-      }
+      economy: null
     });
   }
 });
