@@ -747,6 +747,103 @@ h3 {
   gap: 18px;
 }
 
+.news-carousel {
+  width: 100%;
+}
+
+.news-feature {
+  position: relative;
+  min-height: 520px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(16, 24, 22, 0.78);
+  box-shadow: var(--shadow);
+}
+
+.news-feature img,
+.news-feature-image {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  object-fit: cover;
+  background:
+    linear-gradient(135deg, rgba(93, 95, 239, 0.18), rgba(10, 12, 16, 0.3)),
+    #12151c;
+}
+
+.news-feature-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 42px;
+}
+
+.news-feature-copy span {
+  color: var(--green);
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.news-feature-copy h3 {
+  margin: 18px 0 18px;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1.05;
+}
+
+.news-feature-copy p {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.news-controls {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.news-arrow {
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(11, 13, 18, 0.74);
+  color: var(--text);
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.news-dots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.news-dot {
+  width: 9px;
+  height: 9px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+}
+
+.news-dot.active {
+  width: 24px;
+  border-radius: 999px;
+  background: var(--green);
+}
+
 .news-card {
   min-height: 260px;
   overflow: hidden;
@@ -1289,6 +1386,19 @@ h3 {
 
   .news-card {
     min-height: auto;
+  }
+
+  .news-feature {
+    grid-template-columns: 1fr;
+  }
+
+  .news-feature img,
+  .news-feature-image {
+    min-height: 280px;
+  }
+
+  .news-feature-copy {
+    padding: 28px;
   }
 
   .pulse-grid {

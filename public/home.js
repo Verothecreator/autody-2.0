@@ -11,6 +11,10 @@ const compactMoneyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2
 });
 
+let newsItems = [];
+let activeNewsIndex = 0;
+let newsSlideTimer = null;
+
 function formatMoney(value, compact = false) {
   const number = Number(value);
   if (!isFinite(number)) return "-";
@@ -66,29 +70,30 @@ function renderMarketList(targetId, assets, options = {}) {
   }).join("");
 }
 
-function renderHeroPulse(cryptoAssets, stockAssets, newsCount) {
+function renderHeroPulse(cryptoAssets, stockAssets, signals = {}) {
   const target = document.getElementById("hero-market-grid");
   const status = document.getElementById("market-status");
   if (!target) return;
 
   const btc = cryptoAssets.find((asset) => asset.id === "bitcoin") || cryptoAssets[0];
   const spy = stockAssets.find((asset) => String(asset.symbol).toLowerCase().includes("spy")) || stockAssets[0];
+  const gold = signals.gold;
 
   target.innerHTML = `
     <div class="pulse-card">
       <span>Bitcoin</span>
-      <strong>${formatMoney(btc?.price, true)}</strong>
-      <small class="${changeClass(btc?.changePct)}">${formatPct(btc?.changePct)}</small>
+      <strong>${btc?.price ? formatMoney(btc.price, true) : "Unavailable"}</strong>
+      <small class="${changeClass(btc?.changePct)}">${btc?.changePct == null ? "Live feed" : formatPct(btc.changePct)}</small>
     </div>
     <div class="pulse-card">
       <span>S&P ETF</span>
-      <strong>${formatMoney(spy?.price)}</strong>
-      <small class="${changeClass(spy?.changePct)}">${formatPct(spy?.changePct)}</small>
+      <strong>${spy?.price ? formatMoney(spy.price) : "Unavailable"}</strong>
+      <small class="${changeClass(spy?.changePct)}">${spy?.changePct == null ? "Live feed" : formatPct(spy.changePct)}</small>
     </div>
     <div class="pulse-card">
       <span>Gold</span>
-      <strong>Reserve view</strong>
-      <small>AU confidence layer</small>
+      <strong>${gold?.price ? formatMoney(gold.price) : "Watching"}</strong>
+      <small class="${changeClass(gold?.changePct)}">${gold?.changePct == null ? "Reserve signal" : formatPct(gold.changePct)}</small>
     </div>
     <div class="pulse-card">
       <span>Economy</span>
@@ -100,33 +105,71 @@ function renderHeroPulse(cryptoAssets, stockAssets, newsCount) {
   if (status) status.textContent = "Live data active";
 }
 
-function renderNews(articles) {
+function renderActiveNews() {
   const target = document.getElementById("news-feed");
   if (!target) return;
+  if (!newsItems.length) {
+    target.innerHTML = `
+      <article class="news-feature">
+        <div class="news-feature-image"></div>
+        <div class="news-feature-copy">
+          <span>Markets</span>
+          <h3>Important finance news will appear here.</h3>
+          <p>Autody is checking for useful market stories.</p>
+        </div>
+      </article>
+    `;
+    return;
+  }
 
-  target.innerHTML = articles.slice(0, 6).map((article, index) => `
-    <article class="news-card ${article.image ? "has-image" : ""}">
-      ${article.image ? `<img src="${escapeHtml(article.image)}" alt="" loading="lazy">` : ""}
-      <div>
+  const article = newsItems[activeNewsIndex] || newsItems[0];
+  const dots = newsItems.map((_, index) => `<button type="button" class="news-dot ${index === activeNewsIndex ? "active" : ""}" data-news-index="${index}" aria-label="Show story ${index + 1}"></button>`).join("");
+
+  target.innerHTML = `
+    <article class="news-feature">
+      <img src="${escapeHtml(article.image || "")}" alt="" loading="lazy">
+      <div class="news-feature-copy">
         <span>${escapeHtml(article.subject || "Markets")}</span>
         <h3>${escapeHtml(article.title || "Market story")}</h3>
         <p>Source: ${escapeHtml(article.source || "Finance news")}</p>
       </div>
+      <div class="news-controls" aria-label="News carousel controls">
+        <button type="button" class="news-arrow" data-news-action="prev" aria-label="Previous story">‹</button>
+        <div class="news-dots">${dots}</div>
+        <button type="button" class="news-arrow" data-news-action="next" aria-label="Next story">›</button>
+      </div>
     </article>
-  `).join("");
+  `;
+}
+
+function setActiveNews(index) {
+  if (!newsItems.length) return;
+  activeNewsIndex = (index + newsItems.length) % newsItems.length;
+  renderActiveNews();
+}
+
+function renderNews(articles) {
+  newsItems = articles.slice(0, 9);
+  activeNewsIndex = 0;
+  renderActiveNews();
+
+  if (newsSlideTimer) clearInterval(newsSlideTimer);
+  newsSlideTimer = setInterval(() => setActiveNews(activeNewsIndex + 1), 9000);
 }
 
 async function loadHomeData() {
   const status = document.getElementById("market-status");
 
-  const [cryptoResult, stocksResult, newsResult] = await Promise.allSettled([
+  const [cryptoResult, stocksResult, signalsResult, newsResult] = await Promise.allSettled([
     getJson("/api/markets/crypto"),
     getJson("/api/markets/stocks"),
+    getJson("/api/markets/signals"),
     getJson("/api/news")
   ]);
 
   const crypto = cryptoResult.status === "fulfilled" ? cryptoResult.value : { assets: [] };
   const stocks = stocksResult.status === "fulfilled" ? stocksResult.value : { assets: [] };
+  const signals = signalsResult.status === "fulfilled" ? signalsResult.value : {};
   const news = newsResult.status === "fulfilled" ? newsResult.value : { articles: [] };
 
   const cryptoAssets = crypto.assets || [];
@@ -135,22 +178,32 @@ async function loadHomeData() {
 
   if (cryptoResult.status === "rejected") console.warn("Crypto market data failed:", cryptoResult.reason);
   if (stocksResult.status === "rejected") console.warn("Stock market data failed:", stocksResult.reason);
+  if (signalsResult.status === "rejected") console.warn("Signal data failed:", signalsResult.reason);
   if (newsResult.status === "rejected") console.warn("News data failed:", newsResult.reason);
 
   renderMarketList("crypto-market-list", cryptoAssets, { compact: true });
   renderMarketList("stock-market-list", stockAssets);
   renderNews(articles);
-  renderHeroPulse(cryptoAssets, stockAssets, articles.length);
+  renderHeroPulse(cryptoAssets, stockAssets, signals);
 
-  const usingFallback = crypto.fallback || stocks.fallback || news.fallback;
+  const usingFallback = crypto.fallback || stocks.fallback || signals.fallback || news.fallback;
   if (status) status.textContent = usingFallback ? "Market preview active" : "Live data active";
   const newsUpdated = document.getElementById("news-updated");
   if (newsUpdated) {
-    newsUpdated.textContent = `Checking every minute. Last checked ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
+    newsUpdated.textContent = `Checking for important stories throughout the day. Last checked ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
   }
 }
 
+document.addEventListener("click", (event) => {
+  const arrow = event.target.closest("[data-news-action]");
+  if (arrow?.dataset.newsAction === "next") setActiveNews(activeNewsIndex + 1);
+  if (arrow?.dataset.newsAction === "prev") setActiveNews(activeNewsIndex - 1);
+
+  const dot = event.target.closest("[data-news-index]");
+  if (dot) setActiveNews(Number(dot.dataset.newsIndex));
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   loadHomeData();
-  setInterval(loadHomeData, 60000);
+  setInterval(loadHomeData, 1800000);
 });

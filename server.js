@@ -157,7 +157,7 @@ const fallbackNews = [
     url: "#",
     subject: "Economy",
     summary: "A quick economy brief focused on the market signals that can affect stocks, crypto, and consumer confidence.",
-    image: "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=900&q=80"
+    image: "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80"
   },
   {
     title: "Crypto traders keep liquidity, wallet activity, and risk appetite in focus.",
@@ -165,7 +165,7 @@ const fallbackNews = [
     url: "#",
     subject: "Crypto",
     summary: "A quick crypto brief focused on the conditions that can affect digital assets and wallet decisions.",
-    image: "https://images.unsplash.com/photo-1640340434855-6084b1f4901c?auto=format&fit=crop&w=900&q=80"
+    image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80"
   },
   {
     title: "Stocks react to earnings guidance, AI spending, and global demand.",
@@ -173,23 +173,8 @@ const fallbackNews = [
     url: "#",
     subject: "Business",
     summary: "A quick business brief focused on company news and market pressure that can shape account decisions.",
-    image: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=900&q=80"
+    image: "https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=80"
   }
-];
-
-const fallbackCryptoMarkets = [
-  { id: "bitcoin", name: "Bitcoin", symbol: "BTC", price: 104820, changePct: 1.24, marketCap: 2080000000000 },
-  { id: "ethereum", name: "Ethereum", symbol: "ETH", price: 3980, changePct: 0.82, marketCap: 478000000000 },
-  { id: "solana", name: "Solana", symbol: "SOL", price: 164.28, changePct: -0.36, marketCap: 78000000000 },
-  { id: "polygon-ecosystem-token", name: "Polygon", symbol: "POL", price: 0.72, changePct: 1.18, marketCap: 6200000000 }
-];
-
-const fallbackStockMarkets = [
-  { symbol: "SPY.US", name: "SPY", price: 608.42, changePct: 0.42, date: null, time: null },
-  { symbol: "QQQ.US", name: "QQQ", price: 526.18, changePct: 0.58, date: null, time: null },
-  { symbol: "AAPL.US", name: "AAPL", price: 201.34, changePct: 1.12, date: null, time: null },
-  { symbol: "NVDA.US", name: "NVDA", price: 141.36, changePct: -0.4, date: null, time: null },
-  { symbol: "TSLA.US", name: "TSLA", price: 184.29, changePct: 0.9, date: null, time: null }
 ];
 
 function parseStooqCsv(csv) {
@@ -210,6 +195,53 @@ function parseStooqCsv(csv) {
       time: row.Time
     };
   });
+}
+
+async function fetchStooqQuotes(symbols) {
+  const url = `https://stooq.com/q/l/?s=${symbols}&f=sd2t2ohlcv&h&e=csv`;
+  const text = await fetch(url, {
+    headers: {
+      Accept: "text/csv",
+      "User-Agent": "Autody/1.0 market preview"
+    }
+  }).then((r) => {
+    if (!r.ok) throw new Error(`Stooq HTTP ${r.status}`);
+    return r.text();
+  });
+
+  return parseStooqCsv(text).filter((asset) => asset.price != null);
+}
+
+async function fetchCoinbaseCrypto() {
+  const products = [
+    { id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD" },
+    { id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD" },
+    { id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD" }
+  ];
+
+  const assets = await Promise.all(products.map(async (asset) => {
+    const [spot, stats] = await Promise.all([
+      fetch(`https://api.coinbase.com/v2/prices/${asset.product}/spot`, {
+        headers: { Accept: "application/json", "User-Agent": "Autody/1.0 market preview" }
+      }).then((r) => {
+        if (!r.ok) throw new Error(`Coinbase spot HTTP ${r.status}`);
+        return r.json();
+      }),
+      fetch(`https://api.exchange.coinbase.com/products/${asset.product}/stats`, {
+        headers: { Accept: "application/json", "User-Agent": "Autody/1.0 market preview" }
+      }).then((r) => {
+        if (!r.ok) throw new Error(`Coinbase stats HTTP ${r.status}`);
+        return r.json();
+      }).catch(() => null)
+    ]);
+
+    const price = Number(spot?.data?.amount);
+    const open = Number(stats?.open);
+    const changePct = isFinite(price) && isFinite(open) && open > 0 ? ((price - open) / open) * 100 : null;
+    return { ...asset, price: isFinite(price) ? price : null, changePct, marketCap: null };
+  }));
+
+  return assets.filter((asset) => asset.price != null);
 }
 
 function decodeXml(value = "") {
@@ -257,7 +289,7 @@ function parseRss(xml, fallbackSubject) {
 
 function inferNewsSubject(title = "", fallback = "Markets") {
   const text = title.toLowerCase();
-  if (/(bitcoin|crypto|ethereum|token|blockchain|stablecoin|coinbase|binance)/.test(text)) return "Crypto";
+  if (/(bitcoin|crypto|ethereum|token|blockchain|stablecoin)/.test(text)) return "Crypto";
   if (/(stock|shares|nasdaq|s&p|dow|earnings|nvidia|apple|tesla|market)/.test(text)) return "Stocks";
   if (/(inflation|fed|rates|jobs|economy|tariff|gdp|dollar|treasury)/.test(text)) return "Economy";
   if (/(company|business|ceo|startup|profit|revenue|deal|merger)/.test(text)) return "Business";
@@ -283,11 +315,11 @@ function isCompetitorPromo(article) {
 
 function subjectImage(subject = "Markets") {
   const key = subject.toLowerCase();
-  if (key.includes("crypto")) return "https://images.unsplash.com/photo-1640340434855-6084b1f4901c?auto=format&fit=crop&w=900&q=80";
-  if (key.includes("stock")) return "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=900&q=80";
-  if (key.includes("business")) return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=80";
-  if (key.includes("economy")) return "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=900&q=80";
-  return "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=900&q=80";
+  if (key.includes("crypto")) return "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80";
+  if (key.includes("stock")) return "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80";
+  if (key.includes("business")) return "https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=80";
+  if (key.includes("economy")) return "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80";
+  return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=80";
 }
 
 function ensureArticleImage(article) {
@@ -342,12 +374,18 @@ app.get("/api/markets/crypto", async (req, res) => {
     });
   } catch (err) {
     console.error("Crypto market proxy error:", err);
-    return res.json({
-      success: true,
-      fallback: true,
-      error: "Live crypto provider unavailable",
-      assets: fallbackCryptoMarkets
-    });
+    try {
+      const assets = await fetchCoinbaseCrypto();
+      return res.json({ success: true, provider: "coinbase", assets });
+    } catch (fallbackErr) {
+      console.error("Coinbase crypto fallback error:", fallbackErr);
+      return res.json({
+        success: true,
+        fallback: true,
+        error: "Live crypto providers unavailable",
+        assets: []
+      });
+    }
   }
 });
 
@@ -377,11 +415,51 @@ app.get("/api/markets/stocks", async (req, res) => {
     return res.json({ success: true, assets: assets.length ? assets : fallbackStockMarkets });
   } catch (err) {
     console.error("Stock market proxy error:", err);
+    try {
+      const assets = await fetchStooqQuotes("spy.us,qqq.us,aapl.us,nvda.us,tsla.us");
+      return res.json({ success: true, provider: "stooq", assets });
+    } catch (fallbackErr) {
+      console.error("Stooq stock fallback error:", fallbackErr);
+      return res.json({
+        success: true,
+        fallback: true,
+        error: "Live stock providers unavailable",
+        assets: []
+      });
+    }
+  }
+});
+
+app.get("/api/markets/signals", async (req, res) => {
+  try {
+    const gold = (await fetchStooqQuotes("xauusd")).find((asset) => asset.price != null);
+    return res.json({
+      success: true,
+      gold: gold ? {
+        symbol: "XAU/USD",
+        name: "Gold spot",
+        price: gold.price,
+        changePct: gold.changePct,
+        date: gold.date,
+        time: gold.time
+      } : null,
+      economy: {
+        name: "Economy",
+        status: "Watching",
+        detail: "Rates and inflation"
+      }
+    });
+  } catch (err) {
+    console.error("Signal proxy error:", err);
     return res.json({
       success: true,
       fallback: true,
-      error: "Live stock provider unavailable",
-      assets: fallbackStockMarkets
+      gold: null,
+      economy: {
+        name: "Economy",
+        status: "Watching",
+        detail: "Rates and inflation"
+      }
     });
   }
 });
@@ -393,11 +471,11 @@ app.get("/api/news", async (req, res) => {
     const rssFeeds = [
       {
         subject: "Markets",
-        url: "https://news.google.com/rss/search?q=finance%20markets%20stocks%20crypto%20economy%20when:1d&hl=en-US&gl=US&ceid=US:en"
+        url: "https://news.google.com/rss/search?q=(finance%20OR%20markets%20OR%20stocks%20OR%20crypto%20OR%20economy)%20-binance%20-coinbase%20when:1d&hl=en-US&gl=US&ceid=US:en"
       },
       {
-        subject: "Business",
-        url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY,AAPL,NVDA,TSLA,BTC-USD,ETH-USD&region=US&lang=en-US"
+        subject: "Markets",
+        url: "https://www.cnbc.com/id/15839069/device/rss/rss.html"
       },
       {
         subject: "Economy",
