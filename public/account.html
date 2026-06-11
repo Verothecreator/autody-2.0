@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Account | Live Account</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="account.html" class="active">Live Account</a>
+        <a href="demo-wallet.html">Demo Account</a>
+        <a href="demo-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Signed in</span>
+        <strong>ontold7@gmail.com</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="demo-wallet.html" class="btn sidebar-return">Open Demo</a>
+        <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Live account</p>
+          <h1>Account</h1>
+          <p class="app-subtitle">Your normal Autody account area. Real funding, verified balances, and live trading controls will connect here after the database and account APIs are moved into production.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">Live mode</span>
+          <strong>Not funded</strong>
+        </div>
+      </header>
+
+      <section class="account-overview">
+        <div class="balance-card live-account-card">
+          <div class="balance-card-top">
+            <div>
+              <span class="muted-label">Live account value</span>
+              <strong>$0.00</strong>
+            </div>
+            <span class="status-pill">Setup needed</span>
+          </div>
+          <p>Real account balances stay separate from demo funds so users can practice without touching actual money.</p>
+          <div class="live-account-actions">
+            <a href="demo-wallet.html" class="btn btn-large">Enter Demo Account</a>
+            <a href="demo-settings.html" class="btn btn-large btn-ghost">Account Settings</a>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <a href="demo-wallet.html">Demo Wallet</a>
+          <a href="demo-markets.html">Practice Trade</a>
+          <a href="demo-orders.html">Demo Orders</a>
+          <a href="demo-research.html">Research</a>
+        </div>
+      </section>
+
+      <section class="account-kpi-grid">
+        <div class="app-card mini-metric">
+          <span class="muted-label">Live cash</span>
+          <strong>$0.00</strong>
+          <small>Funding not connected yet</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Demo buying power</span>
+          <strong>$50,000</strong>
+          <small>Available in demo mode</small>
+        </div>
+        <div class="app-card mini-metric profit-metric">
+          <span class="muted-label">Demo P/L</span>
+          <strong class="gain">$0.00</strong>
+          <small>Fresh paper account</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Next build</span>
+          <strong>Database</strong>
+          <small>Supabase/Postgres account storage</small>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+</body>
+</html>

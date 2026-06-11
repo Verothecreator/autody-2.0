@@ -10,8 +10,8 @@ function setError(message) {
 
 function nextPage() {
   const params = new URLSearchParams(location.search);
-  const next = params.get("next") || "demo-wallet.html";
-  return next.startsWith("demo-") ? next : "demo-wallet.html";
+  const next = params.get("next") || "account.html";
+  return next.startsWith("demo-") || next === "account.html" ? next : "account.html";
 }
 
 signInForm?.addEventListener("submit", async (event) => {

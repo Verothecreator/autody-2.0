@@ -91,6 +91,28 @@ const defaultDemoDb = {
     },
     researchPreferences: {
         [PRACTICE_USER_ID]: ["Crypto", "Stocks", "Gold", "Rates", "Inflation", "AU utility"]
+    },
+    performance: {
+        [PRACTICE_USER_ID]: {
+            portfolioValue: 50000,
+            startingBalance: 50000,
+            unrealizedProfitLoss: 0,
+            realizedProfitLoss: 0,
+            todayProfitLoss: 0,
+            todayProfitLossPct: 0,
+            winRatePct: 0,
+            tradesPlaced: 0
+        }
+    },
+    settings: {
+        [PRACTICE_USER_ID]: {
+            defaultMode: "demo",
+            currency: "USD",
+            riskLevel: "practice",
+            orderConfirmation: true,
+            marketAlerts: true,
+            newsAlerts: true
+        }
     }
 };
 
@@ -175,7 +197,9 @@ function getPracticeAccount() {
         wallet: db.wallets[PRACTICE_USER_ID],
         orders: db.orders[PRACTICE_USER_ID] || [],
         watchlist: db.watchlists[PRACTICE_USER_ID],
-        researchPreferences: db.researchPreferences[PRACTICE_USER_ID] || []
+        researchPreferences: db.researchPreferences[PRACTICE_USER_ID] || [],
+        performance: db.performance?.[PRACTICE_USER_ID],
+        settings: db.settings?.[PRACTICE_USER_ID]
     };
 }
 
@@ -734,7 +758,7 @@ app.post("/api/auth/sign-in", (req, res) => {
       success: true,
       user: publicUser(user),
       session,
-      next: "demo-wallet.html"
+      next: "account.html"
     });
   } catch (err) {
     console.error("Sign in error:", err);
@@ -751,7 +775,9 @@ app.get("/api/demo/practice-user", (req, res) => {
       wallet: account.wallet,
       orders: account.orders,
       watchlist: account.watchlist,
-      researchPreferences: account.researchPreferences
+      researchPreferences: account.researchPreferences,
+      performance: account.performance,
+      settings: account.settings
     });
   } catch (err) {
     console.error("Practice user API error:", err);
@@ -809,6 +835,34 @@ app.get("/api/demo/watchlist", (req, res) => {
   } catch (err) {
     console.error("Demo watchlist API error:", err);
     return res.status(500).json({ success: false, error: "Demo watchlist unavailable" });
+  }
+});
+
+app.get("/api/demo/performance", (req, res) => {
+  try {
+    const account = getPracticeAccount();
+    return res.json({
+      success: true,
+      user: publicUser(account.user),
+      performance: account.performance
+    });
+  } catch (err) {
+    console.error("Demo performance API error:", err);
+    return res.status(500).json({ success: false, error: "Demo performance unavailable" });
+  }
+});
+
+app.get("/api/demo/settings", (req, res) => {
+  try {
+    const account = getPracticeAccount();
+    return res.json({
+      success: true,
+      user: publicUser(account.user),
+      settings: account.settings
+    });
+  } catch (err) {
+    console.error("Demo settings API error:", err);
+    return res.status(500).json({ success: false, error: "Demo settings unavailable" });
   }
 });
 

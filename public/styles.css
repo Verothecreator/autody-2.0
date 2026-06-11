@@ -951,6 +951,11 @@ h3 {
   margin-top: auto;
 }
 
+.sidebar-actions {
+  display: grid;
+  gap: 10px;
+}
+
 .sidebar-profile {
   margin-top: auto;
   padding: 14px;
@@ -974,6 +979,10 @@ h3 {
 }
 
 .sidebar-profile + .sidebar-return {
+  margin-top: 0;
+}
+
+.sidebar-profile + .sidebar-actions {
   margin-top: 0;
 }
 
@@ -1113,7 +1122,7 @@ h3 {
 
 .account-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 18px;
   margin-bottom: 18px;
 }
@@ -1134,6 +1143,10 @@ h3 {
 
 .mini-metric small {
   color: var(--muted);
+}
+
+.profit-metric strong {
+  color: var(--positive);
 }
 
 .account-grid {
@@ -1210,6 +1223,65 @@ h3 {
 
 .au-vision-card p {
   color: var(--muted);
+}
+
+.settings-preview-card {
+  grid-column: span 1;
+}
+
+.settings-preview-card p {
+  color: var(--muted);
+}
+
+.settings-preview-card .btn {
+  margin-top: 16px;
+}
+
+.live-account-card p {
+  max-width: 680px;
+}
+
+.live-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.settings-card {
+  min-height: 280px;
+}
+
+.settings-list {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-list div {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.settings-list span {
+  color: var(--muted);
+}
+
+.settings-list strong {
+  color: var(--text);
+  text-align: right;
 }
 
 .vision-steps {
@@ -1643,6 +1715,10 @@ h3 {
   }
 
   .sidebar-return {
+    margin-top: 0;
+  }
+
+  .sidebar-actions .btn-ghost {
     display: none;
   }
 
@@ -1652,6 +1728,7 @@ h3 {
   .account-grid,
   .markets-layout,
   .research-page-grid,
+  .settings-grid,
   .auth-shell,
   .demo-step-grid,
   .research-columns {

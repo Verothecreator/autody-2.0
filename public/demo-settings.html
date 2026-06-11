@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Demo Account | Settings</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="demo-wallet.html">Wallet</a>
+        <a href="demo-markets.html">Markets</a>
+        <a href="demo-orders.html">Orders</a>
+        <a href="demo-account.html">Overview</a>
+        <a href="demo-research.html">Research</a>
+        <a href="demo-settings.html" class="active">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Demo mode</span>
+        <strong>$50,000 paper USD</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="account.html" class="btn sidebar-return">Live Account</a>
+        <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Demo settings</p>
+          <h1>Settings</h1>
+          <p class="app-subtitle">Control demo behavior, alerts, order confirmations, and the switch between demo and live account mode.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">Practice mode</span>
+          <strong>Demo active</strong>
+        </div>
+      </header>
+
+      <section class="settings-grid">
+        <div class="app-card settings-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Account mode</span>
+              <h2>Live and demo</h2>
+            </div>
+          </div>
+          <div class="settings-list">
+            <div>
+              <span>Current mode</span>
+              <strong>Demo trading</strong>
+            </div>
+            <div>
+              <span>Normal account</span>
+              <a href="account.html" class="btn btn-small">Switch to Live</a>
+            </div>
+            <div>
+              <span>Demo buying power</span>
+              <strong>$50,000 paper USD</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="app-card settings-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Trading controls</span>
+              <h2>Order behavior</h2>
+            </div>
+          </div>
+          <div class="settings-list">
+            <div>
+              <span>Order confirmations</span>
+              <strong>On</strong>
+            </div>
+            <div>
+              <span>Risk level</span>
+              <strong>Practice</strong>
+            </div>
+            <div>
+              <span>Reset demo account</span>
+              <button type="button" class="btn btn-small btn-ghost">Coming Soon</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="app-card settings-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Alerts</span>
+              <h2>Market updates</h2>
+            </div>
+          </div>
+          <div class="settings-list">
+            <div>
+              <span>Market alerts</span>
+              <strong>On</strong>
+            </div>
+            <div>
+              <span>News alerts</span>
+              <strong>On</strong>
+            </div>
+            <div>
+              <span>Currency</span>
+              <strong>USD</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="app-card settings-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Profile</span>
+              <h2>Practice user</h2>
+            </div>
+          </div>
+          <div class="settings-list">
+            <div>
+              <span>Email</span>
+              <strong>ontold7@gmail.com</strong>
+            </div>
+            <div>
+              <span>Account type</span>
+              <strong>Seeded practice account</strong>
+            </div>
+            <div>
+              <span>Database status</span>
+              <strong>JSON now, Supabase next</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+</body>
+</html>

@@ -67,5 +67,27 @@
   },
   "researchPreferences": {
     "practice-user": ["Crypto", "Stocks", "Gold", "Rates", "Inflation", "AU utility"]
+  },
+  "performance": {
+    "practice-user": {
+      "portfolioValue": 50000,
+      "startingBalance": 50000,
+      "unrealizedProfitLoss": 0,
+      "realizedProfitLoss": 0,
+      "todayProfitLoss": 0,
+      "todayProfitLossPct": 0,
+      "winRatePct": 0,
+      "tradesPlaced": 0
+    }
+  },
+  "settings": {
+    "practice-user": {
+      "defaultMode": "demo",
+      "currency": "USD",
+      "riskLevel": "practice",
+      "orderConfirmation": true,
+      "marketAlerts": true,
+      "newsAlerts": true
+    }
   }
 }
