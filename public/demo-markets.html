@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Demo Account | Markets</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="demo-account.html">Overview</a>
+        <a href="demo-wallet.html">Wallet</a>
+        <a href="demo-markets.html" class="active">Markets</a>
+        <a href="demo-orders.html">Orders</a>
+        <a href="demo-research.html">Research</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Demo mode</span>
+        <strong>$50,000 paper USD</strong>
+      </div>
+      <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Demo markets</p>
+          <h1>Markets</h1>
+          <p class="app-subtitle">Choose a crypto or stock, preview an order, and practice before real trading is connected.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">Buying power</span>
+          <strong>$50,000</strong>
+        </div>
+      </header>
+
+      <section class="markets-layout">
+        <div class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Crypto</span>
+              <h2>Digital assets</h2>
+            </div>
+          </div>
+          <div class="watchlist">
+            <div><span>BTC</span><strong>$63,100</strong><small class="gain">&uarr; +3.47%</small></div>
+            <div><span>ETH</span><strong>$3,280</strong><small class="gain">&uarr; +1.12%</small></div>
+            <div><span>SOL</span><strong>$142.80</strong><small class="loss">&darr; -0.64%</small></div>
+            <div><span>DOGE</span><strong>$0.12</strong><small class="gain">&uarr; +2.05%</small></div>
+            <div><span>ADA</span><strong>$0.41</strong><small class="loss">&darr; -0.38%</small></div>
+            <div><span>AU</span><strong>Demo</strong><small>Currency vision</small></div>
+          </div>
+        </div>
+
+        <div class="app-card trade-ticket">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Order ticket</span>
+              <h2>Practice trade</h2>
+            </div>
+          </div>
+          <form class="ticket-form">
+            <label>Asset<input value="BTC / Bitcoin" readonly></label>
+            <label>Action<select><option>Buy</option><option>Sell</option></select></label>
+            <label>Order type<select><option>Market</option><option>Limit</option></select></label>
+            <label>Demo amount<input value="$1,000.00"></label>
+            <button type="button" class="btn">Preview Order</button>
+          </form>
+        </div>
+
+        <div class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Stocks and ETFs</span>
+              <h2>Equities</h2>
+            </div>
+          </div>
+          <div class="watchlist">
+            <div><span>SPY</span><strong>$608.42</strong><small class="gain">&uarr; +0.42%</small></div>
+            <div><span>QQQ</span><strong>$526.18</strong><small class="gain">&uarr; +0.58%</small></div>
+            <div><span>AAPL</span><strong>$201.34</strong><small class="gain">&uarr; +1.12%</small></div>
+            <div><span>NVDA</span><strong>$141.36</strong><small class="loss">&darr; -0.40%</small></div>
+            <div><span>TSLA</span><strong>$184.29</strong><small class="gain">&uarr; +0.90%</small></div>
+            <div><span>MSFT</span><strong>$448.10</strong><small class="loss">&darr; -0.21%</small></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

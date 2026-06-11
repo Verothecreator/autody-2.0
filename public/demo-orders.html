@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Demo Account | Orders</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="demo-account.html">Overview</a>
+        <a href="demo-wallet.html">Wallet</a>
+        <a href="demo-markets.html">Markets</a>
+        <a href="demo-orders.html" class="active">Orders</a>
+        <a href="demo-research.html">Research</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Demo mode</span>
+        <strong>$50,000 paper USD</strong>
+      </div>
+      <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Demo orders</p>
+          <h1>Orders</h1>
+          <p class="app-subtitle">Review practice orders, open positions, fills, and cancelled trades.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">No real money</span>
+          <strong>Paper trading</strong>
+        </div>
+      </header>
+
+      <section class="account-kpi-grid">
+        <div class="app-card mini-metric">
+          <span class="muted-label">Open orders</span>
+          <strong>0</strong>
+          <small>No pending demo trades</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Filled today</span>
+          <strong>0</strong>
+          <small>Fresh demo account</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Reserved cash</span>
+          <strong>$0.00</strong>
+          <small>All funds available</small>
+        </div>
+      </section>
+
+      <section class="account-grid">
+        <div class="app-card wide-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Order history</span>
+              <h2>Recent demo activity</h2>
+            </div>
+            <a href="demo-markets.html" class="btn btn-small">New Order</a>
+          </div>
+          <div class="asset-table">
+            <div class="asset-table-row head">
+              <span>Type</span>
+              <span>Asset</span>
+              <span>Amount</span>
+              <span>Status</span>
+            </div>
+            <div class="asset-table-row">
+              <span>Market buy</span>
+              <span>BTC</span>
+              <span>$1,000.00</span>
+              <span>Example</span>
+            </div>
+            <div class="asset-table-row">
+              <span>Limit buy</span>
+              <span>AAPL</span>
+              <span>$500.00</span>
+              <span>Example</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Order rules</span>
+              <h2>Demo limits</h2>
+            </div>
+          </div>
+          <div class="activity-list">
+            <div><span>Cash</span><strong>$50,000 max buying power</strong><small>For demo only</small></div>
+            <div><span>Risk</span><strong>No leverage yet</strong><small>Simple practice first</small></div>
+            <div><span>Assets</span><strong>Crypto and stocks</strong><small>More markets later</small></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

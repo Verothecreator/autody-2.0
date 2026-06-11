@@ -1088,10 +1088,27 @@ h3 {
   cursor: pointer;
 }
 
+.quick-actions a {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 800;
+}
+
 .quick-actions button:nth-child(3) {
   background: linear-gradient(135deg, #5d5fef, #4345ce);
   color: #ffffff;
   font-weight: 800;
+}
+
+.quick-actions a:first-child {
+  background: linear-gradient(135deg, #5d5fef, #4345ce);
 }
 
 .account-kpi-grid {
@@ -1123,6 +1140,17 @@ h3 {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.8fr);
   gap: 18px;
+}
+
+.markets-layout,
+.research-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.74fr);
+  gap: 18px;
+}
+
+.wide-card {
+  grid-column: span 1;
 }
 
 .app-card {
@@ -1201,6 +1229,92 @@ h3 {
   background: rgba(93, 95, 239, 0.12);
   color: var(--text);
   font-weight: 800;
+}
+
+.vision-steps a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(93, 95, 239, 0.12);
+  color: var(--text);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.demo-step-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.demo-step-grid div {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.demo-step-grid strong,
+.demo-step-grid span {
+  display: block;
+}
+
+.demo-step-grid strong {
+  color: var(--green);
+  font-size: 1.8rem;
+}
+
+.demo-step-grid span {
+  color: var(--muted);
+}
+
+.trade-ticket {
+  grid-row: span 2;
+}
+
+.ticket-form {
+  display: grid;
+  gap: 12px;
+}
+
+.ticket-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.ticket-form input,
+.ticket-form select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.research-feature {
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.research-feature h2 {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+}
+
+.research-feature p {
+  color: var(--muted);
+}
+
+.research-columns {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .watchlist,
@@ -1418,8 +1532,16 @@ h3 {
   .app-topbar,
   .account-overview,
   .account-kpi-grid,
-  .account-grid {
+  .account-grid,
+  .markets-layout,
+  .research-page-grid,
+  .demo-step-grid,
+  .research-columns {
     grid-template-columns: 1fr;
+  }
+
+  .trade-ticket {
+    grid-row: auto;
   }
 
   .app-topbar {
