@@ -16,10 +16,14 @@
       <nav class="app-nav" aria-label="Account navigation">
         <a href="#overview" class="active">Overview</a>
         <a href="#wallet">Wallet</a>
+        <a href="#markets">Markets</a>
         <a href="#orders">Orders</a>
         <a href="#research">Research</a>
-        <a href="#settings">Settings</a>
       </nav>
+      <div class="sidebar-profile">
+        <span>Demo User</span>
+        <strong>Vero Account</strong>
+      </div>
       <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
     </aside>
 
@@ -27,20 +31,26 @@
       <header class="app-topbar">
         <div>
           <p class="eyebrow">Demo account</p>
-          <h1>Welcome back, Vero.</h1>
+          <h1>Account overview</h1>
+          <p class="app-subtitle">A preview of how Autody can feel after sign in: wallet, AU, markets, orders, and research in one place.</p>
         </div>
         <div class="topbar-actions">
           <button type="button" class="icon-btn">?</button>
-          <button type="button" class="btn btn-ghost">Sign In Later</button>
-          <button type="button" class="btn">Connect Wallet</button>
+          <button type="button" class="btn btn-ghost">Sign In</button>
+          <button type="button" class="btn">Create Account</button>
         </div>
       </header>
 
       <section class="account-overview" id="overview">
         <div class="balance-card">
-          <span class="muted-label">Total demo balance</span>
-          <strong>$24,918.72</strong>
-          <p><span class="gain">+$842.19</span> across the last 24 hours</p>
+          <div class="balance-card-top">
+            <div>
+              <span class="muted-label">Total demo balance</span>
+              <strong>$24,918.72</strong>
+            </div>
+            <span class="status-pill">Demo mode</span>
+          </div>
+          <p><span class="gain">&uarr; +$842.19</span> across the last 24 hours</p>
           <div class="account-line-chart" aria-hidden="true">
             <span style="height: 36%"></span>
             <span style="height: 54%"></span>
@@ -56,8 +66,26 @@
         <div class="quick-actions">
           <button type="button">Deposit</button>
           <button type="button">Swap</button>
-          <button type="button">Buy AU</button>
+          <button type="button">Send AU</button>
           <button type="button">Place Order</button>
+        </div>
+      </section>
+
+      <section class="account-kpi-grid">
+        <div class="app-card mini-metric">
+          <span class="muted-label">AU balance</span>
+          <strong>88,400 AU</strong>
+          <small>Gold-backed currency vision</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Available cash</span>
+          <strong>$4,169.60</strong>
+          <small>Ready for orders and swaps</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Watchlist</span>
+          <strong>12 assets</strong>
+          <small>Crypto, stocks, gold, economy</small>
         </div>
       </section>
 
@@ -65,8 +93,8 @@
         <div class="app-card holdings-card" id="wallet">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Holdings</span>
-              <h2>Assets</h2>
+              <span class="muted-label">Wallet</span>
+              <h2>Holdings</h2>
             </div>
             <button type="button" class="btn btn-small btn-ghost">Manage</button>
           </div>
@@ -81,19 +109,25 @@
               <span><i class="asset-dot au"></i> Autody AU</span>
               <span>88,400 AU</span>
               <span>$8,420.80</span>
-              <span class="gain">+4.8%</span>
+              <span class="gain">&uarr; +4.8%</span>
             </div>
             <div class="asset-table-row">
               <span><i class="asset-dot btc"></i> Bitcoin</span>
               <span>0.083 BTC</span>
-              <span>$8,704.20</span>
-              <span class="loss">-0.6%</span>
+              <span>$5,237.40</span>
+              <span class="loss">&darr; -0.6%</span>
             </div>
             <div class="asset-table-row">
               <span><i class="asset-dot stk"></i> Apple</span>
               <span>18 shares</span>
               <span>$3,624.12</span>
-              <span class="gain">+1.2%</span>
+              <span class="gain">&uarr; +1.2%</span>
+            </div>
+            <div class="asset-table-row">
+              <span><i class="asset-dot gold"></i> Gold reserve</span>
+              <span>Tracked</span>
+              <span>$3,466.80</span>
+              <span class="gain">&uarr; +0.3%</span>
             </div>
             <div class="asset-table-row">
               <span><i class="asset-dot cash"></i> USD Cash</span>
@@ -104,7 +138,23 @@
           </div>
         </div>
 
-        <div class="app-card watchlist-card">
+        <div class="app-card au-vision-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">AU purpose</span>
+              <h2>More than trading</h2>
+            </div>
+          </div>
+          <p>AU is framed as usable value: payments, goods, services, account activity, and exchange. The account keeps the token practical instead of making it only about speculation.</p>
+          <div class="vision-steps">
+            <span>Pay</span>
+            <span>Swap</span>
+            <span>Hold</span>
+            <span>Use</span>
+          </div>
+        </div>
+
+        <div class="app-card watchlist-card" id="markets">
           <div class="card-heading">
             <div>
               <span class="muted-label">Watchlist</span>
@@ -112,10 +162,11 @@
             </div>
           </div>
           <div class="watchlist">
-            <div><span>ETH</span><strong>$3,980.12</strong><small class="gain">+2.1%</small></div>
-            <div><span>NVDA</span><strong>$141.36</strong><small class="loss">-0.4%</small></div>
-            <div><span>TSLA</span><strong>$184.29</strong><small class="gain">+0.9%</small></div>
-            <div><span>MATIC</span><strong>$0.72</strong><small class="gain">+1.8%</small></div>
+            <div><span>ETH</span><strong>$3,980.12</strong><small class="gain">&uarr; +2.1%</small></div>
+            <div><span>NVDA</span><strong>$141.36</strong><small class="loss">&darr; -0.4%</small></div>
+            <div><span>TSLA</span><strong>$184.29</strong><small class="gain">&uarr; +0.9%</small></div>
+            <div><span>GOLD</span><strong>$2,344.80</strong><small class="gain">&uarr; +0.3%</small></div>
+            <div><span>10Y</span><strong>4.28%</strong><small class="loss">&darr; -0.1%</small></div>
           </div>
         </div>
 
@@ -128,8 +179,8 @@
             <button type="button" class="btn btn-small">New Order</button>
           </div>
           <div class="activity-list">
-            <div><span>Buy</span><strong>AU token</strong><small>Pending wallet confirmation</small></div>
-            <div><span>Swap</span><strong>MATIC to USDT</strong><small>Completed 18 minutes ago</small></div>
+            <div><span>Send</span><strong>AU payment</strong><small>Prepared for merchant checkout</small></div>
+            <div><span>Swap</span><strong>BTC to AU</strong><small>Completed 18 minutes ago</small></div>
             <div><span>Stock</span><strong>AAPL market order</strong><small>Filled today</small></div>
           </div>
         </div>

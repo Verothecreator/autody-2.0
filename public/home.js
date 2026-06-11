@@ -204,7 +204,7 @@ async function loadNewsData() {
 
   const newsUpdated = document.getElementById("news-updated");
   if (newsUpdated) {
-    newsUpdated.textContent = `Checking for important stories throughout the day. Last checked ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
+    newsUpdated.textContent = "Checking for important stories throughout the day.";
   }
 }
 

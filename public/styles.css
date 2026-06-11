@@ -951,6 +951,32 @@ h3 {
   margin-top: auto;
 }
 
+.sidebar-profile {
+  margin-top: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.sidebar-profile span,
+.sidebar-profile strong {
+  display: block;
+}
+
+.sidebar-profile span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.sidebar-profile strong {
+  color: var(--text);
+}
+
+.sidebar-profile + .sidebar-return {
+  margin-top: 0;
+}
+
 .app-main {
   padding: 28px;
 }
@@ -966,6 +992,12 @@ h3 {
 .app-topbar h1 {
   margin-bottom: 0;
   font-size: clamp(2.2rem, 5vw, 4.2rem);
+}
+
+.app-subtitle {
+  max-width: 720px;
+  margin: 10px 0 0;
+  color: var(--muted);
 }
 
 .topbar-actions {
@@ -1003,6 +1035,13 @@ h3 {
 
 .balance-card {
   padding: 24px;
+}
+
+.balance-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
 }
 
 .balance-card strong {
@@ -1053,6 +1092,31 @@ h3 {
   background: linear-gradient(135deg, #5d5fef, #4345ce);
   color: #ffffff;
   font-weight: 800;
+}
+
+.account-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.mini-metric {
+  min-height: 148px;
+}
+
+.mini-metric strong,
+.mini-metric small {
+  display: block;
+}
+
+.mini-metric strong {
+  margin: 12px 0 6px;
+  font-size: 1.8rem;
+}
+
+.mini-metric small {
+  color: var(--muted);
 }
 
 .account-grid {
@@ -1110,6 +1174,33 @@ h3 {
 
 .asset-dot.cash {
   background: #d8dde8;
+}
+
+.asset-dot.gold {
+  background: var(--gold);
+}
+
+.au-vision-card p {
+  color: var(--muted);
+}
+
+.vision-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.vision-steps span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(93, 95, 239, 0.12);
+  color: var(--text);
+  font-weight: 800;
 }
 
 .watchlist,
@@ -1326,6 +1417,7 @@ h3 {
 
   .app-topbar,
   .account-overview,
+  .account-kpi-grid,
   .account-grid {
     grid-template-columns: 1fr;
   }
@@ -1429,6 +1521,14 @@ h3 {
 
   .asset-table-row {
     min-width: 680px;
+  }
+
+  .balance-card-top {
+    flex-direction: column;
+  }
+
+  .vision-steps {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .watchlist div {
