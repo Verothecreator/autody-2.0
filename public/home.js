@@ -86,14 +86,14 @@ function renderHeroPulse(cryptoAssets, stockAssets, newsCount) {
       <small class="${changeClass(spy?.changePct)}">${formatPct(spy?.changePct)}</small>
     </div>
     <div class="pulse-card">
-      <span>News</span>
-      <strong>${newsCount || 0} stories</strong>
-      <small>Finance feed</small>
+      <span>Gold</span>
+      <strong>Reserve view</strong>
+      <small>AU confidence layer</small>
     </div>
     <div class="pulse-card">
       <span>Economy</span>
       <strong>Watching</strong>
-      <small>Rates, jobs, inflation</small>
+      <small>Rates and inflation</small>
     </div>
   `;
 
@@ -111,27 +111,10 @@ function renderNews(articles) {
         <span>${escapeHtml(article.subject || "Markets")}</span>
         <h3>${escapeHtml(article.title || "Market story")}</h3>
         <p>Source: ${escapeHtml(article.source || "Finance news")}</p>
-        <p class="news-summary" id="news-summary-${index}" hidden>${escapeHtml(article.summary || "Open the source for the full report and market context.")}</p>
-        <div class="news-actions">
-          <button type="button" class="news-more" data-summary="news-summary-${index}">Read more</button>
-          ${article.url && article.url !== "#" ? `<a href="${escapeHtml(article.url)}" target="_blank" rel="noopener">Open source</a>` : ""}
-        </div>
       </div>
     </article>
   `).join("");
 }
-
-document.addEventListener("click", (event) => {
-  const button = event.target.closest(".news-more");
-  if (!button) return;
-
-  const summary = document.getElementById(button.dataset.summary);
-  if (!summary) return;
-
-  const isHidden = summary.hasAttribute("hidden");
-  summary.toggleAttribute("hidden", !isHidden);
-  button.textContent = isHidden ? "Show less" : "Read more";
-});
 
 async function loadHomeData() {
   const status = document.getElementById("market-status");
@@ -161,6 +144,10 @@ async function loadHomeData() {
 
   const usingFallback = crypto.fallback || stocks.fallback || news.fallback;
   if (status) status.textContent = usingFallback ? "Market preview active" : "Live data active";
+  const newsUpdated = document.getElementById("news-updated");
+  if (newsUpdated) {
+    newsUpdated.textContent = `Checking every minute. Last checked ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {

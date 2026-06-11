@@ -268,10 +268,17 @@ function scoreNews(article) {
   const text = `${article.title || ""} ${article.source || ""}`.toLowerCase();
   let score = 0;
   if (/(breaking|urgent|fed|inflation|rates|jobs|earnings|bitcoin|crypto|stock|market|tariff|recession|gold|oil)/.test(text)) score += 4;
-  if (/(nvidia|apple|tesla|microsoft|amazon|coinbase|binance|ethereum|s&p|nasdaq|dow)/.test(text)) score += 3;
+  if (/(nvidia|apple|tesla|microsoft|amazon|ethereum|bitcoin|s&p|nasdaq|dow|gold|oil)/.test(text)) score += 3;
   if (article.image) score += 2;
   if (article.publishedAt) score += 1;
   return score;
+}
+
+function isCompetitorPromo(article) {
+  const text = `${article.title || ""} ${article.source || ""} ${article.url || ""}`.toLowerCase();
+  const competitorNames = /(binance|coinbase|kraken|bybit|okx|kucoin|robinhood|etoro|webull|revolut|crypto\.com)/;
+  const promoTerms = /(how to|step[-\s]?by[-\s]?step|guide for beginners|buy and sell|sign up|referral|bonus|promo|coupon|tutorial|learn how)/;
+  return competitorNames.test(text) && promoTerms.test(text);
 }
 
 function subjectImage(subject = "Markets") {
@@ -294,6 +301,7 @@ function ensureArticleImage(article) {
 function uniqueArticles(articles) {
   const seen = new Set();
   return articles.filter((article) => {
+    if (isCompetitorPromo(article)) return false;
     const key = (article.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 90);
     if (!key || seen.has(key)) return false;
     seen.add(key);
