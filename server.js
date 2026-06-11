@@ -35,6 +35,7 @@ const ORDER_STORE = path.join(__dirname, "orders.json");
 if (!fs.existsSync(ORDER_STORE)) fs.writeFileSync(ORDER_STORE, "{}");
 
 const DEMO_DB_STORE = path.join(__dirname, "data", "demo-db.json");
+const DATABASE_SCHEMA_STORE = path.join(__dirname, "database", "schema.sql");
 const PRACTICE_USER_ID = "practice-user";
 const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
@@ -42,6 +43,10 @@ const dbPool = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
     ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
 }) : null;
+const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 5 * 60 * 1000);
+const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
+let liveRefreshInFlight = null;
+let lastLiveRefresh = null;
 
 function loadOrders() {
     return JSON.parse(fs.readFileSync(ORDER_STORE));
@@ -212,6 +217,21 @@ function getPracticeAccount() {
 
 function databaseConfigured() {
     return Boolean(dbPool);
+}
+
+async function initializeDatabase() {
+    if (!databaseConfigured()) {
+        console.log("Supabase DATABASE_URL is not set; using JSON fallback data.");
+        return;
+    }
+
+    try {
+        const schema = fs.readFileSync(DATABASE_SCHEMA_STORE, "utf8");
+        await dbPool.query(schema);
+        console.log("Supabase schema is ready.");
+    } catch (err) {
+        console.error("Supabase schema initialization failed. JSON fallback remains available:", err);
+    }
 }
 
 function numberValue(value, fallback = 0) {
@@ -505,6 +525,72 @@ async function saveNewsSnapshots(provider, articles = []) {
         `, values);
     } catch (err) {
         console.error("News snapshot save failed:", err);
+    }
+}
+
+async function readLatestMarketSnapshots(assetType, limit = 6) {
+    if (!databaseConfigured()) return [];
+
+    try {
+        const result = await dbPool.query(`
+            select *
+            from (
+                select distinct on (symbol)
+                    provider,
+                    symbol,
+                    asset_name,
+                    asset_type,
+                    price_usd,
+                    change_pct,
+                    market_cap_usd,
+                    captured_at
+                from market_snapshots
+                where asset_type = $1
+                order by symbol, captured_at desc
+            ) latest
+            order by captured_at desc
+            limit $2
+        `, [assetType, limit]);
+
+        return result.rows.map((row) => ({
+            symbol: row.symbol,
+            name: row.asset_name,
+            price: row.price_usd == null ? null : Number(row.price_usd),
+            changePct: row.change_pct == null ? null : Number(row.change_pct),
+            marketCap: row.market_cap_usd == null ? null : Number(row.market_cap_usd),
+            capturedAt: row.captured_at,
+            provider: row.provider
+        }));
+    } catch (err) {
+        console.error("Market snapshot fallback read failed:", err);
+        return [];
+    }
+}
+
+async function readLatestNewsSnapshots(limit = 9) {
+    if (!databaseConfigured()) return [];
+
+    try {
+        const result = await dbPool.query(`
+            select provider, source, subject, title, image_url as image, article_url as url, published_at, captured_at
+            from news_snapshots
+            order by coalesce(published_at, captured_at) desc
+            limit $1
+        `, [limit]);
+
+        return result.rows.map((row) => ({
+            title: row.title,
+            source: row.source,
+            subject: row.subject,
+            image: row.image,
+            url: row.url,
+            publishedAt: row.published_at,
+            capturedAt: row.captured_at,
+            provider: row.provider
+        }));
+    } catch (err) {
+        console.error("News snapshot fallback read failed:", err);
+        return [];
     }
 }
 
@@ -837,6 +923,332 @@ function uniqueArticles(articles) {
   });
 }
 
+async function fetchCryptoMarketData() {
+  try {
+    const ids = "bitcoin,ethereum,solana,dogecoin,cardano,polygon-ecosystem-token";
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
+    const json = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Autody/1.0 market preview"
+      }
+    }).then((r) => {
+      if (!r.ok) throw new Error(`CoinGecko HTTP ${r.status}`);
+      return r.json();
+    });
+
+    const labels = {
+      bitcoin: "Bitcoin",
+      ethereum: "Ethereum",
+      solana: "Solana",
+      dogecoin: "Dogecoin",
+      cardano: "Cardano",
+      "polygon-ecosystem-token": "Polygon"
+    };
+
+    const symbols = {
+      bitcoin: "BTC",
+      ethereum: "ETH",
+      solana: "SOL",
+      dogecoin: "DOGE",
+      cardano: "ADA",
+      "polygon-ecosystem-token": "POL"
+    };
+
+    const assets = Object.entries(json).map(([id, data]) => ({
+      id,
+      name: labels[id] || id,
+      symbol: symbols[id] || id.toUpperCase(),
+      price: data.usd ?? null,
+      changePct: data.usd_24h_change ?? null,
+      marketCap: data.usd_market_cap ?? null
+    }));
+
+    saveMarketSnapshots("coingecko", "crypto", assets);
+    return { success: true, provider: "coingecko", assets };
+  } catch (err) {
+    console.error("Crypto market proxy error:", err);
+    try {
+      const assets = await fetchCoinbaseCrypto();
+      saveMarketSnapshots("coinbase", "crypto", assets);
+      return { success: true, provider: "coinbase", assets };
+    } catch (fallbackErr) {
+      console.error("Coinbase crypto fallback error:", fallbackErr);
+      const cachedAssets = await readLatestMarketSnapshots("crypto", 6);
+      if (cachedAssets.length) {
+        return { success: true, provider: "supabase-cache", cached: true, assets: cachedAssets };
+      }
+      return {
+        success: true,
+        fallback: true,
+        error: "Live crypto providers unavailable",
+        assets: []
+      };
+    }
+  }
+}
+
+async function fetchStockMarketData() {
+  try {
+    const symbols = "SPY,QQQ,AAPL,NVDA,TSLA,MSFT,AMZN";
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketTime`;
+    const json = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Autody/1.0 market preview"
+      }
+    }).then((r) => {
+      if (!r.ok) throw new Error(`Yahoo Finance HTTP ${r.status}`);
+      return r.json();
+    });
+
+    const assets = (json.quoteResponse?.result || []).map((quote) => ({
+      symbol: quote.symbol,
+      name: quote.shortName || quote.symbol,
+      price: quote.regularMarketPrice ?? null,
+      changePct: quote.regularMarketChangePercent ?? null,
+      date: quote.regularMarketTime ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
+      time: quote.regularMarketTime ?? null
+    })).filter((asset) => asset.price != null);
+
+    saveMarketSnapshots("yahoo", "stock", assets);
+    return { success: true, provider: "yahoo", assets };
+  } catch (err) {
+    console.error("Stock market proxy error:", err);
+    try {
+      const assets = await fetchStooqQuotes("spy.us,qqq.us,aapl.us,nvda.us,tsla.us,msft.us,amzn.us");
+      saveMarketSnapshots("stooq", "stock", assets);
+      return { success: true, provider: "stooq", assets };
+    } catch (fallbackErr) {
+      console.error("Stooq stock fallback error:", fallbackErr);
+      const cachedAssets = await readLatestMarketSnapshots("stock", 7);
+      if (cachedAssets.length) {
+        return { success: true, provider: "supabase-cache", cached: true, assets: cachedAssets };
+      }
+      return {
+        success: true,
+        fallback: true,
+        error: "Live stock providers unavailable",
+        assets: []
+      };
+    }
+  }
+}
+
+async function fetchSignalMarketData() {
+  try {
+    const [goldResult, economyResult] = await Promise.allSettled([
+      fetchYahooChartSignal("GC=F", "Gold futures"),
+      fetchYahooChartSignal("^TNX", "US 10Y Treasury Yield")
+    ]);
+    const gold = goldResult.status === "fulfilled" ? goldResult.value : null;
+    const economy = economyResult.status === "fulfilled" ? economyResult.value : null;
+
+    saveMarketSnapshots("yahoo", "signal", [
+      gold ? { symbol: "GC=F", name: gold.name, price: gold.price, changePct: gold.changePct } : null,
+      economy ? { symbol: "^TNX", name: economy.name, price: economy.price, changePct: economy.changePct } : null
+    ].filter(Boolean));
+
+    return {
+      success: true,
+      gold: gold ? {
+        symbol: "GC=F",
+        name: gold.name,
+        price: gold.price,
+        changePct: gold.changePct,
+        date: null,
+        time: null
+      } : null,
+      economy: economy ? {
+        name: economy.name,
+        value: economy.price,
+        changePct: economy.changePct,
+        detail: "10Y yield signal"
+      } : null
+    };
+  } catch (err) {
+    console.error("Signal proxy error:", err);
+    const cachedSignals = await readLatestMarketSnapshots("signal", 2);
+    const gold = cachedSignals.find((asset) => asset.symbol === "GC=F");
+    const economy = cachedSignals.find((asset) => asset.symbol === "^TNX");
+    if (gold || economy) {
+      return {
+        success: true,
+        provider: "supabase-cache",
+        cached: true,
+        gold: gold ? {
+          symbol: gold.symbol,
+          name: gold.name,
+          price: gold.price,
+          changePct: gold.changePct,
+          date: gold.capturedAt,
+          time: null
+        } : null,
+        economy: economy ? {
+          name: economy.name,
+          value: economy.price,
+          changePct: economy.changePct,
+          detail: "10Y yield signal"
+        } : null
+      };
+    }
+    return {
+      success: true,
+      fallback: true,
+      gold: null,
+      economy: null
+    };
+  }
+}
+
+async function fetchNewsData() {
+  try {
+    const gdeltQuery = encodeURIComponent("(finance OR markets OR stocks OR crypto OR economy OR business OR gold)");
+    const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${gdeltQuery}&mode=ArtList&maxrecords=12&format=json&sort=HybridRel`;
+    const rssFeeds = [
+      {
+        subject: "Markets",
+        url: "https://news.google.com/rss/search?q=(finance%20OR%20markets%20OR%20stocks%20OR%20crypto%20OR%20economy)%20-binance%20-coinbase%20when:1d&hl=en-US&gl=US&ceid=US:en"
+      },
+      {
+        subject: "Markets",
+        url: "https://www.cnbc.com/id/15839069/device/rss/rss.html"
+      },
+      {
+        subject: "Economy",
+        url: "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+      }
+    ];
+
+    const gdeltPromise = fetch(gdeltUrl, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Autody/1.0 news preview"
+      }
+    }).then((r) => {
+      if (!r.ok) throw new Error(`GDELT HTTP ${r.status}`);
+      return r.json();
+    }).then((json) => (json.articles || []).map((article) => ({
+      title: article.title,
+      source: article.domain || article.sourceCountry || "Market news",
+      url: article.url,
+      image: article.socialimage || null,
+      summary: article.title ? `Important ${inferNewsSubject(article.title, "market").toLowerCase()} story from ${article.domain || "a market news source"}. Open the original source for the full report.` : "Open the source for the full story and market context.",
+      publishedAt: article.seendate || null,
+      subject: inferNewsSubject(article.title, "Markets")
+    })));
+
+    const rssPromises = rssFeeds.map((feed) => fetch(feed.url, {
+      headers: {
+        Accept: "application/rss+xml, application/xml, text/xml",
+        "User-Agent": "Autody/1.0 news preview"
+      }
+    }).then((r) => {
+      if (!r.ok) throw new Error(`RSS HTTP ${r.status}`);
+      return r.text();
+    }).then((xml) => parseRss(xml, feed.subject)));
+
+    const settled = await Promise.allSettled([gdeltPromise, ...rssPromises]);
+    const articles = settled
+      .filter((result) => result.status === "fulfilled")
+      .flatMap((result) => result.value);
+
+    const importantArticles = uniqueArticles(articles)
+      .sort((a, b) => scoreNews(b) - scoreNews(a))
+      .slice(0, 9)
+      .map(ensureArticleImage);
+
+    saveNewsSnapshots("gdelt-rss", importantArticles);
+
+    return {
+      success: true,
+      articles: importantArticles.length ? importantArticles : fallbackNews.map(ensureArticleImage),
+      fallback: importantArticles.length === 0
+    };
+  } catch (err) {
+    console.error("News proxy error:", err);
+    const cachedArticles = await readLatestNewsSnapshots(9);
+    if (cachedArticles.length) {
+      return { success: true, provider: "supabase-cache", cached: true, articles: cachedArticles };
+    }
+    return { success: true, articles: fallbackNews.map(ensureArticleImage), fallback: true };
+  }
+}
+
+async function refreshLiveData({ includeNews = false, reason = "manual" } = {}) {
+  const startedAt = new Date();
+  const refreshes = [
+    ["crypto", fetchCryptoMarketData()],
+    ["stocks", fetchStockMarketData()],
+    ["signals", fetchSignalMarketData()]
+  ];
+
+  if (includeNews) refreshes.push(["news", fetchNewsData()]);
+
+  const settled = await Promise.allSettled(refreshes.map(([, promise]) => promise));
+  const results = {};
+
+  settled.forEach((result, index) => {
+    const key = refreshes[index][0];
+    results[key] = result.status === "fulfilled"
+      ? { ok: true, provider: result.value.provider || null, count: result.value.assets?.length || result.value.articles?.length || 0 }
+      : { ok: false, error: String(result.reason?.message || result.reason) };
+  });
+
+  return {
+    success: true,
+    reason,
+    database: databaseConfigured() ? "supabase-postgres" : "json",
+    startedAt: startedAt.toISOString(),
+    finishedAt: new Date().toISOString(),
+    results
+  };
+}
+
+async function runLiveRefresh(options = {}) {
+  if (liveRefreshInFlight) return liveRefreshInFlight;
+
+  liveRefreshInFlight = refreshLiveData(options)
+    .then((result) => {
+      lastLiveRefresh = result;
+      return result;
+    })
+    .finally(() => {
+      liveRefreshInFlight = null;
+    });
+
+  return liveRefreshInFlight;
+}
+
+function startLiveDataRefreshLoop() {
+  if (!databaseConfigured()) return;
+
+  const startupTimer = setTimeout(() => {
+    runLiveRefresh({ includeNews: true, reason: "startup" }).catch((err) => {
+      console.error("Startup live data refresh failed:", err);
+    });
+  }, 5000);
+  startupTimer.unref?.();
+
+  if (LIVE_MARKET_REFRESH_MS > 0) {
+    const marketTimer = setInterval(() => {
+      runLiveRefresh({ includeNews: false, reason: "market-interval" }).catch((err) => {
+        console.error("Market refresh interval failed:", err);
+      });
+    }, LIVE_MARKET_REFRESH_MS);
+    marketTimer.unref?.();
+  }
+
+  if (LIVE_NEWS_REFRESH_MS > 0) {
+    const newsTimer = setInterval(() => {
+      runLiveRefresh({ includeNews: true, reason: "news-interval" }).catch((err) => {
+        console.error("News refresh interval failed:", err);
+      });
+    }, LIVE_NEWS_REFRESH_MS);
+    newsTimer.unref?.();
+  }
+}
+
 app.get("/api/db/status", async (req, res) => {
   if (!databaseConfigured()) {
     return res.json({
@@ -917,223 +1329,51 @@ app.get("/api/news/snapshots", async (req, res) => {
   }
 });
 
-app.get("/api/markets/crypto", async (req, res) => {
+app.get("/api/live/status", (req, res) => {
+  return res.json({
+    success: true,
+    database: databaseConfigured() ? "supabase-postgres" : "json",
+    refreshInFlight: Boolean(liveRefreshInFlight),
+    lastRefresh: lastLiveRefresh
+  });
+});
+
+app.post("/api/live/refresh", async (req, res) => {
   try {
-    const ids = "bitcoin,ethereum,solana,dogecoin,cardano,polygon-ecosystem-token";
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
-    const json = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Autody/1.0 market preview"
-      }
-    }).then((r) => {
-      if (!r.ok) throw new Error(`CoinGecko HTTP ${r.status}`);
-      return r.json();
-    });
-
-    const labels = {
-      bitcoin: "Bitcoin",
-      ethereum: "Ethereum",
-      solana: "Solana",
-      dogecoin: "Dogecoin",
-      cardano: "Cardano",
-      "polygon-ecosystem-token": "Polygon"
-    };
-
-    const symbols = {
-      bitcoin: "BTC",
-      ethereum: "ETH",
-      solana: "SOL",
-      dogecoin: "DOGE",
-      cardano: "ADA",
-      "polygon-ecosystem-token": "POL"
-    };
-
-    const assets = Object.entries(json).map(([id, data]) => ({
-      id,
-      name: labels[id] || id,
-      symbol: symbols[id] || id.toUpperCase(),
-      price: data.usd ?? null,
-      changePct: data.usd_24h_change ?? null,
-      marketCap: data.usd_market_cap ?? null
-    }));
-
-    saveMarketSnapshots("coingecko", "crypto", assets);
-
-    return res.json({
-      success: true,
-      provider: "coingecko",
-      assets
-    });
+    const includeNews = req.query.news !== "false";
+    const result = await runLiveRefresh({ includeNews, reason: "manual-api" });
+    return res.json(result);
   } catch (err) {
-    console.error("Crypto market proxy error:", err);
-    try {
-      const assets = await fetchCoinbaseCrypto();
-      saveMarketSnapshots("coinbase", "crypto", assets);
-      return res.json({ success: true, provider: "coinbase", assets });
-    } catch (fallbackErr) {
-      console.error("Coinbase crypto fallback error:", fallbackErr);
-      return res.json({
-        success: true,
-        fallback: true,
-        error: "Live crypto providers unavailable",
-        assets: []
-      });
-    }
+    console.error("Manual live refresh failed:", err);
+    return res.status(500).json({ success: false, error: "Live refresh failed" });
   }
+});
+
+app.get("/api/live/refresh", async (req, res) => {
+  try {
+    const includeNews = req.query.news !== "false";
+    const result = await runLiveRefresh({ includeNews, reason: "manual-api" });
+    return res.json(result);
+  } catch (err) {
+    console.error("Manual live refresh failed:", err);
+    return res.status(500).json({ success: false, error: "Live refresh failed" });
+  }
+});
+
+app.get("/api/markets/crypto", async (req, res) => {
+  return res.json(await fetchCryptoMarketData());
 });
 
 app.get("/api/markets/stocks", async (req, res) => {
-  try {
-    const symbols = "SPY,QQQ,AAPL,NVDA,TSLA,MSFT,AMZN";
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketTime`;
-    const json = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Autody/1.0 market preview"
-      }
-    }).then((r) => {
-      if (!r.ok) throw new Error(`Yahoo Finance HTTP ${r.status}`);
-      return r.json();
-    });
-
-    const assets = (json.quoteResponse?.result || []).map((quote) => ({
-      symbol: quote.symbol,
-      name: quote.shortName || quote.symbol,
-      price: quote.regularMarketPrice ?? null,
-      changePct: quote.regularMarketChangePercent ?? null,
-      date: quote.regularMarketTime ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
-      time: quote.regularMarketTime ?? null
-    })).filter((asset) => asset.price != null);
-
-    saveMarketSnapshots("yahoo", "stock", assets);
-    return res.json({ success: true, provider: "yahoo", assets });
-  } catch (err) {
-    console.error("Stock market proxy error:", err);
-    try {
-      const assets = await fetchStooqQuotes("spy.us,qqq.us,aapl.us,nvda.us,tsla.us,msft.us,amzn.us");
-      saveMarketSnapshots("stooq", "stock", assets);
-      return res.json({ success: true, provider: "stooq", assets });
-    } catch (fallbackErr) {
-      console.error("Stooq stock fallback error:", fallbackErr);
-      return res.json({
-        success: true,
-        fallback: true,
-        error: "Live stock providers unavailable",
-        assets: []
-      });
-    }
-  }
+  return res.json(await fetchStockMarketData());
 });
 
 app.get("/api/markets/signals", async (req, res) => {
-  try {
-    const [goldResult, economyResult] = await Promise.allSettled([
-      fetchYahooChartSignal("GC=F", "Gold futures"),
-      fetchYahooChartSignal("^TNX", "US 10Y Treasury Yield")
-    ]);
-    const gold = goldResult.status === "fulfilled" ? goldResult.value : null;
-    const economy = economyResult.status === "fulfilled" ? economyResult.value : null;
-    saveMarketSnapshots("yahoo", "signal", [
-      gold ? { symbol: "GC=F", name: gold.name, price: gold.price, changePct: gold.changePct } : null,
-      economy ? { symbol: "^TNX", name: economy.name, price: economy.price, changePct: economy.changePct } : null
-    ].filter(Boolean));
-    return res.json({
-      success: true,
-      gold: gold ? {
-        symbol: "GC=F",
-        name: gold.name,
-        price: gold.price,
-        changePct: gold.changePct,
-        date: null,
-        time: null
-      } : null,
-      economy: economy ? {
-        name: economy.name,
-        value: economy.price,
-        changePct: economy.changePct,
-        detail: "10Y yield signal"
-      } : null
-    });
-  } catch (err) {
-    console.error("Signal proxy error:", err);
-    return res.json({
-      success: true,
-      fallback: true,
-      gold: null,
-      economy: null
-    });
-  }
+  return res.json(await fetchSignalMarketData());
 });
 
 app.get("/api/news", async (req, res) => {
-  try {
-    const gdeltQuery = encodeURIComponent("(finance OR markets OR stocks OR crypto OR economy OR business OR gold)");
-    const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${gdeltQuery}&mode=ArtList&maxrecords=12&format=json&sort=HybridRel`;
-    const rssFeeds = [
-      {
-        subject: "Markets",
-        url: "https://news.google.com/rss/search?q=(finance%20OR%20markets%20OR%20stocks%20OR%20crypto%20OR%20economy)%20-binance%20-coinbase%20when:1d&hl=en-US&gl=US&ceid=US:en"
-      },
-      {
-        subject: "Markets",
-        url: "https://www.cnbc.com/id/15839069/device/rss/rss.html"
-      },
-      {
-        subject: "Economy",
-        url: "https://www.cnbc.com/id/100003114/device/rss/rss.html"
-      }
-    ];
-
-    const gdeltPromise = fetch(gdeltUrl, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Autody/1.0 news preview"
-      }
-    }).then((r) => {
-      if (!r.ok) throw new Error(`GDELT HTTP ${r.status}`);
-      return r.json();
-    }).then((json) => (json.articles || []).map((article) => ({
-      title: article.title,
-      source: article.domain || article.sourceCountry || "Market news",
-      url: article.url,
-      image: article.socialimage || null,
-      summary: article.title ? `Important ${inferNewsSubject(article.title, "market").toLowerCase()} story from ${article.domain || "a market news source"}. Open the original source for the full report.` : "Open the source for the full story and market context.",
-      publishedAt: article.seendate || null,
-      subject: inferNewsSubject(article.title, "Markets")
-    })));
-
-    const rssPromises = rssFeeds.map((feed) => fetch(feed.url, {
-      headers: {
-        Accept: "application/rss+xml, application/xml, text/xml",
-        "User-Agent": "Autody/1.0 news preview"
-      }
-    }).then((r) => {
-      if (!r.ok) throw new Error(`RSS HTTP ${r.status}`);
-      return r.text();
-    }).then((xml) => parseRss(xml, feed.subject)));
-
-    const settled = await Promise.allSettled([gdeltPromise, ...rssPromises]);
-    const articles = settled
-      .filter((result) => result.status === "fulfilled")
-      .flatMap((result) => result.value);
-
-    const importantArticles = uniqueArticles(articles)
-      .sort((a, b) => scoreNews(b) - scoreNews(a))
-      .slice(0, 9)
-      .map(ensureArticleImage);
-
-    saveNewsSnapshots("gdelt-rss", importantArticles);
-
-    return res.json({
-      success: true,
-      articles: importantArticles.length ? importantArticles : fallbackNews.map(ensureArticleImage),
-      fallback: importantArticles.length === 0
-    });
-  } catch (err) {
-    console.error("News proxy error:", err);
-    return res.json({ success: true, articles: fallbackNews.map(ensureArticleImage), fallback: true });
-  }
+  return res.json(await fetchNewsData());
 });
 
 app.post("/api/auth/sign-in", async (req, res) => {
@@ -1379,6 +1619,16 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Autody is running at http://localhost:${PORT}`);
+async function startServer() {
+  await initializeDatabase();
+
+  app.listen(PORT, () => {
+    console.log(`Autody is running at http://localhost:${PORT}`);
+    startLiveDataRefreshLoop();
+  });
+}
+
+startServer().catch((err) => {
+  console.error("Autody startup failed:", err);
+  process.exit(1);
 });

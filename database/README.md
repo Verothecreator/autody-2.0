@@ -38,6 +38,8 @@ Current implementation status:
 - If one is present, account APIs try Supabase first.
 - If Supabase is not configured or the schema has not been run yet, the app falls back to `data/demo-db.json`.
 - Live market/news routes now save snapshots into `market_snapshots` and `news_snapshots` when Supabase is connected.
+- On startup, Render runs `database/schema.sql` automatically so new tables stay in sync with the repo.
+- While Render is awake, the server refreshes market snapshots every 5 minutes and news snapshots every 30 minutes by default.
 
 Render environment variable:
 
@@ -52,3 +54,14 @@ Useful check after deployment:
 ```
 
 If it returns `provider: "supabase-postgres"`, the website is connected to Supabase. If it returns `provider: "json"`, Render is still missing the database connection string.
+
+Live data endpoints:
+
+```text
+/api/live/status
+/api/live/refresh
+/api/markets/snapshots
+/api/news/snapshots
+```
+
+The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down.
