@@ -259,6 +259,15 @@ function safeIsoDate(value) {
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function nullableNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function firstPresent(...values) {
+    return values.find((value) => value !== undefined && value !== null);
+}
+
 function catalogAssets(type = "all") {
     if (type === "crypto") return TRADE_CRYPTO_ASSETS;
     if (type === "stocks") return TRADE_STOCK_ASSETS;
@@ -568,28 +577,70 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
     if (!databaseConfigured() || !assets.length) return;
 
     try {
+        const columnCount = 22;
         const values = [];
         const placeholders = assets
             .filter((asset) => asset?.symbol)
             .map((asset, index) => {
-                const offset = index * 8;
+                const offset = index * columnCount;
                 values.push(
                     provider,
                     asset.symbol,
                     asset.name || asset.symbol,
                     asset.assetType || assetType,
-                    asset.price ?? asset.value ?? null,
-                    asset.changePct ?? null,
-                    asset.marketCap ?? null,
-                    asset.currency || "USD"
+                    asset.providerSymbol || marketDataSymbol(asset),
+                    asset.market || null,
+                    nullableNumber(asset.price ?? asset.value),
+                    nullableNumber(asset.changePct),
+                    nullableNumber(asset.marketCap),
+                    nullableNumber(asset.fdv),
+                    nullableNumber(asset.liquidityUsd),
+                    nullableNumber(asset.totalVolume),
+                    nullableNumber(asset.high24h),
+                    nullableNumber(asset.low24h),
+                    nullableNumber(asset.ath),
+                    nullableNumber(asset.atl),
+                    nullableNumber(asset.circulatingSupply),
+                    nullableNumber(asset.totalSupply),
+                    nullableNumber(asset.maxSupply),
+                    asset.currency || "USD",
+                    asset.logoUrl || asset.image || null,
+                    Array.isArray(asset.depositNetworks) && asset.depositNetworks.length ? JSON.stringify(asset.depositNetworks) : null
                 );
-                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
+                const fields = Array.from({ length: columnCount }, (_, fieldIndex) => {
+                    const placeholder = `$${offset + fieldIndex + 1}`;
+                    return fieldIndex === columnCount - 1 ? `${placeholder}::jsonb` : placeholder;
+                });
+                return `(${fields.join(", ")})`;
             });
 
         if (!placeholders.length) return;
 
         await dbPool.query(`
-            insert into market_snapshots (provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, currency)
+            insert into market_snapshots (
+                provider,
+                symbol,
+                asset_name,
+                asset_type,
+                provider_symbol,
+                market,
+                price_usd,
+                change_pct,
+                market_cap_usd,
+                fdv_usd,
+                liquidity_usd,
+                total_volume_usd,
+                high_24h,
+                low_24h,
+                ath,
+                atl,
+                circulating_supply,
+                total_supply,
+                max_supply,
+                currency,
+                logo_url,
+                deposit_networks
+            )
             values ${placeholders.join(", ")}
         `, values);
     } catch (err) {
@@ -697,7 +748,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
 
     try {
         const assetTypes = Array.isArray(assetType) ? assetType : [assetType];
-        const result = await dbPool.query(`
+        const latestResult = await dbPool.query(`
             select *
             from (
                 select distinct on (symbol)
@@ -705,10 +756,24 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
                     symbol,
                     asset_name,
                     asset_type,
+                    provider_symbol,
+                    market,
                     price_usd,
                     change_pct,
                     market_cap_usd,
+                    fdv_usd,
+                    liquidity_usd,
+                    total_volume_usd,
+                    high_24h,
+                    low_24h,
+                    ath,
+                    atl,
+                    circulating_supply,
+                    total_supply,
+                    max_supply,
                     currency,
+                    logo_url,
+                    deposit_networks,
                     captured_at
                 from market_snapshots
                 where asset_type = any($1)
@@ -718,17 +783,87 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
             limit $2
         `, [assetTypes, limit]);
 
-        return result.rows.map((row) => ({
-            symbol: row.symbol,
-            name: row.asset_name,
-            assetType: row.asset_type,
-            price: row.price_usd == null ? null : Number(row.price_usd),
-            changePct: row.change_pct == null ? null : Number(row.change_pct),
-            marketCap: row.market_cap_usd == null ? null : Number(row.market_cap_usd),
-            currency: row.currency || "USD",
-            capturedAt: row.captured_at,
-            provider: row.provider
-        }));
+        const symbols = latestResult.rows.map((row) => row.symbol).filter(Boolean);
+        const richRows = new Map();
+
+        if (symbols.length) {
+            const richResult = await dbPool.query(`
+                select distinct on (symbol)
+                    provider,
+                    symbol,
+                    asset_name,
+                    asset_type,
+                    provider_symbol,
+                    market,
+                    market_cap_usd,
+                    fdv_usd,
+                    liquidity_usd,
+                    total_volume_usd,
+                    high_24h,
+                    low_24h,
+                    ath,
+                    atl,
+                    circulating_supply,
+                    total_supply,
+                    max_supply,
+                    currency,
+                    logo_url,
+                    deposit_networks,
+                    captured_at
+                from market_snapshots
+                where asset_type = any($1)
+                  and symbol = any($2)
+                  and (
+                    market_cap_usd is not null
+                    or fdv_usd is not null
+                    or liquidity_usd is not null
+                    or total_volume_usd is not null
+                    or high_24h is not null
+                    or low_24h is not null
+                    or ath is not null
+                    or atl is not null
+                    or circulating_supply is not null
+                    or total_supply is not null
+                    or max_supply is not null
+                  )
+                order by symbol, captured_at desc
+            `, [assetTypes, symbols]);
+
+            richResult.rows.forEach((row) => richRows.set(row.symbol, row));
+        }
+
+        return latestResult.rows.map((row) => {
+            const rich = richRows.get(row.symbol) || {};
+            return {
+                symbol: row.symbol,
+                name: row.asset_name || rich.asset_name,
+                assetType: row.asset_type || rich.asset_type,
+                providerSymbol: row.provider_symbol || rich.provider_symbol || row.symbol,
+                market: row.market || rich.market || null,
+                price: nullableNumber(row.price_usd),
+                changePct: nullableNumber(row.change_pct),
+                marketCap: nullableNumber(firstPresent(row.market_cap_usd, rich.market_cap_usd)),
+                fdv: nullableNumber(firstPresent(row.fdv_usd, rich.fdv_usd)),
+                liquidityUsd: nullableNumber(firstPresent(row.liquidity_usd, rich.liquidity_usd)),
+                totalVolume: nullableNumber(firstPresent(row.total_volume_usd, rich.total_volume_usd)),
+                high24h: nullableNumber(firstPresent(row.high_24h, rich.high_24h)),
+                low24h: nullableNumber(firstPresent(row.low_24h, rich.low_24h)),
+                ath: nullableNumber(firstPresent(row.ath, rich.ath)),
+                atl: nullableNumber(firstPresent(row.atl, rich.atl)),
+                circulatingSupply: nullableNumber(firstPresent(row.circulating_supply, rich.circulating_supply)),
+                totalSupply: nullableNumber(firstPresent(row.total_supply, rich.total_supply)),
+                maxSupply: nullableNumber(firstPresent(row.max_supply, rich.max_supply)),
+                currency: row.currency || rich.currency || "USD",
+                logoUrl: row.logo_url || rich.logo_url || null,
+                depositNetworks: Array.isArray(row.deposit_networks) && row.deposit_networks.length
+                    ? row.deposit_networks
+                    : Array.isArray(rich.deposit_networks) ? rich.deposit_networks : [],
+                capturedAt: row.captured_at,
+                provider: row.provider,
+                metadataProvider: rich.provider || null,
+                metadataCapturedAt: rich.captured_at || null
+            };
+        });
     } catch (err) {
         console.error("Market snapshot fallback read failed:", err);
         return [];
@@ -794,6 +929,18 @@ async function buildMarketCatalog(type = "all") {
                 price: asset.price,
                 changePct: asset.changePct,
                 marketCap: asset.marketCap,
+                fdv: asset.fdv,
+                liquidityUsd: asset.liquidityUsd,
+                totalVolume: asset.totalVolume,
+                high24h: asset.high24h,
+                low24h: asset.low24h,
+                ath: asset.ath,
+                atl: asset.atl,
+                circulatingSupply: asset.circulatingSupply,
+                totalSupply: asset.totalSupply,
+                maxSupply: asset.maxSupply,
+                logoUrl: asset.logoUrl,
+                depositNetworks: asset.depositNetworks || [],
                 dataProvider: asset.provider,
                 capturedAt: asset.capturedAt,
                 status: "Cached live"
@@ -808,7 +955,21 @@ async function buildMarketCatalog(type = "all") {
             price: asset.price ?? snapshot?.price ?? null,
             changePct: asset.changePct ?? snapshot?.changePct ?? null,
             marketCap: asset.marketCap ?? snapshot?.marketCap ?? null,
+            fdv: asset.fdv ?? snapshot?.fdv ?? null,
+            liquidityUsd: asset.liquidityUsd ?? snapshot?.liquidityUsd ?? null,
+            totalVolume: asset.totalVolume ?? snapshot?.totalVolume ?? null,
+            high24h: asset.high24h ?? snapshot?.high24h ?? null,
+            low24h: asset.low24h ?? snapshot?.low24h ?? null,
+            ath: asset.ath ?? snapshot?.ath ?? null,
+            atl: asset.atl ?? snapshot?.atl ?? null,
+            circulatingSupply: asset.circulatingSupply ?? snapshot?.circulatingSupply ?? null,
+            totalSupply: asset.totalSupply ?? snapshot?.totalSupply ?? null,
+            maxSupply: asset.maxSupply ?? snapshot?.maxSupply ?? null,
             currency: asset.currency || snapshot?.currency || "USD",
+            providerSymbol: asset.providerSymbol || snapshot?.providerSymbol || marketDataSymbol(asset),
+            market: asset.market || snapshot?.market || "Global",
+            depositNetworks: asset.depositNetworks?.length ? asset.depositNetworks : snapshot?.depositNetworks || [],
+            logoUrl: asset.logoUrl || snapshot?.logoUrl || assetLogoUrl(asset),
             dataProvider: asset.dataProvider || snapshot?.provider || null,
             capturedAt: asset.capturedAt || snapshot?.capturedAt || null,
             status: asset.status || (snapshot ? "Live" : "Waiting for first refresh")
@@ -1088,7 +1249,7 @@ function mapCoinGeckoMarketAsset(row, index, metadata) {
     changePct: Number.isFinite(changePct) ? changePct : null,
     marketCap: Number.isFinite(marketCap) ? marketCap : null,
     fdv: Number.isFinite(fdv) ? fdv : null,
-    liquidityUsd: Number.isFinite(totalVolume) ? totalVolume : null,
+    liquidityUsd: existing.liquidityUsd ?? null,
     totalVolume: Number.isFinite(totalVolume) ? totalVolume : null,
     high24h: Number.isFinite(high24h) ? high24h : null,
     low24h: Number.isFinite(low24h) ? low24h : null,
@@ -2461,14 +2622,14 @@ app.get("/api/markets/snapshots", async (req, res) => {
     const limit = Math.min(Number(req.query.limit || 30), 100);
     const result = symbol
       ? await dbPool.query(`
-          select provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, currency, captured_at
+          select provider, symbol, asset_name, asset_type, provider_symbol, market, price_usd, change_pct, market_cap_usd, fdv_usd, liquidity_usd, total_volume_usd, high_24h, low_24h, ath, atl, circulating_supply, total_supply, max_supply, currency, logo_url, deposit_networks, captured_at
           from market_snapshots
           where upper(symbol) = $1
           order by captured_at desc
           limit $2
         `, [symbol, limit])
       : await dbPool.query(`
-          select distinct on (symbol) provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, currency, captured_at
+          select distinct on (symbol) provider, symbol, asset_name, asset_type, provider_symbol, market, price_usd, change_pct, market_cap_usd, fdv_usd, liquidity_usd, total_volume_usd, high_24h, low_24h, ath, atl, circulating_supply, total_supply, max_supply, currency, logo_url, deposit_networks, captured_at
           from market_snapshots
           order by symbol, captured_at desc
           limit $1

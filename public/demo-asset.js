@@ -240,13 +240,23 @@ function detailRow(label, value) {
   return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
+function activityMetric(asset) {
+  if (asset.liquidityUsd != null) {
+    return { label: "Liquidity", value: asset.liquidityUsd };
+  }
+  if (asset.totalVolume != null) {
+    return { label: asset.assetType === "crypto" ? "24h volume" : "Volume", value: asset.totalVolume };
+  }
+  return null;
+}
+
 function renderDetails(asset, chart) {
   const stats = chart.stats || {};
   const networks = asset.depositNetworks || [];
   const currency = chart.currency || asset.currency || "USD";
   const marketCap = asset.marketCap ?? stats.marketCap;
   const fdv = asset.fdv ?? stats.fdv;
-  const liquidity = asset.liquidityUsd ?? asset.totalVolume ?? stats.volume;
+  const activity = activityMetric(asset);
   const allTimeHigh = asset.ath ?? stats.allTimeHigh;
   const allTimeLow = asset.atl ?? stats.allTimeLow;
 
@@ -269,7 +279,7 @@ function renderDetails(asset, chart) {
   rows.push(detailRow("Quote currency", currency));
   if (marketCap) rows.push(detailRow("Market cap", formatPrice(marketCap, "USD")));
   if (asset.assetType === "crypto" && fdv) rows.push(detailRow("FDV", formatPrice(fdv, "USD")));
-  if (liquidity) rows.push(detailRow(asset.assetType === "crypto" ? "Liquidity" : "Volume", formatPrice(liquidity, "USD")));
+  if (activity) rows.push(detailRow(activity.label, formatPrice(activity.value, "USD")));
   if (allTimeHigh) rows.push(detailRow("All-time high", formatPrice(allTimeHigh, currency)));
   if (allTimeLow) rows.push(detailRow("All-time low", formatPrice(allTimeLow, currency)));
   if (asset.assetType === "crypto" && asset.circulatingSupply) rows.push(detailRow("Circulating supply", `${formatNumber(asset.circulatingSupply)} ${asset.symbol}`));
@@ -348,11 +358,12 @@ function renderChartStats(asset, chart) {
   const stats = chart.stats || {};
   const target = document.getElementById("asset-chart-stats");
   const currency = chart.currency || asset.currency || "USD";
+  const activity = activityMetric(asset);
   const rows = [];
 
   if (Number.isFinite(Number(asset.changePct))) rows.push(detailRow("24h move", formatMove(asset.changePct)));
   if (asset.marketCap ?? stats.marketCap) rows.push(detailRow("Market cap", formatPrice(asset.marketCap ?? stats.marketCap, "USD")));
-  if (asset.liquidityUsd ?? asset.totalVolume ?? stats.volume) rows.push(detailRow(asset.assetType === "crypto" ? "Liquidity" : "Volume", formatPrice(asset.liquidityUsd ?? asset.totalVolume ?? stats.volume, "USD")));
+  if (activity) rows.push(detailRow(activity.label, formatPrice(activity.value, "USD")));
   if (stats.rangeHigh) rows.push(detailRow("Chart high", formatPrice(stats.rangeHigh, currency)));
   if (stats.rangeLow) rows.push(detailRow("Chart low", formatPrice(stats.rangeLow, currency)));
 
