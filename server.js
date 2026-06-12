@@ -1382,9 +1382,18 @@ const COINGECKO_CHART_DAYS = {
   "1w": "7",
   "1m": "30",
   "3m": "90",
-  "1y": "365",
-  all: "max"
+  "1y": "365"
 };
+
+const COINBASE_CHART_CONFIG = {
+  "1d": { granularity: 300, days: 1 },
+  "1w": { granularity: 3600, days: 7 },
+  "1m": { granularity: 21600, days: 30 },
+  "3m": { granularity: 86400, days: 90 },
+  "1y": { granularity: 86400, days: 365 },
+  all: { granularity: 86400, days: 365 * 5 }
+};
+const COINBASE_MAX_CANDLES_PER_REQUEST = 290;
 
 const CHART_REFRESH_MS_BY_RANGE = {
   "1d": 60 * 1000,
@@ -1401,8 +1410,16 @@ function chartSnapshotAgeMs(snapshot) {
   return Date.now() - captured;
 }
 
-function isFreshChartSnapshot(snapshot, range) {
+function isUsableChartSnapshot(snapshot, range) {
   if (!snapshot?.points?.length) return false;
+  const selectedRange = normalizeChartRange(range);
+  if (normalizeChartRange(snapshot.range) !== selectedRange) return false;
+  if (snapshot.provider === "coingecko-sparkline" && selectedRange !== "1w") return false;
+  return true;
+}
+
+function isFreshChartSnapshot(snapshot, range) {
+  if (!isUsableChartSnapshot(snapshot, range)) return false;
   const refreshMs = CHART_REFRESH_MS_BY_RANGE[normalizeChartRange(range)] || CHART_REFRESH_MS_BY_RANGE["1d"];
   return chartSnapshotAgeMs(snapshot) <= refreshMs;
 }
@@ -1467,6 +1484,97 @@ function pointRangeStats(points = []) {
   return {
     high: Math.max(...values),
     low: Math.min(...values)
+  };
+}
+
+function coinbaseProductSymbol(asset) {
+  const candidate = String(asset.product || asset.providerSymbol || asset.yahooSymbol || "").toUpperCase();
+  return /^[A-Z0-9-]+-USD$/.test(candidate) ? candidate : null;
+}
+
+async function fetchCoinbaseCandleBatch(product, startMs, endMs, granularity) {
+  const params = new URLSearchParams({
+    granularity: String(granularity),
+    start: new Date(startMs).toISOString(),
+    end: new Date(endMs).toISOString()
+  });
+  const url = `https://api.exchange.coinbase.com/products/${encodeURIComponent(product)}/candles?${params.toString()}`;
+  const json = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Autody/1.0 market detail"
+    }
+  }).then((r) => {
+    if (!r.ok) throw new Error(`Coinbase candles HTTP ${r.status}`);
+    return r.json();
+  });
+
+  if (!Array.isArray(json)) {
+    throw new Error(`Coinbase candles unavailable for ${product}`);
+  }
+
+  return json;
+}
+
+async function fetchCoinbaseChartSeries(asset, requestedRange = "1d") {
+  const selectedRange = normalizeChartRange(requestedRange);
+  const config = COINBASE_CHART_CONFIG[selectedRange] || COINBASE_CHART_CONFIG["1d"];
+  const product = coinbaseProductSymbol(asset);
+  if (!product) throw new Error(`Coinbase product missing for ${asset.symbol}`);
+
+  const endMs = Date.now();
+  const startMs = endMs - config.days * 24 * 60 * 60 * 1000;
+  const windowMs = config.granularity * 1000 * COINBASE_MAX_CANDLES_PER_REQUEST;
+  const candlesByTime = new Map();
+
+  for (let cursor = startMs; cursor < endMs; cursor += windowMs) {
+    const batchEndMs = Math.min(cursor + windowMs, endMs);
+    const candles = await fetchCoinbaseCandleBatch(product, cursor, batchEndMs, config.granularity);
+    for (const candle of candles) {
+      if (Array.isArray(candle) && Number.isFinite(Number(candle[0]))) {
+        candlesByTime.set(Number(candle[0]), candle);
+      }
+    }
+  }
+
+  const points = [...candlesByTime.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, candle]) => {
+      const [time, low, high, open, close, volume] = candle.map(Number);
+      return {
+        time: new Date(time * 1000).toISOString(),
+        open: Number.isFinite(open) ? open : null,
+        high: Number.isFinite(high) ? high : null,
+        low: Number.isFinite(low) ? low : null,
+        close: Number(close),
+        volume: Number.isFinite(volume) ? volume : null
+      };
+    })
+    .filter((point) => Number.isFinite(point.close));
+
+  if (!points.length) throw new Error(`Coinbase returned no candles for ${product} ${selectedRange}`);
+
+  const range = {
+    high: Math.max(...points.map((point) => Number(point.high ?? point.close)).filter(Number.isFinite)),
+    low: Math.min(...points.map((point) => Number(point.low ?? point.close)).filter(Number.isFinite))
+  };
+  const latestVolume = [...points].reverse().find((point) => Number.isFinite(point.volume))?.volume ?? asset.totalVolume ?? asset.liquidityUsd ?? null;
+
+  return {
+    range: selectedRange,
+    provider: selectedRange === "all" ? "coinbase-history" : "coinbase",
+    providerSymbol: product,
+    currency: "USD",
+    points,
+    stats: {
+      rangeHigh: Number.isFinite(range.high) ? range.high : null,
+      rangeLow: Number.isFinite(range.low) ? range.low : null,
+      allTimeHigh: asset.ath ?? null,
+      allTimeLow: asset.atl ?? null,
+      volume: latestVolume,
+      marketCap: asset.marketCap ?? null,
+      fdv: asset.fdv ?? null
+    }
   };
 }
 
@@ -1549,6 +1657,61 @@ async function fetchCoinGeckoChartSeries(asset, requestedRange = "1d") {
   }
 }
 
+async function fetchCryptoChartSeries(asset, requestedRange = "1d") {
+  const selectedRange = normalizeChartRange(requestedRange);
+  const errors = [];
+
+  if (selectedRange === "all") {
+    try {
+      return await fetchCoinbaseChartSeries(asset, selectedRange);
+    } catch (err) {
+      errors.push(err);
+    }
+  }
+
+  if (selectedRange !== "all" && asset.id) {
+    try {
+      return await fetchCoinGeckoChartSeries(asset, selectedRange);
+    } catch (err) {
+      errors.push(err);
+    }
+  }
+
+  try {
+    return await fetchCoinbaseChartSeries(asset, selectedRange);
+  } catch (err) {
+    errors.push(err);
+  }
+
+  const yahooSymbol = marketDataSymbol(asset);
+  if (yahooSymbol && /-USD$/i.test(yahooSymbol)) {
+    try {
+      const yahooChart = await fetchYahooChartSeries(asset, selectedRange);
+      return {
+        ...yahooChart,
+        provider: selectedRange === "all" ? "yahoo-crypto-history" : "yahoo-crypto-fallback",
+        stats: {
+          ...(yahooChart.stats || {}),
+          allTimeHigh: asset.ath ?? yahooChart.stats?.allTimeHigh ?? null,
+          allTimeLow: asset.atl ?? yahooChart.stats?.allTimeLow ?? null,
+          marketCap: asset.marketCap ?? null,
+          fdv: asset.fdv ?? null,
+          volume: yahooChart.stats?.volume ?? asset.totalVolume ?? asset.liquidityUsd ?? null
+        }
+      };
+    } catch (err) {
+      errors.push(err);
+    }
+  }
+
+  if (selectedRange === "1w") {
+    const fallback = sparklineChartSeries(asset, selectedRange);
+    if (fallback) return fallback;
+  }
+
+  throw errors[0] || new Error(`No crypto chart provider available for ${asset.symbol} ${selectedRange}`);
+}
+
 async function fetchYahooAllTimeStats(asset) {
   const encoded = encodeURIComponent(marketDataSymbol(asset));
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=max&interval=1mo`;
@@ -1574,8 +1737,8 @@ async function fetchYahooAllTimeStats(asset) {
 async function fetchLiveAssetChartSeries(asset, requestedRange = "1d") {
   const selectedRange = normalizeChartRange(requestedRange);
 
-  const chart = asset.assetType === "crypto" && asset.id
-    ? await fetchCoinGeckoChartSeries(asset, selectedRange)
+  const chart = asset.assetType === "crypto"
+    ? await fetchCryptoChartSeries(asset, selectedRange)
     : await (async () => {
         const yahooChart = await fetchYahooChartSeries(asset, selectedRange);
         const allTimeStats = await fetchYahooAllTimeStats(asset).catch(() => ({}));
@@ -1612,7 +1775,7 @@ async function fetchAssetChartSeries(asset, requestedRange = "1d") {
     return storedChart ? { ...storedChart, source: "database", refreshed: true } : liveChart;
   } catch (err) {
     console.error(`Live chart refresh failed for ${asset.symbol} ${selectedRange}, using chart cache if available:`, err);
-    if (cached) return { ...cached, source: "database", stale: true };
+    if (isUsableChartSnapshot(cached, selectedRange)) return { ...cached, source: "database", stale: true };
     throw err;
   }
 }
