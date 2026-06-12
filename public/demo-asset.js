@@ -13,12 +13,20 @@ function formatPrice(value, currency = "USD") {
   const number = Number(value);
   if (!Number.isFinite(number)) return "Waiting";
   const compact = Math.abs(number) >= 100000;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
+  const options = {
     notation: compact ? "compact" : "standard",
     maximumFractionDigits: priceDigits(number, compact)
-  }).format(number);
+  };
+
+  try {
+    return new Intl.NumberFormat("en-US", {
+      ...options,
+      style: "currency",
+      currency
+    }).format(number);
+  } catch (err) {
+    return `${currency} ${new Intl.NumberFormat("en-US", options).format(number)}`;
+  }
 }
 
 function formatNumber(value, compact = true) {
@@ -33,8 +41,9 @@ function formatNumber(value, compact = true) {
 function formatMove(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "Live feed";
+  const arrow = number > 0 ? "\u2191" : number < 0 ? "\u2193" : "\u2192";
   const sign = number > 0 ? "+" : "";
-  return `${sign}${number.toFixed(2)}%`;
+  return `${arrow} ${sign}${number.toFixed(2)}%`;
 }
 
 function moveClass(value) {
@@ -72,6 +81,16 @@ function chartPoints(asset, points) {
 
 function renderLineChart(asset, chart) {
   const target = document.getElementById("asset-line-chart");
+  if (asset.customAsset && !chart.points?.length && asset.price == null) {
+    target.innerHTML = `
+      <div class="asset-empty-activity">
+        <strong>Market maker pending.</strong>
+        <span>AU will show a live chart after liquidity, pricing, and exchange routing are connected.</span>
+      </div>
+    `;
+    return;
+  }
+
   const points = chartPoints(asset, chart.points);
   const values = points.map((point) => point.close);
   const min = Math.min(...values);
@@ -107,27 +126,38 @@ function detailRow(label, value) {
 }
 
 function renderDetails(asset, chart) {
-  const points = chartPoints(asset, chart.points);
-  const values = points.map((point) => point.close);
-  const rangeHigh = Math.max(...values);
-  const rangeLow = Math.min(...values);
   const stats = chart.stats || {};
   const networks = asset.depositNetworks || [];
+  const currency = chart.currency || asset.currency || "USD";
+  const marketCap = asset.marketCap ?? stats.marketCap;
+  const fdv = asset.fdv ?? stats.fdv;
+  const liquidity = asset.liquidityUsd ?? asset.totalVolume ?? stats.volume;
+  const allTimeHigh = asset.ath ?? stats.allTimeHigh;
+  const allTimeLow = asset.atl ?? stats.allTimeLow;
 
-  const rows = [
-    detailRow(asset.assetType === "crypto" ? "Network" : "Market", asset.assetType === "crypto" ? (networks[0] || "Multiple networks") : (asset.market || "Global")),
-    detailRow("Quote currency", chart.currency || asset.currency || "USD"),
-    detailRow("Region", asset.region || "Global"),
-    detailRow("Market cap", asset.marketCap ? formatPrice(asset.marketCap, "USD") : "Unavailable"),
-    detailRow("Volume", stats.volume ? formatNumber(stats.volume) : "Unavailable"),
-    detailRow("Range high", formatPrice(stats.dayHigh || rangeHigh, chart.currency || asset.currency || "USD")),
-    detailRow("Range low", formatPrice(stats.dayLow || rangeLow, chart.currency || asset.currency || "USD")),
-    detailRow("Data source", asset.dataProvider || "Live market feed")
-  ];
+  const rows = [];
 
-  if (networks.length > 1) {
+  if (asset.customAsset) {
+    rows.push(detailRow("Market status", asset.status || "Market maker pending"));
+    rows.push(detailRow("Backing plan", "Gold-backed AU reserve"));
+    rows.push(detailRow("Primary use", "Payments, exchange, goods, and services"));
+  } else if (asset.assetType === "crypto") {
+    rows.push(detailRow("Network", networks[0] || "Multiple networks"));
+  } else {
+    rows.push(detailRow("Exchange", asset.market || "Global market"));
+  }
+
+  if (networks.length > 1 && !asset.customAsset) {
     rows.splice(1, 0, detailRow("Deposit networks", networks.slice(0, 4).join(", ")));
   }
+
+  rows.push(detailRow("Quote currency", currency));
+  if (marketCap) rows.push(detailRow("Market cap", formatPrice(marketCap, "USD")));
+  if (asset.assetType === "crypto" && fdv) rows.push(detailRow("FDV", formatPrice(fdv, "USD")));
+  if (liquidity) rows.push(detailRow(asset.assetType === "crypto" ? "Liquidity" : "Volume", formatPrice(liquidity, "USD")));
+  if (allTimeHigh) rows.push(detailRow("All-time high", formatPrice(allTimeHigh, currency)));
+  if (allTimeLow) rows.push(detailRow("All-time low", formatPrice(allTimeLow, currency)));
+  if (asset.assetType === "crypto" && asset.circulatingSupply) rows.push(detailRow("Circulating supply", `${formatNumber(asset.circulatingSupply)} ${asset.symbol}`));
 
   document.getElementById("asset-detail-heading").textContent = asset.assetType === "crypto" ? "Token details" : "Market details";
   document.getElementById("asset-detail-list").innerHTML = rows.join("");
@@ -200,11 +230,18 @@ function renderAsset(data) {
 
 function renderChartStats(asset, chart) {
   const stats = chart.stats || {};
-  document.getElementById("asset-chart-stats").innerHTML = [
-    detailRow("Range", chart.range?.toUpperCase?.() || currentRange.toUpperCase()),
-    detailRow("Previous close", stats.previousClose ? formatPrice(stats.previousClose, chart.currency || asset.currency || "USD") : "Unavailable"),
-    detailRow("Provider symbol", chart.providerSymbol || asset.providerSymbol || asset.symbol)
-  ].join("");
+  const target = document.getElementById("asset-chart-stats");
+  const currency = chart.currency || asset.currency || "USD";
+  const rows = [];
+
+  if (Number.isFinite(Number(asset.changePct))) rows.push(detailRow("24h move", formatMove(asset.changePct)));
+  if (asset.marketCap ?? stats.marketCap) rows.push(detailRow("Market cap", formatPrice(asset.marketCap ?? stats.marketCap, "USD")));
+  if (asset.liquidityUsd ?? asset.totalVolume ?? stats.volume) rows.push(detailRow(asset.assetType === "crypto" ? "Liquidity" : "Volume", formatPrice(asset.liquidityUsd ?? asset.totalVolume ?? stats.volume, "USD")));
+  if (stats.rangeHigh) rows.push(detailRow("Chart high", formatPrice(stats.rangeHigh, currency)));
+  if (stats.rangeLow) rows.push(detailRow("Chart low", formatPrice(stats.rangeLow, currency)));
+
+  target.innerHTML = rows.join("");
+  target.hidden = !rows.length;
 }
 
 async function loadAsset() {

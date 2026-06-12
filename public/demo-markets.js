@@ -14,12 +14,20 @@ function marketPrice(value, currency = "USD") {
   const number = Number(value);
   if (!Number.isFinite(number)) return "Waiting";
   const compact = Math.abs(number) >= 100000;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
+  const options = {
     notation: compact ? "compact" : "standard",
     maximumFractionDigits: marketPriceDigits(number, compact)
-  }).format(number);
+  };
+
+  try {
+    return new Intl.NumberFormat("en-US", {
+      ...options,
+      style: "currency",
+      currency
+    }).format(number);
+  } catch (err) {
+    return `${currency} ${new Intl.NumberFormat("en-US", options).format(number)}`;
+  }
 }
 
 function marketMove(value) {

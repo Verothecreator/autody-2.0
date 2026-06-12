@@ -269,7 +269,25 @@ function assetCatalogEntry(asset) {
         tags: asset.tags || [],
         depositNetworks: asset.depositNetworks || [],
         depositEnabled: Boolean(asset.depositNetworks?.length),
-        tradeable: true
+        tradeable: asset.tradeable ?? true,
+        customAsset: Boolean(asset.customAsset),
+        price: asset.price ?? null,
+        changePct: asset.changePct ?? null,
+        marketCap: asset.marketCap ?? null,
+        fdv: asset.fdv ?? null,
+        liquidityUsd: asset.liquidityUsd ?? null,
+        totalVolume: asset.totalVolume ?? null,
+        high24h: asset.high24h ?? null,
+        low24h: asset.low24h ?? null,
+        ath: asset.ath ?? null,
+        atl: asset.atl ?? null,
+        circulatingSupply: asset.circulatingSupply ?? null,
+        totalSupply: asset.totalSupply ?? null,
+        maxSupply: asset.maxSupply ?? null,
+        sparkline: asset.sparkline || null,
+        dataProvider: asset.dataProvider || null,
+        capturedAt: asset.capturedAt || null,
+        status: asset.status || null
     };
 }
 
@@ -627,7 +645,11 @@ async function readLatestNewsSnapshots(limit = 9) {
 }
 
 async function buildMarketCatalog(type = "all") {
-    const catalog = catalogAssets(type).map(assetCatalogEntry);
+    const includeCrypto = type !== "stocks";
+    const includeStocks = type !== "crypto";
+    const cryptoCatalog = includeCrypto ? await getCryptoCatalogAssets() : [];
+    const stockCatalog = includeStocks ? TRADE_STOCK_ASSETS.map(assetCatalogEntry) : [];
+    const catalog = [...cryptoCatalog, ...stockCatalog];
     const snapshotTypes = type === "crypto"
         ? ["crypto"]
         : type === "stocks"
@@ -640,13 +662,13 @@ async function buildMarketCatalog(type = "all") {
         const snapshot = snapshotMap.get(asset.symbol);
         return {
             ...asset,
-            price: snapshot?.price ?? null,
-            changePct: snapshot?.changePct ?? null,
-            marketCap: snapshot?.marketCap ?? null,
-            currency: snapshot?.currency || asset.currency,
-            dataProvider: snapshot?.provider ?? null,
-            capturedAt: snapshot?.capturedAt ?? null,
-            status: snapshot ? "Live" : "Waiting for first refresh"
+            price: asset.price ?? snapshot?.price ?? null,
+            changePct: asset.changePct ?? snapshot?.changePct ?? null,
+            marketCap: asset.marketCap ?? snapshot?.marketCap ?? null,
+            currency: asset.currency || snapshot?.currency || "USD",
+            dataProvider: asset.dataProvider || snapshot?.provider || null,
+            capturedAt: asset.capturedAt || snapshot?.capturedAt || null,
+            status: asset.status || (snapshot ? "Live" : "Waiting for first refresh")
         };
     });
 }
@@ -799,6 +821,24 @@ const fallbackNews = [
   }
 ];
 
+const CRYPTO_MARKET_LIMIT = 200;
+const CRYPTO_CATALOG_CACHE_MS = 1000 * 60 * 3;
+let cryptoCatalogCache = { expiresAt: 0, assets: [] };
+
+const AUTODY_MARKET_ASSET = {
+  rank: 0,
+  id: "autody-au",
+  symbol: "AU",
+  name: "Autody AU",
+  assetType: "crypto",
+  market: "Autody",
+  tags: ["Gold-backed", "Payments", "Autody ecosystem"],
+  depositNetworks: ["Autody network pending"],
+  tradeable: false,
+  customAsset: true,
+  status: "Market maker pending"
+};
+
 const TRADE_CRYPTO_ASSETS = [
   { rank: 1, id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD", assetType: "crypto", market: "Crypto", tags: ["Blue chip", "Store of value"], depositNetworks: ["Bitcoin"] },
   { rank: 2, id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD", assetType: "crypto", market: "Crypto", tags: ["Smart contracts", "DeFi"], depositNetworks: ["Ethereum"] },
@@ -852,6 +892,112 @@ const TRADE_CRYPTO_ASSETS = [
   { rank: 50, id: "decentraland", symbol: "MANA", name: "Decentraland", product: "MANA-USD", assetType: "crypto", market: "Crypto", tags: ["Gaming"], depositNetworks: ["Ethereum ERC-20", "Polygon PoS"] }
 ];
 
+function staticCryptoFallbackCatalog() {
+  return [AUTODY_MARKET_ASSET, ...TRADE_CRYPTO_ASSETS].map(assetCatalogEntry);
+}
+
+function existingCryptoMetadata() {
+  const metadata = new Map();
+  for (const asset of TRADE_CRYPTO_ASSETS) {
+    metadata.set(asset.id, asset);
+    metadata.set(asset.symbol, asset);
+  }
+  return metadata;
+}
+
+function cryptoMarketKind(row, existing) {
+  const stableSymbols = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD", "USDE", "USD1", "USDD", "FRAX"]);
+  const symbol = String(row.symbol || "").toUpperCase();
+  const price = Number(row.current_price);
+  if (existing?.market === "Stablecoin" || stableSymbols.has(symbol) || (Number.isFinite(price) && price > 0.97 && price < 1.03 && /usd|dai|frax/i.test(row.name || ""))) {
+    return "Stablecoin";
+  }
+  return "Crypto";
+}
+
+function mapCoinGeckoMarketAsset(row, index, metadata) {
+  const symbol = String(row.symbol || "").toUpperCase();
+  const existing = metadata.get(row.id) || metadata.get(symbol) || {};
+  const price = Number(row.current_price);
+  const changePct = Number(row.price_change_percentage_24h_in_currency ?? row.price_change_percentage_24h);
+  const marketCap = Number(row.market_cap);
+  const fdv = Number(row.fully_diluted_valuation);
+  const totalVolume = Number(row.total_volume);
+  const high24h = Number(row.high_24h);
+  const low24h = Number(row.low_24h);
+  const ath = Number(row.ath);
+  const atl = Number(row.atl);
+
+  return assetCatalogEntry({
+    ...existing,
+    rank: row.market_cap_rank || index + 1,
+    id: row.id,
+    symbol,
+    name: row.name || existing.name || symbol,
+    assetType: "crypto",
+    market: cryptoMarketKind(row, existing),
+    currency: "USD",
+    tags: existing.tags || [],
+    depositNetworks: existing.depositNetworks || [],
+    price: Number.isFinite(price) ? price : null,
+    changePct: Number.isFinite(changePct) ? changePct : null,
+    marketCap: Number.isFinite(marketCap) ? marketCap : null,
+    fdv: Number.isFinite(fdv) ? fdv : null,
+    liquidityUsd: Number.isFinite(totalVolume) ? totalVolume : null,
+    totalVolume: Number.isFinite(totalVolume) ? totalVolume : null,
+    high24h: Number.isFinite(high24h) ? high24h : null,
+    low24h: Number.isFinite(low24h) ? low24h : null,
+    ath: Number.isFinite(ath) ? ath : null,
+    atl: Number.isFinite(atl) ? atl : null,
+    circulatingSupply: Number(row.circulating_supply) || null,
+    totalSupply: Number(row.total_supply) || null,
+    maxSupply: Number(row.max_supply) || null,
+    sparkline: row.sparkline_in_7d?.price || null,
+    dataProvider: "coingecko",
+    capturedAt: row.last_updated || new Date().toISOString(),
+    status: "Live"
+  });
+}
+
+async function fetchCoinGeckoRankedCryptoAssets(limit = CRYPTO_MARKET_LIMIT) {
+  const perPage = Math.min(Math.max(limit, 1), 250);
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=true&price_change_percentage=1h,24h,7d,30d,1y&precision=full`;
+  const json = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Autody/1.0 market catalog"
+    }
+  }).then((r) => {
+    if (!r.ok) throw new Error(`CoinGecko markets HTTP ${r.status}`);
+    return r.json();
+  });
+
+  if (!Array.isArray(json)) throw new Error("CoinGecko markets response was not a list");
+  const metadata = existingCryptoMetadata();
+  return json.map((row, index) => mapCoinGeckoMarketAsset(row, index, metadata));
+}
+
+async function getCryptoCatalogAssets(options = {}) {
+  const forceRefresh = Boolean(options.forceRefresh);
+  const throwOnError = Boolean(options.throwOnError);
+
+  if (!forceRefresh && cryptoCatalogCache.assets.length && cryptoCatalogCache.expiresAt > Date.now()) {
+    return cryptoCatalogCache.assets;
+  }
+
+  try {
+    const liveAssets = await fetchCoinGeckoRankedCryptoAssets(CRYPTO_MARKET_LIMIT);
+    const assets = [assetCatalogEntry(AUTODY_MARKET_ASSET), ...liveAssets];
+    cryptoCatalogCache = { assets, expiresAt: Date.now() + CRYPTO_CATALOG_CACHE_MS };
+    return assets;
+  } catch (err) {
+    console.error("CoinGecko ranked catalog error:", err);
+    if (cryptoCatalogCache.assets.length) return cryptoCatalogCache.assets;
+    if (throwOnError) throw err;
+    return staticCryptoFallbackCatalog();
+  }
+}
+
 const TRADE_STOCK_ASSETS = [
   { rank: 1, symbol: "SPY", name: "SPDR S&P 500 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["S&P 500", "ETF"] },
   { rank: 2, symbol: "QQQ", name: "Invesco QQQ Trust", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Nasdaq 100", "ETF"] },
@@ -902,7 +1048,57 @@ const TRADE_STOCK_ASSETS = [
   { rank: 47, symbol: "7203.T", name: "Toyota Motor", assetType: "stock", market: "Tokyo", region: "Japan", currency: "JPY", tags: ["Autos"] },
   { rank: 48, symbol: "005930.KS", name: "Samsung Electronics", assetType: "stock", market: "Korea Exchange", region: "South Korea", currency: "KRW", tags: ["Semiconductors", "Consumer tech"] },
   { rank: 49, symbol: "MC.PA", name: "LVMH", assetType: "stock", market: "Euronext Paris", region: "France", currency: "EUR", tags: ["Luxury", "Consumer"] },
-  { rank: 50, symbol: "NESN.SW", name: "Nestle", assetType: "stock", market: "SIX Swiss", region: "Switzerland", currency: "CHF", tags: ["Consumer staples"] }
+  { rank: 50, symbol: "NESN.SW", name: "Nestle", assetType: "stock", market: "SIX Swiss", region: "Switzerland", currency: "CHF", tags: ["Consumer staples"] },
+  { rank: 51, symbol: "BRK-B", name: "Berkshire Hathaway", assetType: "stock", market: "NYSE", region: "US", tags: ["Insurance", "Conglomerate"] },
+  { rank: 52, symbol: "MA", name: "Mastercard", assetType: "stock", market: "NYSE", region: "US", tags: ["Payments"] },
+  { rank: 53, symbol: "UNH", name: "UnitedHealth Group", assetType: "stock", market: "NYSE", region: "US", tags: ["Healthcare"] },
+  { rank: 54, symbol: "LLY", name: "Eli Lilly", assetType: "stock", market: "NYSE", region: "US", tags: ["Healthcare"] },
+  { rank: 55, symbol: "WMT", name: "Walmart", assetType: "stock", market: "NYSE", region: "US", tags: ["Retail"] },
+  { rank: 56, symbol: "ORCL", name: "Oracle", assetType: "stock", market: "NYSE", region: "US", tags: ["Cloud", "Software"] },
+  { rank: 57, symbol: "IBM", name: "IBM", assetType: "stock", market: "NYSE", region: "US", tags: ["AI", "Enterprise"] },
+  { rank: 58, symbol: "CRM", name: "Salesforce", assetType: "stock", market: "NYSE", region: "US", tags: ["Software"] },
+  { rank: 59, symbol: "NOW", name: "ServiceNow", assetType: "stock", market: "NYSE", region: "US", tags: ["Software", "Workflow"] },
+  { rank: 60, symbol: "INTU", name: "Intuit", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Software", "Fintech"] },
+  { rank: 61, symbol: "QCOM", name: "Qualcomm", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Semiconductors"] },
+  { rank: 62, symbol: "TXN", name: "Texas Instruments", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Semiconductors"] },
+  { rank: 63, symbol: "AMAT", name: "Applied Materials", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Semiconductors"] },
+  { rank: 64, symbol: "MU", name: "Micron Technology", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Memory", "Semiconductors"] },
+  { rank: 65, symbol: "PANW", name: "Palo Alto Networks", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Cybersecurity"] },
+  { rank: 66, symbol: "CRWD", name: "CrowdStrike", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Cybersecurity"] },
+  { rank: 67, symbol: "DIS", name: "Walt Disney", assetType: "stock", market: "NYSE", region: "US", tags: ["Entertainment"] },
+  { rank: 68, symbol: "NKE", name: "Nike", assetType: "stock", market: "NYSE", region: "US", tags: ["Consumer"] },
+  { rank: 69, symbol: "SBUX", name: "Starbucks", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Consumer"] },
+  { rank: 70, symbol: "MCD", name: "McDonald's", assetType: "stock", market: "NYSE", region: "US", tags: ["Restaurants"] },
+  { rank: 71, symbol: "HD", name: "Home Depot", assetType: "stock", market: "NYSE", region: "US", tags: ["Retail", "Housing"] },
+  { rank: 72, symbol: "COST", name: "Costco", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Retail"] },
+  { rank: 73, symbol: "WFC", name: "Wells Fargo", assetType: "stock", market: "NYSE", region: "US", tags: ["Banking"] },
+  { rank: 74, symbol: "BAC", name: "Bank of America", assetType: "stock", market: "NYSE", region: "US", tags: ["Banking"] },
+  { rank: 75, symbol: "GS", name: "Goldman Sachs", assetType: "stock", market: "NYSE", region: "US", tags: ["Banking"] },
+  { rank: 76, symbol: "BLK", name: "BlackRock", assetType: "stock", market: "NYSE", region: "US", tags: ["Asset management"] },
+  { rank: 77, symbol: "TTE", name: "TotalEnergies ADR", assetType: "stock", market: "NYSE", region: "France", tags: ["Oil", "Energy"] },
+  { rank: 78, symbol: "EQNR", name: "Equinor ADR", assetType: "stock", market: "NYSE", region: "Norway", tags: ["Oil", "Energy"] },
+  { rank: 79, symbol: "VALE", name: "Vale ADR", assetType: "stock", market: "NYSE", region: "Brazil", tags: ["Mining", "Materials"] },
+  { rank: 80, symbol: "PBR", name: "Petrobras ADR", assetType: "stock", market: "NYSE", region: "Brazil", tags: ["Oil", "Energy"] },
+  { rank: 81, symbol: "FMX", name: "Fomento Economico Mexicano ADR", assetType: "stock", market: "NYSE", region: "Mexico", tags: ["Consumer", "Latin America"] },
+  { rank: 82, symbol: "NU", name: "Nu Holdings", assetType: "stock", market: "NYSE", region: "Latin America", tags: ["Fintech", "Banking"] },
+  { rank: 83, symbol: "HDB", name: "HDFC Bank ADR", assetType: "stock", market: "NYSE", region: "India", tags: ["Banking"] },
+  { rank: 84, symbol: "TCS.NS", name: "Tata Consultancy Services", assetType: "stock", market: "NSE India", region: "India", currency: "INR", tags: ["Technology"] },
+  { rank: 85, symbol: "HDFCBANK.NS", name: "HDFC Bank India", assetType: "stock", market: "NSE India", region: "India", currency: "INR", tags: ["Banking"] },
+  { rank: 86, symbol: "0005.HK", name: "HSBC Hong Kong", assetType: "stock", market: "Hong Kong", region: "Hong Kong", currency: "HKD", tags: ["Banking"] },
+  { rank: 87, symbol: "1299.HK", name: "AIA Group", assetType: "stock", market: "Hong Kong", region: "Hong Kong", currency: "HKD", tags: ["Insurance"] },
+  { rank: 88, symbol: "1810.HK", name: "Xiaomi", assetType: "stock", market: "Hong Kong", region: "China", currency: "HKD", tags: ["Consumer tech"] },
+  { rank: 89, symbol: "6758.T", name: "Sony Group Tokyo", assetType: "stock", market: "Tokyo", region: "Japan", currency: "JPY", tags: ["Consumer tech", "Entertainment"] },
+  { rank: 90, symbol: "9984.T", name: "SoftBank Group", assetType: "stock", market: "Tokyo", region: "Japan", currency: "JPY", tags: ["Technology", "Investing"] },
+  { rank: 91, symbol: "2330.TW", name: "TSMC Taiwan", assetType: "stock", market: "Taiwan", region: "Taiwan", currency: "TWD", tags: ["Semiconductors"] },
+  { rank: 92, symbol: "005380.KS", name: "Hyundai Motor", assetType: "stock", market: "Korea Exchange", region: "South Korea", currency: "KRW", tags: ["Autos"] },
+  { rank: 93, symbol: "035420.KS", name: "NAVER", assetType: "stock", market: "Korea Exchange", region: "South Korea", currency: "KRW", tags: ["Internet", "AI"] },
+  { rank: 94, symbol: "7201.T", name: "Nissan Motor", assetType: "stock", market: "Tokyo", region: "Japan", currency: "JPY", tags: ["Autos"] },
+  { rank: 95, symbol: "8306.T", name: "Mitsubishi UFJ Financial", assetType: "stock", market: "Tokyo", region: "Japan", currency: "JPY", tags: ["Banking"] },
+  { rank: 96, symbol: "AIR.PA", name: "Airbus", assetType: "stock", market: "Euronext Paris", region: "France", currency: "EUR", tags: ["Aerospace"] },
+  { rank: 97, symbol: "OR.PA", name: "L'Oreal", assetType: "stock", market: "Euronext Paris", region: "France", currency: "EUR", tags: ["Consumer"] },
+  { rank: 98, symbol: "SIE.DE", name: "Siemens", assetType: "stock", market: "Xetra", region: "Germany", currency: "EUR", tags: ["Industrial", "Automation"] },
+  { rank: 99, symbol: "DTE.DE", name: "Deutsche Telekom", assetType: "stock", market: "Xetra", region: "Germany", currency: "EUR", tags: ["Telecom"] },
+  { rank: 100, symbol: "AZN.L", name: "AstraZeneca London", assetType: "stock", market: "London", region: "UK", currency: "GBp", tags: ["Healthcare"] }
 ];
 
 function parseStooqCsv(csv) {
@@ -1007,6 +1203,15 @@ const CHART_RANGE_CONFIG = {
   all: { range: "5y", interval: "1mo" }
 };
 
+const COINGECKO_CHART_DAYS = {
+  "1d": "1",
+  "1w": "7",
+  "1m": "30",
+  "3m": "90",
+  "1y": "365",
+  all: "max"
+};
+
 async function fetchYahooChartSeries(asset, requestedRange = "1d") {
   const requested = String(requestedRange || "1d").toLowerCase();
   const selectedRange = CHART_RANGE_CONFIG[requested] ? requested : "1d";
@@ -1055,6 +1260,135 @@ async function fetchYahooChartSeries(asset, requestedRange = "1d") {
       instrumentType: meta.instrumentType || null
     }
   };
+}
+
+function pointRangeStats(points = []) {
+  const values = points.map((point) => Number(point.close)).filter(Number.isFinite);
+  if (!values.length) return { high: null, low: null };
+  return {
+    high: Math.max(...values),
+    low: Math.min(...values)
+  };
+}
+
+function sparklineChartSeries(asset, selectedRange = "1w") {
+  const prices = Array.isArray(asset.sparkline) ? asset.sparkline.filter(Number.isFinite) : [];
+  if (!prices.length) return null;
+  const now = Date.now();
+  const step = (1000 * 60 * 60 * 24 * 7) / Math.max(1, prices.length - 1);
+  const points = prices.map((close, index) => ({
+    time: new Date(now - (prices.length - 1 - index) * step).toISOString(),
+    close,
+    volume: null
+  }));
+  const range = pointRangeStats(points);
+  return {
+    range: selectedRange,
+    providerSymbol: asset.id || asset.symbol,
+    currency: asset.currency || "USD",
+    points,
+    stats: {
+      rangeHigh: range.high,
+      rangeLow: range.low,
+      allTimeHigh: asset.ath ?? null,
+      allTimeLow: asset.atl ?? null,
+      volume: asset.totalVolume ?? asset.liquidityUsd ?? null
+    }
+  };
+}
+
+async function fetchCoinGeckoChartSeries(asset, requestedRange = "1d") {
+  const requested = String(requestedRange || "1d").toLowerCase();
+  const selectedRange = COINGECKO_CHART_DAYS[requested] ? requested : "1d";
+  const days = COINGECKO_CHART_DAYS[selectedRange];
+  const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(asset.id)}/market_chart?vs_currency=usd&days=${days}&precision=full`;
+
+  try {
+    const json = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Autody/1.0 market detail"
+      }
+    }).then((r) => {
+      if (!r.ok) throw new Error(`CoinGecko chart HTTP ${r.status}`);
+      return r.json();
+    });
+
+    const prices = Array.isArray(json.prices) ? json.prices : [];
+    const volumes = Array.isArray(json.total_volumes) ? json.total_volumes : [];
+    const marketCaps = Array.isArray(json.market_caps) ? json.market_caps : [];
+    const points = prices.map(([time, close], index) => ({
+      time: new Date(time).toISOString(),
+      close: Number(close),
+      volume: volumes[index] ? Number(volumes[index][1]) : null,
+      marketCap: marketCaps[index] ? Number(marketCaps[index][1]) : null
+    })).filter((point) => Number.isFinite(point.close));
+
+    const range = pointRangeStats(points);
+    const lastVolume = [...points].reverse().find((point) => Number.isFinite(point.volume))?.volume ?? asset.totalVolume ?? asset.liquidityUsd ?? null;
+    return {
+      range: selectedRange,
+      providerSymbol: asset.id || asset.symbol,
+      currency: "USD",
+      points,
+      stats: {
+        rangeHigh: range.high,
+        rangeLow: range.low,
+        allTimeHigh: asset.ath ?? null,
+        allTimeLow: asset.atl ?? null,
+        volume: lastVolume,
+        marketCap: asset.marketCap ?? null,
+        fdv: asset.fdv ?? null
+      }
+    };
+  } catch (err) {
+    const fallback = sparklineChartSeries(asset, selectedRange);
+    if (fallback) return fallback;
+    throw err;
+  }
+}
+
+async function fetchYahooAllTimeStats(asset) {
+  const encoded = encodeURIComponent(marketDataSymbol(asset));
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=max&interval=1mo`;
+  const json = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Autody/1.0 market detail"
+    }
+  }).then((r) => {
+    if (!r.ok) throw new Error(`Yahoo all-time chart HTTP ${r.status}`);
+    return r.json();
+  });
+
+  const result = json.chart?.result?.[0];
+  const closes = result?.indicators?.quote?.[0]?.close || [];
+  const values = closes.map(Number).filter(Number.isFinite);
+  return {
+    allTimeHigh: values.length ? Math.max(...values) : null,
+    allTimeLow: values.length ? Math.min(...values) : null
+  };
+}
+
+async function fetchAssetChartSeries(asset, requestedRange = "1d") {
+  if (asset.customAsset) {
+    return {
+      range: CHART_RANGE_CONFIG[String(requestedRange || "1d").toLowerCase()] ? String(requestedRange || "1d").toLowerCase() : "1d",
+      providerSymbol: asset.symbol,
+      currency: asset.currency || "USD",
+      points: [],
+      stats: {}
+    };
+  }
+
+  if (asset.assetType === "crypto" && asset.id && !asset.customAsset) {
+    return fetchCoinGeckoChartSeries(asset, requestedRange);
+  }
+
+  const chart = await fetchYahooChartSeries(asset, requestedRange);
+  const allTimeStats = await fetchYahooAllTimeStats(asset).catch(() => ({}));
+  chart.stats = { ...(chart.stats || {}), ...allTimeStats };
+  return chart;
 }
 
 async function fetchYahooChartAssets(assets) {
@@ -1175,32 +1509,10 @@ function uniqueArticles(articles) {
 
 async function fetchCryptoMarketData() {
   try {
-    const ids = TRADE_CRYPTO_ASSETS.map((asset) => asset.id).filter(Boolean).join(",");
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
-    const json = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Autody/1.0 market preview"
-      }
-    }).then((r) => {
-      if (!r.ok) throw new Error(`CoinGecko HTTP ${r.status}`);
-      return r.json();
-    });
+    const assets = (await getCryptoCatalogAssets({ forceRefresh: true, throwOnError: true }))
+      .filter((asset) => asset.symbol !== AUTODY_MARKET_ASSET.symbol && asset.price != null);
 
-    const assets = TRADE_CRYPTO_ASSETS
-      .map((asset) => {
-        const data = json[asset.id];
-        if (!data) return null;
-        return {
-          ...assetCatalogEntry(asset),
-          price: data.usd ?? null,
-          changePct: data.usd_24h_change ?? null,
-          marketCap: data.usd_market_cap ?? null
-        };
-      })
-      .filter(Boolean);
-
-    const minimumUsefulCryptoCount = Math.ceil(TRADE_CRYPTO_ASSETS.length * 0.7);
+    const minimumUsefulCryptoCount = Math.ceil(CRYPTO_MARKET_LIMIT * 0.7);
     if (assets.length < minimumUsefulCryptoCount) {
       throw new Error(`CoinGecko returned only ${assets.length} crypto assets`);
     }
@@ -1226,7 +1538,7 @@ async function fetchCryptoMarketData() {
       return { success: true, provider: "coinbase-yahoo", assets };
     } catch (fallbackErr) {
       console.error("Crypto fallback error:", fallbackErr);
-      const cachedAssets = await readLatestMarketSnapshots("crypto", TRADE_CRYPTO_ASSETS.length);
+      const cachedAssets = await readLatestMarketSnapshots("crypto", CRYPTO_MARKET_LIMIT);
       if (cachedAssets.length) {
         return { success: true, provider: "supabase-cache", cached: true, assets: cachedAssets };
       }
@@ -1243,7 +1555,7 @@ async function fetchCryptoMarketData() {
 async function fetchStockMarketData() {
   try {
     const symbols = TRADE_STOCK_ASSETS.map((asset) => marketDataSymbol(asset)).join(",");
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketTime`;
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,currency,regularMarketPrice,regularMarketChangePercent,regularMarketTime,marketCap,regularMarketVolume,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
     const json = await fetch(url, {
       headers: {
         Accept: "application/json",
@@ -1263,8 +1575,11 @@ async function fetchStockMarketData() {
       return {
         ...assetCatalogEntry(catalog),
         name: catalog.name || quote.shortName || quote.symbol,
+        currency: quote.currency || catalog.currency || "USD",
         price: quote.regularMarketPrice ?? null,
         changePct: quote.regularMarketChangePercent ?? null,
+        marketCap: quote.marketCap ?? null,
+        totalVolume: quote.regularMarketVolume ?? null,
         date: quote.regularMarketTime ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
         time: quote.regularMarketTime ?? null
       };
@@ -1655,7 +1970,7 @@ app.get("/api/markets/asset/:symbol", async (req, res) => {
     }
 
     const [chartResult, accountResult] = await Promise.allSettled([
-      fetchYahooChartSeries(asset, range),
+      fetchAssetChartSeries(asset, range),
       getPracticeAccountAny()
     ]);
 
