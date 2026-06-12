@@ -52,6 +52,18 @@ function moveClass(value) {
   return number > 0 ? "gain" : "loss";
 }
 
+function titleLabel(value = "") {
+  return String(value)
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function assetTypeLabel(asset) {
+  const labels = [asset.assetType, asset.market].filter(Boolean);
+  const uniqueLabels = labels.filter((label, index) => labels.findIndex((item) => String(item).toLowerCase() === String(label).toLowerCase()) === index);
+  return uniqueLabels.map(titleLabel).join(" ");
+}
+
 function escapeHtml(value = "") {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -59,6 +71,45 @@ function escapeHtml(value = "") {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function logoFallbackText(asset) {
+  const symbol = String(asset.symbol || "?")
+    .replace(/=F$/i, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .slice(0, 4)
+    .toUpperCase();
+  return symbol || "?";
+}
+
+function assetLogoSrc(asset) {
+  if (asset.logoUrl) return asset.logoUrl;
+  if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+  return "";
+}
+
+function assetLogoMarkup(asset, extraClass = "") {
+  const fallback = logoFallbackText(asset);
+  const src = assetLogoSrc(asset);
+  const img = src
+    ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    : "";
+  return `
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
+      ${img}
+      <b>${escapeHtml(fallback)}</b>
+    </span>
+  `;
+}
+
+function formatPointTime(value) {
+  if (!value) return currentRange.toUpperCase();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return currentRange.toUpperCase();
+  const options = currentRange === "1d"
+    ? { hour: "numeric", minute: "2-digit" }
+    : { month: "short", day: "numeric", year: currentRange === "all" ? "numeric" : undefined };
+  return new Intl.DateTimeFormat("en-US", options).format(date);
 }
 
 async function getJson(url) {
@@ -71,6 +122,46 @@ function chartPoints(asset, points) {
   return (points || [])
     .map((point) => ({ ...point, close: Number(point.close) }))
     .filter((point) => Number.isFinite(point.close));
+}
+
+function wireChartHover(target, plottedPoints, currency, width, height) {
+  const svg = target.querySelector("svg");
+  const capture = target.querySelector(".chart-hover-capture");
+  const line = target.querySelector(".chart-hover-line");
+  const dot = target.querySelector(".chart-hover-dot");
+  const tooltip = target.querySelector(".chart-hover-tooltip");
+  const tooltipPrice = target.querySelector(".chart-hover-price");
+  const tooltipTime = target.querySelector(".chart-hover-time");
+  if (!svg || !capture || !line || !dot || !tooltip || !tooltipPrice || !tooltipTime) return;
+
+  function setActivePoint(point) {
+    line.setAttribute("x1", point.x);
+    line.setAttribute("x2", point.x);
+    dot.setAttribute("cx", point.x);
+    dot.setAttribute("cy", point.y);
+    tooltipPrice.textContent = formatPrice(point.close, currency);
+    tooltipTime.textContent = formatPointTime(point.time || point.date || point.timestamp);
+
+    const tooltipWidth = 178;
+    const tooltipHeight = 66;
+    const x = Math.min(width - tooltipWidth - 10, Math.max(10, point.x + 14));
+    const y = Math.min(height - tooltipHeight - 10, Math.max(10, point.y - tooltipHeight - 12));
+    tooltip.setAttribute("x", x);
+    tooltip.setAttribute("y", y);
+    svg.classList.add("is-hovering");
+  }
+
+  function nearestPoint(clientX) {
+    const rect = svg.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * width;
+    return plottedPoints.reduce((nearest, point) => (
+      Math.abs(point.x - x) < Math.abs(nearest.x - x) ? point : nearest
+    ), plottedPoints[0]);
+  }
+
+  capture.addEventListener("pointermove", (event) => setActivePoint(nearestPoint(event.clientX)));
+  capture.addEventListener("pointerenter", (event) => setActivePoint(nearestPoint(event.clientX)));
+  capture.addEventListener("pointerleave", () => svg.classList.remove("is-hovering"));
 }
 
 function renderLineChart(asset, chart) {
@@ -103,13 +194,15 @@ function renderLineChart(asset, chart) {
   const width = 900;
   const height = 320;
   const padding = 20;
-  const path = points.map((point, index) => {
+  const plottedPoints = points.map((point, index) => {
     const x = padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
     const y = height - padding - ((point.close - min) / range) * (height - padding * 2);
-    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-  }).join(" ");
+    return { ...point, x, y };
+  });
+  const path = plottedPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
   const fillPath = `${path} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
   const cls = moveClass(asset.changePct);
+  const currency = chart.currency || asset.currency || "USD";
 
   target.innerHTML = `
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(asset.symbol)} price movement">
@@ -121,8 +214,20 @@ function renderLineChart(asset, chart) {
       </defs>
       <path d="${fillPath}" fill="url(#assetChartFill)"></path>
       <path d="${path}" fill="none" stroke="${cls === "loss" ? "#ff5c7a" : "#32d583"}" stroke-width="4" stroke-linecap="round"></path>
+      <g class="chart-hover-layer" aria-hidden="true">
+        <line class="chart-hover-line" y1="${padding}" y2="${height - padding}"></line>
+        <circle class="chart-hover-dot" r="6"></circle>
+        <foreignObject class="chart-hover-tooltip" width="178" height="66">
+          <div xmlns="http://www.w3.org/1999/xhtml">
+            <strong class="chart-hover-price"></strong>
+            <span class="chart-hover-time"></span>
+          </div>
+        </foreignObject>
+        <rect class="chart-hover-capture" x="0" y="0" width="${width}" height="${height}"></rect>
+      </g>
     </svg>
   `;
+  wireChartHover(target, plottedPoints, currency, width, height);
 }
 
 function detailRow(label, value) {
@@ -210,7 +315,8 @@ function renderAsset(data) {
   const chart = data.chart || {};
   currentAsset = asset;
   document.title = `Autody Demo Account | ${asset.symbol}`;
-  document.getElementById("asset-type-label").textContent = `${asset.assetType} ${asset.market || ""}`.trim();
+  document.getElementById("asset-logo-wrap").innerHTML = assetLogoMarkup(asset, "asset-logo-hero");
+  document.getElementById("asset-type-label").textContent = assetTypeLabel(asset);
   document.getElementById("asset-symbol").textContent = asset.symbol;
   document.getElementById("asset-name").textContent = asset.name;
   document.getElementById("asset-price").textContent = formatPrice(asset.price, asset.currency || chart.currency || "USD");

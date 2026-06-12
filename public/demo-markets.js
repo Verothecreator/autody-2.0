@@ -57,6 +57,35 @@ function assetUrl(asset) {
   return `demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}`;
 }
 
+function logoFallbackText(asset) {
+  const symbol = String(asset.symbol || "?")
+    .replace(/=F$/i, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .slice(0, 4)
+    .toUpperCase();
+  return symbol || "?";
+}
+
+function marketLogoSrc(asset) {
+  if (asset.logoUrl) return asset.logoUrl;
+  if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+  return "";
+}
+
+function marketLogoMarkup(asset, extraClass = "") {
+  const fallback = logoFallbackText(asset);
+  const src = marketLogoSrc(asset);
+  const img = src
+    ? `<img src="${escapeMarketHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    : "";
+  return `
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${escapeMarketHtml(extraClass)}" data-symbol="${escapeMarketHtml(fallback)}">
+      ${img}
+      <b>${escapeMarketHtml(fallback)}</b>
+    </span>
+  `;
+}
+
 async function getJson(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`${url} returned ${response.status}`);
@@ -116,7 +145,7 @@ function marketCard(asset) {
   return `
     <a class="market-asset-card ${assetTone(asset)}" href="${assetUrl(asset)}">
       <div class="asset-card-top">
-        <span class="asset-token">${escapeMarketHtml(asset.symbol.slice(0, 4))}</span>
+        ${marketLogoMarkup(asset)}
         <span class="asset-pill">${escapeMarketHtml(asset.assetType.toUpperCase())}</span>
       </div>
       <strong>${escapeMarketHtml(asset.name)}</strong>
@@ -133,6 +162,7 @@ function marketCard(asset) {
 function compactRow(asset) {
   return `
     <a href="${assetUrl(asset)}">
+      ${marketLogoMarkup(asset, "asset-logo-small")}
       <span><b>${escapeMarketHtml(asset.symbol)}</b><em>${escapeMarketHtml(asset.name)}</em></span>
       <strong>${marketPrice(asset.price, asset.currency || "USD")}</strong>
       <small class="${marketMoveClass(asset.changePct)}">${marketMove(asset.changePct)}</small>
@@ -143,6 +173,7 @@ function compactRow(asset) {
 function renderSpotlight(asset) {
   if (!asset) return;
   const moveClass = marketMoveClass(asset.changePct);
+  document.getElementById("spotlight-logo-wrap").innerHTML = marketLogoMarkup(asset, "asset-logo-large");
   document.getElementById("spotlight-name").textContent = asset.name;
   document.getElementById("spotlight-price").textContent = marketPrice(asset.price, asset.currency || "USD");
   const move = document.getElementById("spotlight-move");
@@ -165,6 +196,7 @@ function renderMovers(assets) {
   target.innerHTML = movers.map((asset, index) => `
     <a href="${assetUrl(asset)}">
       <span>${index + 1}</span>
+      ${marketLogoMarkup(asset, "asset-logo-small")}
       <strong>${escapeMarketHtml(asset.symbol)}</strong>
       <small>${escapeMarketHtml(asset.name)}</small>
       <em class="${marketMoveClass(asset.changePct)}">${marketMove(asset.changePct)}</em>

@@ -1491,6 +1491,19 @@ h3 {
   text-decoration: none;
 }
 
+.spotlight-heading,
+.asset-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.spotlight-heading > div,
+.asset-identity > div {
+  min-width: 0;
+}
+
 .spotlight-price-row,
 .asset-hero-row {
   display: flex;
@@ -1582,11 +1595,15 @@ h3 {
   text-decoration: none;
 }
 
-.compact-market-list a {
-  grid-template-columns: minmax(110px, 1fr) auto auto;
+.market-mover-list a {
+  grid-template-columns: auto auto 0.45fr 1fr auto;
 }
 
-.market-mover-list span {
+.compact-market-list a {
+  grid-template-columns: auto minmax(110px, 1fr) auto auto;
+}
+
+.market-mover-list a > span:first-child {
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -1674,6 +1691,8 @@ h3 {
 .asset-token {
   width: 42px;
   height: 42px;
+  position: relative;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1682,6 +1701,55 @@ h3 {
   color: #fff;
   font-size: 0.85rem;
   font-weight: 900;
+  overflow: hidden;
+}
+
+.asset-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.asset-logo > b,
+.compact-market-list .asset-logo > b,
+.market-mover-list .asset-logo > b {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
+}
+
+.asset-logo.logo-fallback > b,
+.asset-logo:not(.has-image) > b,
+.compact-market-list .asset-logo.logo-fallback > b,
+.market-mover-list .asset-logo.logo-fallback > b {
+  display: inline-flex;
+}
+
+.asset-logo-small {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+}
+
+.asset-logo-large {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.asset-logo-hero {
+  width: 76px;
+  height: 76px;
+  border-radius: 14px;
+  font-size: 1rem;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
 }
 
 .market-asset-card strong {
@@ -1772,6 +1840,7 @@ h3 {
 
 .asset-line-chart {
   min-height: 360px;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1785,6 +1854,63 @@ h3 {
   width: 100%;
   height: 100%;
   min-height: 340px;
+  display: block;
+}
+
+.chart-hover-line,
+.chart-hover-dot,
+.chart-hover-tooltip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+
+.asset-line-chart svg.is-hovering .chart-hover-line,
+.asset-line-chart svg.is-hovering .chart-hover-dot,
+.asset-line-chart svg.is-hovering .chart-hover-tooltip {
+  opacity: 1;
+}
+
+.chart-hover-line {
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 7;
+}
+
+.chart-hover-dot {
+  fill: var(--dark);
+  stroke: var(--green);
+  stroke-width: 3;
+}
+
+.chart-hover-tooltip div {
+  min-width: 154px;
+  min-height: 48px;
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(9, 13, 17, 0.94);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+  color: var(--text);
+}
+
+.chart-hover-tooltip strong {
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.chart-hover-tooltip span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.chart-hover-capture {
+  fill: transparent;
+  cursor: crosshair;
+  pointer-events: all;
 }
 
 .asset-chart-stats,

@@ -265,6 +265,40 @@ function marketDataSymbol(asset) {
     return asset.providerSymbol || asset.yahooSymbol || asset.product || asset.symbol;
 }
 
+const FINANCIAL_LOGO_SYMBOLS = {
+    "GC=F": "GLD",
+    "SI=F": "SLV",
+    "CL=F": "USO",
+    "BZ=F": "BNO",
+    "NG=F": "UNG",
+    "HG=F": "CPER",
+    "PL=F": "PPLT",
+    "PA=F": "PALL",
+    "ZC=F": "CORN",
+    "ZW=F": "WEAT",
+    "ZS=F": "SOYB",
+    "KC=F": "JO",
+    "SB=F": "CANE",
+    "CC=F": "NIB",
+    "CT=F": "BAL"
+};
+
+function financialLogoSymbol(asset) {
+    const provider = marketDataSymbol(asset);
+    const symbol = String(provider || asset.symbol || "").toUpperCase();
+    return FINANCIAL_LOGO_SYMBOLS[symbol] || symbol.replace(/\.[A-Z]+$/, "");
+}
+
+function assetLogoUrl(asset) {
+    if (asset.logoUrl || asset.image) return asset.logoUrl || asset.image;
+    if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+    if (asset.assetType && asset.assetType !== "crypto") {
+        const symbol = financialLogoSymbol(asset);
+        return symbol ? `https://financialmodelingprep.com/image-stock/${encodeURIComponent(symbol)}.png` : null;
+    }
+    return null;
+}
+
 function assetCatalogEntry(asset) {
     return {
         rank: asset.rank,
@@ -295,6 +329,7 @@ function assetCatalogEntry(asset) {
         totalSupply: asset.totalSupply ?? null,
         maxSupply: asset.maxSupply ?? null,
         sparkline: asset.sparkline || null,
+        logoUrl: assetLogoUrl(asset),
         dataProvider: asset.dataProvider || null,
         capturedAt: asset.capturedAt || null,
         status: asset.status || null
@@ -904,6 +939,7 @@ const AUTODY_MARKET_ASSET = {
   depositNetworks: ["Autody network pending"],
   tradeable: false,
   customAsset: true,
+  logoUrl: "Autody-Logo.png",
   status: "Market maker pending"
 };
 
@@ -1005,6 +1041,7 @@ function mapCoinGeckoMarketAsset(row, index, metadata) {
     assetType: "crypto",
     market: cryptoMarketKind(row, existing),
     currency: "USD",
+    logoUrl: row.image || existing.logoUrl || existing.image || null,
     tags: existing.tags || [],
     depositNetworks: existing.depositNetworks || [],
     price: Number.isFinite(price) ? price : null,
