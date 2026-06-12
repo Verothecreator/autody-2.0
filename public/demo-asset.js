@@ -9,7 +9,7 @@ const ASSET_REFRESH_MS = 30000;
 function priceDigits(number, compact = false) {
   if (compact) return 2;
   if (Math.abs(number) < 0.01) return 8;
-  if (Math.abs(number) < 1) return 4;
+  if (Math.abs(number) < 1) return 6;
   return 2;
 }
 

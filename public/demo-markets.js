@@ -10,7 +10,7 @@ const MIN_STABLE_MARKET_ASSETS = 390;
 function marketPriceDigits(number, compact = false) {
   if (compact) return 2;
   if (Math.abs(number) < 0.01) return 8;
-  if (Math.abs(number) < 1) return 4;
+  if (Math.abs(number) < 1) return 6;
   return 2;
 }
 

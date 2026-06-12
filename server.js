@@ -44,7 +44,9 @@ const dbPool = DATABASE_URL ? new Pool({
     ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
 }) : null;
 const CHART_RANGE_KEYS = ["1d", "1w", "1m", "3m", "1y", "all"];
-const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 5 * 60 * 1000);
+const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 60 * 1000);
+const LIVE_MARKET_STALE_MS = Number(process.env.LIVE_MARKET_STALE_MS || Math.max(45 * 1000, LIVE_MARKET_REFRESH_MS));
+const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 5 * 60 * 1000);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
 const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD,GC=F,CL=F")
     .split(",")
@@ -57,6 +59,8 @@ const LIVE_CHART_REFRESH_RANGES = Array.from(new Set((process.env.LIVE_CHART_REF
 const MARKET_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
+let chartRefreshInFlight = null;
+let lastChartRefresh = null;
 
 function loadOrders() {
     return JSON.parse(fs.readFileSync(ORDER_STORE));
@@ -2277,15 +2281,15 @@ async function refreshCoreChartSnapshots() {
   return { count };
 }
 
-async function refreshLiveData({ includeNews = false, reason = "manual" } = {}) {
+async function refreshLiveData({ includeNews = false, includeCharts = false, reason = "manual" } = {}) {
   const startedAt = new Date();
   const refreshes = [
     ["crypto", fetchCryptoMarketData()],
     ["stocks", fetchStockMarketData()],
-    ["signals", fetchSignalMarketData()],
-    ["charts", refreshCoreChartSnapshots()]
+    ["signals", fetchSignalMarketData()]
   ];
 
+  if (includeCharts) refreshes.push(["charts", refreshCoreChartSnapshots()]);
   if (includeNews) refreshes.push(["news", fetchNewsData()]);
 
   const settled = await Promise.allSettled(refreshes.map(([, promise]) => promise));
@@ -2327,28 +2331,90 @@ async function runLiveRefresh(options = {}) {
   return liveRefreshInFlight;
 }
 
+async function runChartRefresh(reason = "chart-interval") {
+  if (chartRefreshInFlight) return chartRefreshInFlight;
+
+  const startedAt = new Date();
+  chartRefreshInFlight = refreshCoreChartSnapshots()
+    .then((result) => {
+      lastChartRefresh = {
+        success: true,
+        reason,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        result
+      };
+      return lastChartRefresh;
+    })
+    .catch((err) => {
+      lastChartRefresh = {
+        success: false,
+        reason,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        error: String(err?.message || err)
+      };
+      throw err;
+    })
+    .finally(() => {
+      chartRefreshInFlight = null;
+    });
+
+  return chartRefreshInFlight;
+}
+
+function lastMarketRefreshTime() {
+  const value = lastLiveRefresh?.finishedAt || lastLiveRefresh?.startedAt;
+  const time = value ? Date.parse(value) : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function maybeKickLiveMarketRefresh(reason = "request-stale") {
+  if (!databaseConfigured()) return;
+  if (liveRefreshInFlight) return;
+
+  const lastRefreshAt = lastMarketRefreshTime();
+  if (lastRefreshAt && Date.now() - lastRefreshAt < LIVE_MARKET_STALE_MS) return;
+
+  runLiveRefresh({ includeNews: false, includeCharts: false, reason }).catch((err) => {
+    console.error("Request-triggered live market refresh failed:", err);
+  });
+}
+
 function startLiveDataRefreshLoop() {
   if (!databaseConfigured()) return;
 
   const startupTimer = setTimeout(() => {
-    runLiveRefresh({ includeNews: true, reason: "startup" }).catch((err) => {
+    runLiveRefresh({ includeNews: true, includeCharts: false, reason: "startup" }).catch((err) => {
       console.error("Startup live data refresh failed:", err);
+    });
+    runChartRefresh("startup-charts").catch((err) => {
+      console.error("Startup chart refresh failed:", err);
     });
   }, 5000);
   startupTimer.unref?.();
 
   if (LIVE_MARKET_REFRESH_MS > 0) {
     const marketTimer = setInterval(() => {
-      runLiveRefresh({ includeNews: false, reason: "market-interval" }).catch((err) => {
+      runLiveRefresh({ includeNews: false, includeCharts: false, reason: "market-interval" }).catch((err) => {
         console.error("Market refresh interval failed:", err);
       });
     }, LIVE_MARKET_REFRESH_MS);
     marketTimer.unref?.();
   }
 
+  if (LIVE_CHART_REFRESH_MS > 0) {
+    const chartTimer = setInterval(() => {
+      runChartRefresh("chart-interval").catch((err) => {
+        console.error("Chart refresh interval failed:", err);
+      });
+    }, LIVE_CHART_REFRESH_MS);
+    chartTimer.unref?.();
+  }
+
   if (LIVE_NEWS_REFRESH_MS > 0) {
     const newsTimer = setInterval(() => {
-      runLiveRefresh({ includeNews: true, reason: "news-interval" }).catch((err) => {
+      runLiveRefresh({ includeNews: true, includeCharts: false, reason: "news-interval" }).catch((err) => {
         console.error("News refresh interval failed:", err);
       });
     }, LIVE_NEWS_REFRESH_MS);
@@ -2438,6 +2504,7 @@ app.get("/api/news/snapshots", async (req, res) => {
 
 app.get("/api/markets/catalog", async (req, res) => {
   try {
+    maybeKickLiveMarketRefresh("catalog-request-stale");
     const type = String(req.query.type || "all").toLowerCase();
     const safeType = ["all", "crypto", "stocks"].includes(type) ? type : "all";
     const assets = await buildMarketCatalog(safeType);
@@ -2465,6 +2532,7 @@ async function findMarketAssetBySymbol(symbol) {
 
 app.get("/api/markets/charts/:symbol", async (req, res) => {
   try {
+    maybeKickLiveMarketRefresh("chart-request-stale");
     const symbol = decodeURIComponent(req.params.symbol || "").trim().toUpperCase();
     const range = normalizeChartRange(req.query.range);
     const asset = await findMarketAssetBySymbol(symbol);
@@ -2489,6 +2557,7 @@ app.get("/api/markets/charts/:symbol", async (req, res) => {
 
 app.get("/api/markets/asset/:symbol", async (req, res) => {
   try {
+    maybeKickLiveMarketRefresh("asset-request-stale");
     const symbol = decodeURIComponent(req.params.symbol || "").trim().toUpperCase();
     const range = normalizeChartRange(req.query.range);
     const asset = await findMarketAssetBySymbol(symbol);
@@ -2534,14 +2603,23 @@ app.get("/api/live/status", (req, res) => {
     success: true,
     database: databaseConfigured() ? "supabase-postgres" : "json",
     refreshInFlight: Boolean(liveRefreshInFlight),
-    lastRefresh: lastLiveRefresh
+    chartRefreshInFlight: Boolean(chartRefreshInFlight),
+    intervals: {
+      marketMs: LIVE_MARKET_REFRESH_MS,
+      staleMs: LIVE_MARKET_STALE_MS,
+      chartMs: LIVE_CHART_REFRESH_MS,
+      newsMs: LIVE_NEWS_REFRESH_MS
+    },
+    lastRefresh: lastLiveRefresh,
+    lastChartRefresh
   });
 });
 
 app.post("/api/live/refresh", async (req, res) => {
   try {
     const includeNews = req.query.news !== "false";
-    const result = await runLiveRefresh({ includeNews, reason: "manual-api" });
+    const includeCharts = req.query.charts === "true";
+    const result = await runLiveRefresh({ includeNews, includeCharts, reason: "manual-api" });
     return res.json(result);
   } catch (err) {
     console.error("Manual live refresh failed:", err);
@@ -2552,7 +2630,8 @@ app.post("/api/live/refresh", async (req, res) => {
 app.get("/api/live/refresh", async (req, res) => {
   try {
     const includeNews = req.query.news !== "false";
-    const result = await runLiveRefresh({ includeNews, reason: "manual-api" });
+    const includeCharts = req.query.charts === "true";
+    const result = await runLiveRefresh({ includeNews, includeCharts, reason: "manual-api" });
     return res.json(result);
   } catch (err) {
     console.error("Manual live refresh failed:", err);
