@@ -85,9 +85,7 @@ function filterAsset(asset) {
   if (activeFilter === "stablecoin") return asset.market === "Stablecoin" || (asset.tags || []).includes("Stablecoin");
   if (activeFilter === "stocks") return asset.assetType === "stock";
   if (activeFilter === "etf") return asset.assetType === "etf";
-  if (activeFilter === "commodity") {
-    return asset.assetType !== "crypto" && (asset.region === "Commodity" || (asset.tags || []).some((tag) => /oil|gold|silver|gas|commodity/i.test(tag)));
-  }
+  if (activeFilter === "commodity") return asset.assetType === "commodity";
   return true;
 }
 
@@ -99,7 +97,7 @@ function assetTone(asset) {
   if (asset.market === "Autody" || asset.customAsset) return "crypto";
   if (asset.market === "Stablecoin") return "stable";
   if (asset.assetType === "crypto") return "crypto";
-  if (asset.region === "Commodity") return "commodity";
+  if (asset.assetType === "commodity") return "commodity";
   return "equity";
 }
 
@@ -179,7 +177,7 @@ function renderCompactLists(assets) {
     .filter((asset) => asset.assetType === "crypto" && asset.depositEnabled)
     .slice(0, 8);
   const global = assets
-    .filter((asset) => asset.assetType !== "crypto" && (asset.region !== "US" || asset.region === "Commodity" || asset.symbol === "VT"))
+    .filter((asset) => asset.assetType !== "crypto" && (asset.region !== "US" || asset.assetType === "commodity" || asset.symbol === "VT"))
     .slice(0, 8);
 
   document.getElementById("funding-assets-list").innerHTML = funding.map(compactRow).join("");

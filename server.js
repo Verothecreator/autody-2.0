@@ -43,16 +43,17 @@ const dbPool = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
     ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
 }) : null;
+const CHART_RANGE_KEYS = ["1d", "1w", "1m", "3m", "1y", "all"];
 const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 5 * 60 * 1000);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
-const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD")
+const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD,GC=F,CL=F")
     .split(",")
     .map((symbol) => symbol.trim().toUpperCase())
     .filter(Boolean);
-const LIVE_CHART_REFRESH_RANGES = (process.env.LIVE_CHART_REFRESH_RANGES || "1d,1w,1m")
+const LIVE_CHART_REFRESH_RANGES = Array.from(new Set((process.env.LIVE_CHART_REFRESH_RANGES || CHART_RANGE_KEYS.join(","))
     .split(",")
-    .map((range) => range.trim().toLowerCase())
-    .filter(Boolean);
+    .map((range) => normalizeChartRange(range.trim().toLowerCase()))
+    .filter(Boolean)));
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 
@@ -548,7 +549,7 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
 
 function normalizeChartRange(range = "1d") {
     const selected = String(range || "1d").toLowerCase();
-    return ["1d", "1w", "1m", "3m", "1y", "all"].includes(selected) ? selected : "1d";
+    return CHART_RANGE_KEYS.includes(selected) ? selected : "1d";
 }
 
 async function saveMarketChartSnapshot(provider, asset, chart) {
@@ -1064,18 +1065,101 @@ async function getCryptoCatalogAssets(options = {}) {
   }
 }
 
-const TRADE_STOCK_ASSETS = [
+const RAW_TRADE_STOCK_ASSETS = [
   { rank: 1, symbol: "SPY", name: "SPDR S&P 500 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["S&P 500", "ETF"] },
   { rank: 2, symbol: "QQQ", name: "Invesco QQQ Trust", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Nasdaq 100", "ETF"] },
   { rank: 3, symbol: "VOO", name: "Vanguard S&P 500 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["S&P 500", "ETF"] },
   { rank: 4, symbol: "VT", name: "Vanguard Total World Stock ETF", assetType: "etf", market: "NYSE Arca", region: "Global", tags: ["World equity", "ETF"] },
   { rank: 5, symbol: "DIA", name: "SPDR Dow Jones ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Dow", "ETF"] },
   { rank: 6, symbol: "IWM", name: "iShares Russell 2000 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Small caps", "ETF"] },
-  { rank: 7, symbol: "GLD", name: "SPDR Gold Shares", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Gold", "Commodity ETF"] },
-  { rank: 8, symbol: "SLV", name: "iShares Silver Trust", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Silver", "Commodity ETF"] },
-  { rank: 9, symbol: "USO", name: "United States Oil Fund", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Oil", "WTI"] },
-  { rank: 10, symbol: "BNO", name: "United States Brent Oil Fund", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Oil", "Brent"] },
-  { rank: 11, symbol: "UNG", name: "United States Natural Gas Fund", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Natural gas", "Energy"] },
+  { symbol: "IVV", name: "iShares Core S&P 500 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["S&P 500", "ETF"] },
+  { symbol: "VTI", name: "Vanguard Total Stock Market ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Total market", "ETF"] },
+  { symbol: "VEA", name: "Vanguard FTSE Developed Markets ETF", assetType: "etf", market: "NYSE Arca", region: "Global", tags: ["Developed markets", "ETF"] },
+  { symbol: "VWO", name: "Vanguard FTSE Emerging Markets ETF", assetType: "etf", market: "NYSE Arca", region: "Global", tags: ["Emerging markets", "ETF"] },
+  { symbol: "EFA", name: "iShares MSCI EAFE ETF", assetType: "etf", market: "NYSE Arca", region: "Global", tags: ["Developed markets", "ETF"] },
+  { symbol: "EEM", name: "iShares MSCI Emerging Markets ETF", assetType: "etf", market: "NYSE Arca", region: "Global", tags: ["Emerging markets", "ETF"] },
+  { symbol: "IEFA", name: "iShares Core MSCI EAFE ETF", assetType: "etf", market: "NYSE Arca", region: "Global", tags: ["Developed markets", "ETF"] },
+  { symbol: "AGG", name: "iShares Core U.S. Aggregate Bond ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Bonds", "ETF"] },
+  { symbol: "BND", name: "Vanguard Total Bond Market ETF", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Bonds", "ETF"] },
+  { symbol: "TLT", name: "iShares 20+ Year Treasury Bond ETF", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Treasuries", "ETF"] },
+  { symbol: "HYG", name: "iShares iBoxx High Yield Corporate Bond ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["High yield", "ETF"] },
+  { symbol: "LQD", name: "iShares iBoxx Investment Grade Corporate Bond ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Corporate bonds", "ETF"] },
+  { symbol: "SHY", name: "iShares 1-3 Year Treasury Bond ETF", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Treasuries", "ETF"] },
+  { symbol: "TIP", name: "iShares TIPS Bond ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Inflation", "ETF"] },
+  { symbol: "XLK", name: "Technology Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Technology", "ETF"] },
+  { symbol: "XLF", name: "Financial Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Financials", "ETF"] },
+  { symbol: "XLE", name: "Energy Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Energy stocks", "ETF"] },
+  { symbol: "XLV", name: "Health Care Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Healthcare", "ETF"] },
+  { symbol: "XLY", name: "Consumer Discretionary Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Consumer", "ETF"] },
+  { symbol: "XLP", name: "Consumer Staples Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Consumer staples", "ETF"] },
+  { symbol: "XLI", name: "Industrial Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Industrials", "ETF"] },
+  { symbol: "XLU", name: "Utilities Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Utilities", "ETF"] },
+  { symbol: "XLB", name: "Materials Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Materials", "ETF"] },
+  { symbol: "XLRE", name: "Real Estate Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Real estate", "ETF"] },
+  { symbol: "XLC", name: "Communication Services Select Sector SPDR Fund", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Communications", "ETF"] },
+  { symbol: "SMH", name: "VanEck Semiconductor ETF", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Semiconductors", "ETF"] },
+  { symbol: "SOXX", name: "iShares Semiconductor ETF", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Semiconductors", "ETF"] },
+  { symbol: "ARKK", name: "ARK Innovation ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Innovation", "ETF"] },
+  { symbol: "VNQ", name: "Vanguard Real Estate ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Real estate", "ETF"] },
+  { symbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Dividend", "ETF"] },
+  { symbol: "VIG", name: "Vanguard Dividend Appreciation ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Dividend", "ETF"] },
+  { symbol: "VYM", name: "Vanguard High Dividend Yield ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Dividend", "ETF"] },
+  { symbol: "IWF", name: "iShares Russell 1000 Growth ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Growth", "ETF"] },
+  { symbol: "IWD", name: "iShares Russell 1000 Value ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Value", "ETF"] },
+  { symbol: "IJH", name: "iShares Core S&P Mid-Cap ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Mid cap", "ETF"] },
+  { symbol: "IJR", name: "iShares Core S&P Small-Cap ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Small cap", "ETF"] },
+  { symbol: "RSP", name: "Invesco S&P 500 Equal Weight ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Equal weight", "ETF"] },
+  { symbol: "ACWI", name: "iShares MSCI ACWI ETF", assetType: "etf", market: "Nasdaq", region: "Global", tags: ["World equity", "ETF"] },
+  { symbol: "EWJ", name: "iShares MSCI Japan ETF", assetType: "etf", market: "NYSE Arca", region: "Japan", tags: ["Japan", "ETF"] },
+  { symbol: "EWZ", name: "iShares MSCI Brazil ETF", assetType: "etf", market: "NYSE Arca", region: "Brazil", tags: ["Brazil", "ETF"] },
+  { symbol: "FXI", name: "iShares China Large-Cap ETF", assetType: "etf", market: "NYSE Arca", region: "China", tags: ["China", "ETF"] },
+  { symbol: "MCHI", name: "iShares MSCI China ETF", assetType: "etf", market: "Nasdaq", region: "China", tags: ["China", "ETF"] },
+  { symbol: "INDA", name: "iShares MSCI India ETF", assetType: "etf", market: "BATS", region: "India", tags: ["India", "ETF"] },
+  { symbol: "EWG", name: "iShares MSCI Germany ETF", assetType: "etf", market: "NYSE Arca", region: "Germany", tags: ["Germany", "ETF"] },
+  { symbol: "EWU", name: "iShares MSCI United Kingdom ETF", assetType: "etf", market: "NYSE Arca", region: "UK", tags: ["UK", "ETF"] },
+  { symbol: "EWC", name: "iShares MSCI Canada ETF", assetType: "etf", market: "NYSE Arca", region: "Canada", tags: ["Canada", "ETF"] },
+  { symbol: "GLD", name: "SPDR Gold Shares", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Gold", "Metals"] },
+  { symbol: "SLV", name: "iShares Silver Trust", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Silver", "Metals"] },
+  { symbol: "USO", name: "United States Oil Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Oil", "WTI"] },
+  { symbol: "BNO", name: "United States Brent Oil Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Oil", "Brent"] },
+  { symbol: "UNG", name: "United States Natural Gas Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Natural gas", "Energy"] },
+  { symbol: "GC=F", name: "Gold Futures", assetType: "commodity", market: "COMEX", region: "Commodity", tags: ["Gold", "Metals"] },
+  { symbol: "SI=F", name: "Silver Futures", assetType: "commodity", market: "COMEX", region: "Commodity", tags: ["Silver", "Metals"] },
+  { symbol: "HG=F", name: "Copper Futures", assetType: "commodity", market: "COMEX", region: "Commodity", tags: ["Copper", "Metals"] },
+  { symbol: "PL=F", name: "Platinum Futures", assetType: "commodity", market: "NYMEX", region: "Commodity", tags: ["Platinum", "Metals"] },
+  { symbol: "PA=F", name: "Palladium Futures", assetType: "commodity", market: "NYMEX", region: "Commodity", tags: ["Palladium", "Metals"] },
+  { symbol: "CL=F", name: "WTI Crude Oil Futures", assetType: "commodity", market: "NYMEX", region: "Commodity", tags: ["Oil", "WTI"] },
+  { symbol: "BZ=F", name: "Brent Crude Oil Futures", assetType: "commodity", market: "NYMEX", region: "Commodity", tags: ["Oil", "Brent"] },
+  { symbol: "NG=F", name: "Natural Gas Futures", assetType: "commodity", market: "NYMEX", region: "Commodity", tags: ["Natural gas", "Energy"] },
+  { symbol: "RB=F", name: "RBOB Gasoline Futures", assetType: "commodity", market: "NYMEX", region: "Commodity", tags: ["Gasoline", "Energy"] },
+  { symbol: "HO=F", name: "Heating Oil Futures", assetType: "commodity", market: "NYMEX", region: "Commodity", tags: ["Heating oil", "Energy"] },
+  { symbol: "ZC=F", name: "Corn Futures", assetType: "commodity", market: "CBOT", region: "Commodity", tags: ["Corn", "Agriculture"] },
+  { symbol: "ZW=F", name: "Wheat Futures", assetType: "commodity", market: "CBOT", region: "Commodity", tags: ["Wheat", "Agriculture"] },
+  { symbol: "ZS=F", name: "Soybean Futures", assetType: "commodity", market: "CBOT", region: "Commodity", tags: ["Soybeans", "Agriculture"] },
+  { symbol: "ZM=F", name: "Soybean Meal Futures", assetType: "commodity", market: "CBOT", region: "Commodity", tags: ["Soybean meal", "Agriculture"] },
+  { symbol: "ZL=F", name: "Soybean Oil Futures", assetType: "commodity", market: "CBOT", region: "Commodity", tags: ["Soybean oil", "Agriculture"] },
+  { symbol: "KC=F", name: "Coffee Futures", assetType: "commodity", market: "ICE", region: "Commodity", tags: ["Coffee", "Softs"] },
+  { symbol: "SB=F", name: "Sugar Futures", assetType: "commodity", market: "ICE", region: "Commodity", tags: ["Sugar", "Softs"] },
+  { symbol: "CC=F", name: "Cocoa Futures", assetType: "commodity", market: "ICE", region: "Commodity", tags: ["Cocoa", "Softs"] },
+  { symbol: "CT=F", name: "Cotton Futures", assetType: "commodity", market: "ICE", region: "Commodity", tags: ["Cotton", "Softs"] },
+  { symbol: "LE=F", name: "Live Cattle Futures", assetType: "commodity", market: "CME", region: "Commodity", tags: ["Cattle", "Livestock"] },
+  { symbol: "HE=F", name: "Lean Hogs Futures", assetType: "commodity", market: "CME", region: "Commodity", tags: ["Hogs", "Livestock"] },
+  { symbol: "GF=F", name: "Feeder Cattle Futures", assetType: "commodity", market: "CME", region: "Commodity", tags: ["Cattle", "Livestock"] },
+  { symbol: "OJ=F", name: "Orange Juice Futures", assetType: "commodity", market: "ICE", region: "Commodity", tags: ["Orange juice", "Softs"] },
+  { symbol: "LBS=F", name: "Lumber Futures", assetType: "commodity", market: "CME", region: "Commodity", tags: ["Lumber", "Materials"] },
+  { symbol: "ZO=F", name: "Oats Futures", assetType: "commodity", market: "CBOT", region: "Commodity", tags: ["Oats", "Agriculture"] },
+  { symbol: "ZR=F", name: "Rough Rice Futures", assetType: "commodity", market: "CBOT", region: "Commodity", tags: ["Rice", "Agriculture"] },
+  { symbol: "IAU", name: "iShares Gold Trust", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Gold", "Metals"] },
+  { symbol: "PPLT", name: "abrdn Physical Platinum Shares ETF", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Platinum", "Metals"] },
+  { symbol: "PALL", name: "abrdn Physical Palladium Shares ETF", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Palladium", "Metals"] },
+  { symbol: "CPER", name: "United States Copper Index Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Copper", "Metals"] },
+  { symbol: "DBA", name: "Invesco DB Agriculture Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Agriculture", "Basket"] },
+  { symbol: "DBC", name: "Invesco DB Commodity Index Tracking Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Commodity basket"] },
+  { symbol: "GSG", name: "iShares S&P GSCI Commodity-Indexed Trust", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Commodity basket"] },
+  { symbol: "COMT", name: "iShares GSCI Commodity Dynamic Roll Strategy ETF", assetType: "commodity", market: "Nasdaq", region: "Commodity", tags: ["Commodity basket"] },
+  { symbol: "WEAT", name: "Teucrium Wheat Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Wheat", "Agriculture"] },
+  { symbol: "CORN", name: "Teucrium Corn Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Corn", "Agriculture"] },
+  { symbol: "SOYB", name: "Teucrium Soybean Fund", assetType: "commodity", market: "NYSE Arca", region: "Commodity", tags: ["Soybeans", "Agriculture"] },
   { rank: 12, symbol: "NVDA", name: "NVIDIA", assetType: "stock", market: "Nasdaq", region: "US", tags: ["AI", "Semiconductors"] },
   { rank: 13, symbol: "AAPL", name: "Apple", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Mega cap", "Consumer tech"] },
   { rank: 14, symbol: "MSFT", name: "Microsoft", assetType: "stock", market: "Nasdaq", region: "US", tags: ["AI", "Cloud"] },
@@ -1164,8 +1248,32 @@ const TRADE_STOCK_ASSETS = [
   { rank: 97, symbol: "OR.PA", name: "L'Oreal", assetType: "stock", market: "Euronext Paris", region: "France", currency: "EUR", tags: ["Consumer"] },
   { rank: 98, symbol: "SIE.DE", name: "Siemens", assetType: "stock", market: "Xetra", region: "Germany", currency: "EUR", tags: ["Industrial", "Automation"] },
   { rank: 99, symbol: "DTE.DE", name: "Deutsche Telekom", assetType: "stock", market: "Xetra", region: "Germany", currency: "EUR", tags: ["Telecom"] },
-  { rank: 100, symbol: "AZN.L", name: "AstraZeneca London", assetType: "stock", market: "London", region: "UK", currency: "GBp", tags: ["Healthcare"] }
+  { rank: 100, symbol: "AZN.L", name: "AstraZeneca London", assetType: "stock", market: "London", region: "UK", currency: "GBp", tags: ["Healthcare"] },
+  { symbol: "PEP", name: "PepsiCo", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Consumer staples", "Beverages"] },
+  { symbol: "KO", name: "Coca-Cola", assetType: "stock", market: "NYSE", region: "US", tags: ["Consumer staples", "Beverages"] },
+  { symbol: "PG", name: "Procter & Gamble", assetType: "stock", market: "NYSE", region: "US", tags: ["Consumer staples"] },
+  { symbol: "JNJ", name: "Johnson & Johnson", assetType: "stock", market: "NYSE", region: "US", tags: ["Healthcare"] },
+  { symbol: "ABBV", name: "AbbVie", assetType: "stock", market: "NYSE", region: "US", tags: ["Healthcare", "Pharma"] },
+  { symbol: "MRK", name: "Merck", assetType: "stock", market: "NYSE", region: "US", tags: ["Healthcare", "Pharma"] },
+  { symbol: "CAT", name: "Caterpillar", assetType: "stock", market: "NYSE", region: "US", tags: ["Industrial", "Machinery"] },
+  { symbol: "GE", name: "GE Aerospace", assetType: "stock", market: "NYSE", region: "US", tags: ["Industrial", "Aerospace"] },
+  { symbol: "UBER", name: "Uber Technologies", assetType: "stock", market: "NYSE", region: "US", tags: ["Mobility", "Consumer tech"] },
+  { symbol: "ARM", name: "Arm Holdings ADR", assetType: "stock", market: "Nasdaq", region: "UK", tags: ["Semiconductors"] },
+  { symbol: "SE", name: "Sea Limited ADR", assetType: "stock", market: "NYSE", region: "Singapore", tags: ["Internet", "Gaming"] }
 ];
+
+const TRADE_STOCK_ASSETS = RAW_TRADE_STOCK_ASSETS.map((asset, index) => ({
+  ...asset,
+  rank: index + 1
+}));
+
+function chunkItems(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
 
 function parseStooqCsv(csv) {
   const lines = csv.trim().split(/\r?\n/);
@@ -1278,6 +1386,27 @@ const COINGECKO_CHART_DAYS = {
   all: "max"
 };
 
+const CHART_REFRESH_MS_BY_RANGE = {
+  "1d": 60 * 1000,
+  "1w": 5 * 60 * 1000,
+  "1m": 15 * 60 * 1000,
+  "3m": 30 * 60 * 1000,
+  "1y": 60 * 60 * 1000,
+  all: 6 * 60 * 60 * 1000
+};
+
+function chartSnapshotAgeMs(snapshot) {
+  const captured = Date.parse(snapshot?.capturedAt || snapshot?.captured_at || "");
+  if (!Number.isFinite(captured)) return Infinity;
+  return Date.now() - captured;
+}
+
+function isFreshChartSnapshot(snapshot, range) {
+  if (!snapshot?.points?.length) return false;
+  const refreshMs = CHART_REFRESH_MS_BY_RANGE[normalizeChartRange(range)] || CHART_REFRESH_MS_BY_RANGE["1d"];
+  return chartSnapshotAgeMs(snapshot) <= refreshMs;
+}
+
 async function fetchYahooChartSeries(asset, requestedRange = "1d") {
   const requested = normalizeChartRange(requestedRange);
   const selectedRange = CHART_RANGE_CONFIG[requested] ? requested : "1d";
@@ -1311,6 +1440,7 @@ async function fetchYahooChartSeries(asset, requestedRange = "1d") {
   const low = Number(meta.regularMarketDayLow);
   const previousClose = Number(meta.previousClose ?? meta.chartPreviousClose);
   const volume = Number(meta.regularMarketVolume);
+  const rangeStats = pointRangeStats(points);
 
   return {
     range: selectedRange,
@@ -1319,6 +1449,8 @@ async function fetchYahooChartSeries(asset, requestedRange = "1d") {
     currency: meta.currency || asset.currency || "USD",
     points,
     stats: {
+      rangeHigh: rangeStats.high,
+      rangeLow: rangeStats.low,
       previousClose: Number.isFinite(previousClose) ? previousClose : null,
       dayHigh: Number.isFinite(high) ? high : null,
       dayLow: Number.isFinite(low) ? low : null,
@@ -1411,7 +1543,7 @@ async function fetchCoinGeckoChartSeries(asset, requestedRange = "1d") {
       }
     };
   } catch (err) {
-    const fallback = sparklineChartSeries(asset, selectedRange);
+    const fallback = selectedRange === "1w" ? sparklineChartSeries(asset, selectedRange) : null;
     if (fallback) return fallback;
     throw err;
   }
@@ -1439,6 +1571,21 @@ async function fetchYahooAllTimeStats(asset) {
   };
 }
 
+async function fetchLiveAssetChartSeries(asset, requestedRange = "1d") {
+  const selectedRange = normalizeChartRange(requestedRange);
+
+  const chart = asset.assetType === "crypto" && asset.id
+    ? await fetchCoinGeckoChartSeries(asset, selectedRange)
+    : await (async () => {
+        const yahooChart = await fetchYahooChartSeries(asset, selectedRange);
+        const allTimeStats = await fetchYahooAllTimeStats(asset).catch(() => ({}));
+        yahooChart.stats = { ...(yahooChart.stats || {}), ...allTimeStats };
+        return yahooChart;
+      })();
+
+  return chart;
+}
+
 async function fetchAssetChartSeries(asset, requestedRange = "1d") {
   const selectedRange = normalizeChartRange(requestedRange);
 
@@ -1453,22 +1600,19 @@ async function fetchAssetChartSeries(asset, requestedRange = "1d") {
     };
   }
 
-  try {
-    const chart = asset.assetType === "crypto" && asset.id
-      ? await fetchCoinGeckoChartSeries(asset, selectedRange)
-      : await (async () => {
-          const yahooChart = await fetchYahooChartSeries(asset, selectedRange);
-          const allTimeStats = await fetchYahooAllTimeStats(asset).catch(() => ({}));
-          yahooChart.stats = { ...(yahooChart.stats || {}), ...allTimeStats };
-          return yahooChart;
-        })();
+  const cached = await readLatestMarketChartSnapshot(asset.symbol, selectedRange);
+  if (isFreshChartSnapshot(cached, selectedRange)) {
+    return { ...cached, source: "database" };
+  }
 
-    await saveMarketChartSnapshot(chart.provider, asset, chart);
-    return chart;
+  try {
+    const liveChart = await fetchLiveAssetChartSeries(asset, selectedRange);
+    await saveMarketChartSnapshot(liveChart.provider, asset, liveChart);
+    const storedChart = await readLatestMarketChartSnapshot(asset.symbol, selectedRange);
+    return storedChart ? { ...storedChart, source: "database", refreshed: true } : liveChart;
   } catch (err) {
-    console.error(`Live chart failed for ${asset.symbol} ${selectedRange}, checking chart cache:`, err);
-    const cached = await readLatestMarketChartSnapshot(asset.symbol, selectedRange);
-    if (cached) return cached;
+    console.error(`Live chart refresh failed for ${asset.symbol} ${selectedRange}, using chart cache if available:`, err);
+    if (cached) return { ...cached, source: "database", stale: true };
     throw err;
   }
 }
@@ -1636,23 +1780,28 @@ async function fetchCryptoMarketData() {
 
 async function fetchStockMarketData() {
   try {
-    const symbols = TRADE_STOCK_ASSETS.map((asset) => marketDataSymbol(asset)).join(",");
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,currency,regularMarketPrice,regularMarketChangePercent,regularMarketTime,marketCap,regularMarketVolume,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
-    const json = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Autody/1.0 market preview"
-      }
-    }).then((r) => {
-      if (!r.ok) throw new Error(`Yahoo Finance HTTP ${r.status}`);
-      return r.json();
-    });
+    const quoteResults = [];
+    for (const batch of chunkItems(TRADE_STOCK_ASSETS, 60)) {
+      const symbols = batch.map((asset) => marketDataSymbol(asset)).join(",");
+      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,currency,regularMarketPrice,regularMarketChangePercent,regularMarketTime,marketCap,regularMarketVolume,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
+      const json = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Autody/1.0 market preview"
+        }
+      }).then((r) => {
+        if (!r.ok) throw new Error(`Yahoo Finance HTTP ${r.status}`);
+        return r.json();
+      });
+
+      quoteResults.push(...(json.quoteResponse?.result || []));
+    }
 
     const catalogBySymbol = new Map(TRADE_STOCK_ASSETS.flatMap((asset) => [
       [asset.symbol, asset],
       [marketDataSymbol(asset), asset]
     ]));
-    const assets = (json.quoteResponse?.result || []).map((quote) => {
+    const assets = quoteResults.map((quote) => {
       const catalog = catalogBySymbol.get(quote.symbol) || { symbol: quote.symbol, name: quote.shortName || quote.symbol, assetType: "stock", rank: 999 };
       return {
         ...assetCatalogEntry(catalog),

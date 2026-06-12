@@ -68,15 +68,9 @@ async function getJson(url) {
 }
 
 function chartPoints(asset, points) {
-  if (points?.length) return points;
-  const price = Number(asset.price || 1);
-  const move = Number(asset.changePct || 0) / 100;
-  return Array.from({ length: 30 }, (_, index) => {
-    const progress = index / 29;
-    const wave = Math.sin(index * 0.74) * price * 0.012;
-    const slope = price * move * (progress - 0.5);
-    return { close: Math.max(0, price + wave + slope), time: new Date(Date.now() - (29 - index) * 3600000).toISOString() };
-  });
+  return (points || [])
+    .map((point) => ({ ...point, close: Number(point.close) }))
+    .filter((point) => Number.isFinite(point.close));
 }
 
 function renderLineChart(asset, chart) {
@@ -92,6 +86,16 @@ function renderLineChart(asset, chart) {
   }
 
   const points = chartPoints(asset, chart.points);
+  if (!points.length) {
+    target.innerHTML = `
+      <div class="asset-empty-activity">
+        <strong>Chart data is warming up.</strong>
+        <span>Autody is building ${escapeHtml(currentRange.toUpperCase())} history from the market data cache.</span>
+      </div>
+    `;
+    return;
+  }
+
   const values = points.map((point) => point.close);
   const min = Math.min(...values);
   const max = Math.max(...values);
