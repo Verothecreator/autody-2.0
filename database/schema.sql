@@ -385,12 +385,18 @@ live_mode as (
   on conflict (profile_id, mode) do update set status = 'active'
   returning id
 ),
-demo_wallet as (
+demo_wallet_insert as (
   insert into wallets (account_mode_id, currency, cash_balance, reserved_cash, starting_balance)
   select id, 'USD', 50000, 0, 50000 from demo_mode
-  on conflict (account_mode_id) do update
-  set currency = wallets.currency
+  on conflict (account_mode_id) do nothing
   returning id
+),
+demo_wallet as (
+  select id from demo_wallet_insert
+  union all
+  select w.id
+  from wallets w
+  join demo_mode dm on dm.id = w.account_mode_id
 )
 insert into holdings (wallet_id, symbol, asset_name, asset_type, quantity, value_usd)
 select id, symbol, asset_name, asset_type, quantity, value_usd
