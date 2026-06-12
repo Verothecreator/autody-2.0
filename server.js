@@ -245,6 +245,25 @@ function safeIsoDate(value) {
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function catalogAssets(type = "all") {
+    if (type === "crypto") return TRADE_CRYPTO_ASSETS;
+    if (type === "stocks") return TRADE_STOCK_ASSETS;
+    return [...TRADE_CRYPTO_ASSETS, ...TRADE_STOCK_ASSETS];
+}
+
+function assetCatalogEntry(asset) {
+    return {
+        rank: asset.rank,
+        symbol: asset.symbol,
+        name: asset.name,
+        id: asset.id || asset.symbol,
+        assetType: asset.assetType,
+        providerSymbol: asset.product || asset.symbol,
+        tags: asset.tags || [],
+        tradeable: true
+    };
+}
+
 function mapDbUser(row) {
     return {
         id: row.profile_id,
@@ -472,7 +491,7 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
                     provider,
                     asset.symbol,
                     asset.name || asset.symbol,
-                    assetType,
+                    asset.assetType || assetType,
                     asset.price ?? asset.value ?? null,
                     asset.changePct ?? null,
                     asset.marketCap ?? null
@@ -532,6 +551,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
     if (!databaseConfigured()) return [];
 
     try {
+        const assetTypes = Array.isArray(assetType) ? assetType : [assetType];
         const result = await dbPool.query(`
             select *
             from (
@@ -545,12 +565,12 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
                     market_cap_usd,
                     captured_at
                 from market_snapshots
-                where asset_type = $1
+                where asset_type = any($1)
                 order by symbol, captured_at desc
             ) latest
             order by captured_at desc
             limit $2
-        `, [assetType, limit]);
+        `, [assetTypes, limit]);
 
         return result.rows.map((row) => ({
             symbol: row.symbol,
@@ -592,6 +612,30 @@ async function readLatestNewsSnapshots(limit = 9) {
         console.error("News snapshot fallback read failed:", err);
         return [];
     }
+}
+
+async function buildMarketCatalog(type = "all") {
+    const catalog = catalogAssets(type).map(assetCatalogEntry);
+    const snapshotTypes = type === "crypto"
+        ? ["crypto"]
+        : type === "stocks"
+            ? ["stock", "etf"]
+            : ["crypto", "stock", "etf"];
+    const snapshots = await readLatestMarketSnapshots(snapshotTypes, Math.max(catalog.length, 30));
+    const snapshotMap = new Map(snapshots.map((asset) => [asset.symbol, asset]));
+
+    return catalog.map((asset) => {
+        const snapshot = snapshotMap.get(asset.symbol);
+        return {
+            ...asset,
+            price: snapshot?.price ?? null,
+            changePct: snapshot?.changePct ?? null,
+            marketCap: snapshot?.marketCap ?? null,
+            dataProvider: snapshot?.provider ?? null,
+            capturedAt: snapshot?.capturedAt ?? null,
+            status: snapshot ? "Live" : "Waiting for first refresh"
+        };
+    });
 }
 
 // ------------------ EXPRESS --------------------
@@ -731,6 +775,48 @@ const fallbackNews = [
   }
 ];
 
+const TRADE_CRYPTO_ASSETS = [
+  { rank: 1, id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD", assetType: "crypto", tags: ["Blue chip", "Store of value"] },
+  { rank: 2, id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD", assetType: "crypto", tags: ["Smart contracts", "DeFi"] },
+  { rank: 3, id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD", assetType: "crypto", tags: ["High demand", "Apps"] },
+  { rank: 4, id: "ripple", symbol: "XRP", name: "XRP", product: "XRP-USD", assetType: "crypto", tags: ["Payments"] },
+  { rank: 5, id: "binancecoin", symbol: "BNB", name: "BNB", product: null, assetType: "crypto", tags: ["Large cap"] },
+  { rank: 6, id: "dogecoin", symbol: "DOGE", name: "Dogecoin", product: "DOGE-USD", assetType: "crypto", tags: ["Popular"] },
+  { rank: 7, id: "cardano", symbol: "ADA", name: "Cardano", product: "ADA-USD", assetType: "crypto", tags: ["Smart contracts"] },
+  { rank: 8, id: "avalanche-2", symbol: "AVAX", name: "Avalanche", product: "AVAX-USD", assetType: "crypto", tags: ["Layer 1"] },
+  { rank: 9, id: "chainlink", symbol: "LINK", name: "Chainlink", product: "LINK-USD", assetType: "crypto", tags: ["Data oracles"] },
+  { rank: 10, id: "litecoin", symbol: "LTC", name: "Litecoin", product: "LTC-USD", assetType: "crypto", tags: ["Payments"] },
+  { rank: 11, id: "polkadot", symbol: "DOT", name: "Polkadot", product: "DOT-USD", assetType: "crypto", tags: ["Interoperability"] },
+  { rank: 12, id: "bitcoin-cash", symbol: "BCH", name: "Bitcoin Cash", product: "BCH-USD", assetType: "crypto", tags: ["Payments"] },
+  { rank: 13, id: "stellar", symbol: "XLM", name: "Stellar", product: "XLM-USD", assetType: "crypto", tags: ["Payments"] },
+  { rank: 14, id: "shiba-inu", symbol: "SHIB", name: "Shiba Inu", product: "SHIB-USD", assetType: "crypto", tags: ["Popular"] },
+  { rank: 15, id: "polygon-ecosystem-token", symbol: "POL", name: "Polygon", product: "POL-USD", assetType: "crypto", tags: ["Scaling"] },
+  { rank: 16, id: "uniswap", symbol: "UNI", name: "Uniswap", product: "UNI-USD", assetType: "crypto", tags: ["DeFi"] }
+];
+
+const TRADE_STOCK_ASSETS = [
+  { rank: 1, symbol: "SPY", name: "SPDR S&P 500 ETF", assetType: "etf", tags: ["S&P 500", "ETF"] },
+  { rank: 2, symbol: "QQQ", name: "Invesco QQQ Trust", assetType: "etf", tags: ["Nasdaq", "ETF"] },
+  { rank: 3, symbol: "NVDA", name: "NVIDIA", assetType: "stock", tags: ["AI", "Semiconductors"] },
+  { rank: 4, symbol: "AAPL", name: "Apple", assetType: "stock", tags: ["Mega cap", "Consumer tech"] },
+  { rank: 5, symbol: "MSFT", name: "Microsoft", assetType: "stock", tags: ["AI", "Cloud"] },
+  { rank: 6, symbol: "TSLA", name: "Tesla", assetType: "stock", tags: ["EV", "High demand"] },
+  { rank: 7, symbol: "AMZN", name: "Amazon", assetType: "stock", tags: ["Cloud", "Consumer"] },
+  { rank: 8, symbol: "GOOGL", name: "Alphabet", assetType: "stock", tags: ["AI", "Search"] },
+  { rank: 9, symbol: "META", name: "Meta Platforms", assetType: "stock", tags: ["AI", "Social"] },
+  { rank: 10, symbol: "AMD", name: "AMD", assetType: "stock", tags: ["Semiconductors"] },
+  { rank: 11, symbol: "AVGO", name: "Broadcom", assetType: "stock", tags: ["Semiconductors"] },
+  { rank: 12, symbol: "NFLX", name: "Netflix", assetType: "stock", tags: ["Streaming"] },
+  { rank: 13, symbol: "PLTR", name: "Palantir", assetType: "stock", tags: ["AI", "Data"] },
+  { rank: 14, symbol: "COIN", name: "Coinbase Global", assetType: "stock", tags: ["Crypto equity"] },
+  { rank: 15, symbol: "MSTR", name: "Strategy", assetType: "stock", tags: ["Bitcoin equity"] },
+  { rank: 16, symbol: "JPM", name: "JPMorgan Chase", assetType: "stock", tags: ["Banking"] },
+  { rank: 17, symbol: "V", name: "Visa", assetType: "stock", tags: ["Payments"] },
+  { rank: 18, symbol: "DIA", name: "SPDR Dow Jones ETF", assetType: "etf", tags: ["Dow", "ETF"] },
+  { rank: 19, symbol: "IWM", name: "iShares Russell 2000 ETF", assetType: "etf", tags: ["Small caps", "ETF"] },
+  { rank: 20, symbol: "GLD", name: "SPDR Gold Shares", assetType: "etf", tags: ["Gold", "ETF"] }
+];
+
 function parseStooqCsv(csv) {
   const lines = csv.trim().split(/\r?\n/);
   const headers = lines.shift().split(",");
@@ -767,15 +853,9 @@ async function fetchStooqQuotes(symbols) {
 }
 
 async function fetchCoinbaseCrypto() {
-  const products = [
-    { id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD" },
-    { id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD" },
-    { id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD" },
-    { id: "dogecoin", symbol: "DOGE", name: "Dogecoin", product: "DOGE-USD" },
-    { id: "cardano", symbol: "ADA", name: "Cardano", product: "ADA-USD" }
-  ];
+  const products = TRADE_CRYPTO_ASSETS.filter((asset) => asset.product);
 
-  const assets = await Promise.all(products.map(async (asset) => {
+  const settled = await Promise.allSettled(products.map(async (asset) => {
     const [spot, stats] = await Promise.all([
       fetch(`https://api.coinbase.com/v2/prices/${asset.product}/spot`, {
         headers: { Accept: "application/json", "User-Agent": "Autody/1.0 market preview" }
@@ -794,10 +874,14 @@ async function fetchCoinbaseCrypto() {
     const price = Number(spot?.data?.amount);
     const open = Number(stats?.open);
     const changePct = isFinite(price) && isFinite(open) && open > 0 ? ((price - open) / open) * 100 : null;
-    return { ...asset, price: isFinite(price) ? price : null, changePct, marketCap: null };
+    return { ...assetCatalogEntry(asset), price: isFinite(price) ? price : null, changePct, marketCap: null };
   }));
 
-  return assets.filter((asset) => asset.price != null);
+  return settled
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value)
+    .filter((asset) => asset.price != null)
+    .sort((a, b) => a.rank - b.rank);
 }
 
 async function fetchYahooChartSignal(symbol, name) {
@@ -824,6 +908,25 @@ async function fetchYahooChartSignal(symbol, name) {
     price: isFinite(price) ? price : null,
     changePct
   };
+}
+
+async function fetchYahooChartAssets(assets) {
+  const settled = await Promise.allSettled(assets.map(async (asset) => {
+    const quote = await fetchYahooChartSignal(asset.symbol, asset.name);
+    return {
+      ...assetCatalogEntry(asset),
+      price: quote.price,
+      changePct: quote.changePct,
+      date: null,
+      time: null
+    };
+  }));
+
+  return settled
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value)
+    .filter((asset) => asset.price != null)
+    .sort((a, b) => a.rank - b.rank);
 }
 
 function decodeXml(value = "") {
@@ -925,7 +1028,7 @@ function uniqueArticles(articles) {
 
 async function fetchCryptoMarketData() {
   try {
-    const ids = "bitcoin,ethereum,solana,dogecoin,cardano,polygon-ecosystem-token";
+    const ids = TRADE_CRYPTO_ASSETS.map((asset) => asset.id).filter(Boolean).join(",");
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
     const json = await fetch(url, {
       headers: {
@@ -937,32 +1040,18 @@ async function fetchCryptoMarketData() {
       return r.json();
     });
 
-    const labels = {
-      bitcoin: "Bitcoin",
-      ethereum: "Ethereum",
-      solana: "Solana",
-      dogecoin: "Dogecoin",
-      cardano: "Cardano",
-      "polygon-ecosystem-token": "Polygon"
-    };
-
-    const symbols = {
-      bitcoin: "BTC",
-      ethereum: "ETH",
-      solana: "SOL",
-      dogecoin: "DOGE",
-      cardano: "ADA",
-      "polygon-ecosystem-token": "POL"
-    };
-
-    const assets = Object.entries(json).map(([id, data]) => ({
-      id,
-      name: labels[id] || id,
-      symbol: symbols[id] || id.toUpperCase(),
-      price: data.usd ?? null,
-      changePct: data.usd_24h_change ?? null,
-      marketCap: data.usd_market_cap ?? null
-    }));
+    const assets = TRADE_CRYPTO_ASSETS
+      .map((asset) => {
+        const data = json[asset.id];
+        if (!data) return null;
+        return {
+          ...assetCatalogEntry(asset),
+          price: data.usd ?? null,
+          changePct: data.usd_24h_change ?? null,
+          marketCap: data.usd_market_cap ?? null
+        };
+      })
+      .filter(Boolean);
 
     saveMarketSnapshots("coingecko", "crypto", assets);
     return { success: true, provider: "coingecko", assets };
@@ -974,7 +1063,7 @@ async function fetchCryptoMarketData() {
       return { success: true, provider: "coinbase", assets };
     } catch (fallbackErr) {
       console.error("Coinbase crypto fallback error:", fallbackErr);
-      const cachedAssets = await readLatestMarketSnapshots("crypto", 6);
+      const cachedAssets = await readLatestMarketSnapshots("crypto", TRADE_CRYPTO_ASSETS.length);
       if (cachedAssets.length) {
         return { success: true, provider: "supabase-cache", cached: true, assets: cachedAssets };
       }
@@ -990,7 +1079,7 @@ async function fetchCryptoMarketData() {
 
 async function fetchStockMarketData() {
   try {
-    const symbols = "SPY,QQQ,AAPL,NVDA,TSLA,MSFT,AMZN";
+    const symbols = TRADE_STOCK_ASSETS.map((asset) => asset.symbol).join(",");
     const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketTime`;
     const json = await fetch(url, {
       headers: {
@@ -1002,26 +1091,55 @@ async function fetchStockMarketData() {
       return r.json();
     });
 
-    const assets = (json.quoteResponse?.result || []).map((quote) => ({
-      symbol: quote.symbol,
-      name: quote.shortName || quote.symbol,
-      price: quote.regularMarketPrice ?? null,
-      changePct: quote.regularMarketChangePercent ?? null,
-      date: quote.regularMarketTime ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
-      time: quote.regularMarketTime ?? null
-    })).filter((asset) => asset.price != null);
+    const catalogBySymbol = new Map(TRADE_STOCK_ASSETS.map((asset) => [asset.symbol, asset]));
+    const assets = (json.quoteResponse?.result || []).map((quote) => {
+      const catalog = catalogBySymbol.get(quote.symbol) || { symbol: quote.symbol, name: quote.shortName || quote.symbol, assetType: "stock", rank: 999 };
+      return {
+        ...assetCatalogEntry(catalog),
+        name: catalog.name || quote.shortName || quote.symbol,
+        price: quote.regularMarketPrice ?? null,
+        changePct: quote.regularMarketChangePercent ?? null,
+        date: quote.regularMarketTime ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
+        time: quote.regularMarketTime ?? null
+      };
+    }).filter((asset) => asset.price != null).sort((a, b) => a.rank - b.rank);
+
+    if (assets.length < 8) {
+      throw new Error(`Yahoo quote returned only ${assets.length} stock assets`);
+    }
 
     saveMarketSnapshots("yahoo", "stock", assets);
     return { success: true, provider: "yahoo", assets };
   } catch (err) {
     console.error("Stock market proxy error:", err);
     try {
-      const assets = await fetchStooqQuotes("spy.us,qqq.us,aapl.us,nvda.us,tsla.us,msft.us,amzn.us");
-      saveMarketSnapshots("stooq", "stock", assets);
-      return { success: true, provider: "stooq", assets };
-    } catch (fallbackErr) {
-      console.error("Stooq stock fallback error:", fallbackErr);
-      const cachedAssets = await readLatestMarketSnapshots("stock", 7);
+      const assets = await fetchYahooChartAssets(TRADE_STOCK_ASSETS);
+      if (!assets.length) throw new Error("Yahoo chart returned no stock assets");
+      saveMarketSnapshots("yahoo-chart", "stock", assets);
+      return { success: true, provider: "yahoo-chart", assets };
+    } catch (chartErr) {
+      console.error("Yahoo chart stock fallback error:", chartErr);
+      try {
+        const stooqSymbols = TRADE_STOCK_ASSETS.map((asset) => `${asset.symbol.toLowerCase()}.us`).join(",");
+        const stooqAssets = await fetchStooqQuotes(stooqSymbols);
+        const catalogBySymbol = new Map(TRADE_STOCK_ASSETS.map((asset) => [asset.symbol, asset]));
+        const assets = stooqAssets.map((asset) => {
+          const catalog = catalogBySymbol.get(asset.symbol) || { symbol: asset.symbol, name: asset.name, assetType: "stock", rank: 999 };
+          return {
+            ...assetCatalogEntry(catalog),
+            price: asset.price,
+            changePct: asset.changePct,
+            date: asset.date,
+            time: asset.time
+          };
+        }).sort((a, b) => a.rank - b.rank);
+        saveMarketSnapshots("stooq", "stock", assets);
+        return { success: true, provider: "stooq", assets };
+      } catch (fallbackErr) {
+        console.error("Stooq stock fallback error:", fallbackErr);
+      }
+
+      const cachedAssets = await readLatestMarketSnapshots(["stock", "etf"], TRADE_STOCK_ASSETS.length);
       if (cachedAssets.length) {
         return { success: true, provider: "supabase-cache", cached: true, assets: cachedAssets };
       }
@@ -1190,8 +1308,12 @@ async function refreshLiveData({ includeNews = false, reason = "manual" } = {}) 
 
   settled.forEach((result, index) => {
     const key = refreshes[index][0];
+    const value = result.status === "fulfilled" ? result.value : null;
+    const count = value
+      ? value.assets?.length ?? value.articles?.length ?? [value.gold, value.economy].filter(Boolean).length
+      : 0;
     results[key] = result.status === "fulfilled"
-      ? { ok: true, provider: result.value.provider || null, count: result.value.assets?.length || result.value.articles?.length || 0 }
+      ? { ok: true, provider: value.provider || null, count }
       : { ok: false, error: String(result.reason?.message || result.reason) };
   });
 
@@ -1326,6 +1448,24 @@ app.get("/api/news/snapshots", async (req, res) => {
   } catch (err) {
     console.error("News snapshot read failed:", err);
     return res.status(500).json({ success: false, error: "News snapshots unavailable" });
+  }
+});
+
+app.get("/api/markets/catalog", async (req, res) => {
+  try {
+    const type = String(req.query.type || "all").toLowerCase();
+    const safeType = ["all", "crypto", "stocks"].includes(type) ? type : "all";
+    const assets = await buildMarketCatalog(safeType);
+    return res.json({
+      success: true,
+      type: safeType,
+      configured: databaseConfigured(),
+      count: assets.length,
+      assets
+    });
+  } catch (err) {
+    console.error("Market catalog error:", err);
+    return res.status(500).json({ success: false, error: "Market catalog unavailable" });
   }
 });
 

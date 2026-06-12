@@ -99,6 +99,19 @@ create table if not exists market_snapshots (
 create index if not exists market_snapshots_symbol_time_idx
   on market_snapshots (symbol, captured_at desc);
 
+create table if not exists asset_catalog (
+  symbol text primary key,
+  asset_name text not null,
+  asset_type text not null,
+  provider_symbol text,
+  coingecko_id text,
+  display_rank integer not null,
+  tags text[] not null default '{}',
+  is_tradeable boolean not null default true,
+  is_active boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists news_snapshots (
   id uuid primary key default gen_random_uuid(),
   provider text not null,
@@ -174,6 +187,55 @@ set default_mode = excluded.default_mode,
     order_confirmation = excluded.order_confirmation,
     market_alerts = excluded.market_alerts,
     news_alerts = excluded.news_alerts,
+    updated_at = now();
+
+insert into asset_catalog (symbol, asset_name, asset_type, provider_symbol, coingecko_id, display_rank, tags, is_tradeable, is_active)
+values
+  ('BTC', 'Bitcoin', 'crypto', 'BTC-USD', 'bitcoin', 1, array['Blue chip','Store of value'], true, true),
+  ('ETH', 'Ethereum', 'crypto', 'ETH-USD', 'ethereum', 2, array['Smart contracts','DeFi'], true, true),
+  ('SOL', 'Solana', 'crypto', 'SOL-USD', 'solana', 3, array['High demand','Apps'], true, true),
+  ('XRP', 'XRP', 'crypto', 'XRP-USD', 'ripple', 4, array['Payments'], true, true),
+  ('BNB', 'BNB', 'crypto', null, 'binancecoin', 5, array['Large cap'], true, true),
+  ('DOGE', 'Dogecoin', 'crypto', 'DOGE-USD', 'dogecoin', 6, array['Popular'], true, true),
+  ('ADA', 'Cardano', 'crypto', 'ADA-USD', 'cardano', 7, array['Smart contracts'], true, true),
+  ('AVAX', 'Avalanche', 'crypto', 'AVAX-USD', 'avalanche-2', 8, array['Layer 1'], true, true),
+  ('LINK', 'Chainlink', 'crypto', 'LINK-USD', 'chainlink', 9, array['Data oracles'], true, true),
+  ('LTC', 'Litecoin', 'crypto', 'LTC-USD', 'litecoin', 10, array['Payments'], true, true),
+  ('DOT', 'Polkadot', 'crypto', 'DOT-USD', 'polkadot', 11, array['Interoperability'], true, true),
+  ('BCH', 'Bitcoin Cash', 'crypto', 'BCH-USD', 'bitcoin-cash', 12, array['Payments'], true, true),
+  ('XLM', 'Stellar', 'crypto', 'XLM-USD', 'stellar', 13, array['Payments'], true, true),
+  ('SHIB', 'Shiba Inu', 'crypto', 'SHIB-USD', 'shiba-inu', 14, array['Popular'], true, true),
+  ('POL', 'Polygon', 'crypto', 'POL-USD', 'polygon-ecosystem-token', 15, array['Scaling'], true, true),
+  ('UNI', 'Uniswap', 'crypto', 'UNI-USD', 'uniswap', 16, array['DeFi'], true, true),
+  ('SPY', 'SPDR S&P 500 ETF', 'etf', 'SPY', null, 101, array['S&P 500','ETF'], true, true),
+  ('QQQ', 'Invesco QQQ Trust', 'etf', 'QQQ', null, 102, array['Nasdaq','ETF'], true, true),
+  ('NVDA', 'NVIDIA', 'stock', 'NVDA', null, 103, array['AI','Semiconductors'], true, true),
+  ('AAPL', 'Apple', 'stock', 'AAPL', null, 104, array['Mega cap','Consumer tech'], true, true),
+  ('MSFT', 'Microsoft', 'stock', 'MSFT', null, 105, array['AI','Cloud'], true, true),
+  ('TSLA', 'Tesla', 'stock', 'TSLA', null, 106, array['EV','High demand'], true, true),
+  ('AMZN', 'Amazon', 'stock', 'AMZN', null, 107, array['Cloud','Consumer'], true, true),
+  ('GOOGL', 'Alphabet', 'stock', 'GOOGL', null, 108, array['AI','Search'], true, true),
+  ('META', 'Meta Platforms', 'stock', 'META', null, 109, array['AI','Social'], true, true),
+  ('AMD', 'AMD', 'stock', 'AMD', null, 110, array['Semiconductors'], true, true),
+  ('AVGO', 'Broadcom', 'stock', 'AVGO', null, 111, array['Semiconductors'], true, true),
+  ('NFLX', 'Netflix', 'stock', 'NFLX', null, 112, array['Streaming'], true, true),
+  ('PLTR', 'Palantir', 'stock', 'PLTR', null, 113, array['AI','Data'], true, true),
+  ('COIN', 'Coinbase Global', 'stock', 'COIN', null, 114, array['Crypto equity'], true, true),
+  ('MSTR', 'Strategy', 'stock', 'MSTR', null, 115, array['Bitcoin equity'], true, true),
+  ('JPM', 'JPMorgan Chase', 'stock', 'JPM', null, 116, array['Banking'], true, true),
+  ('V', 'Visa', 'stock', 'V', null, 117, array['Payments'], true, true),
+  ('DIA', 'SPDR Dow Jones ETF', 'etf', 'DIA', null, 118, array['Dow','ETF'], true, true),
+  ('IWM', 'iShares Russell 2000 ETF', 'etf', 'IWM', null, 119, array['Small caps','ETF'], true, true),
+  ('GLD', 'SPDR Gold Shares', 'etf', 'GLD', null, 120, array['Gold','ETF'], true, true)
+on conflict (symbol) do update
+set asset_name = excluded.asset_name,
+    asset_type = excluded.asset_type,
+    provider_symbol = excluded.provider_symbol,
+    coingecko_id = excluded.coingecko_id,
+    display_rank = excluded.display_rank,
+    tags = excluded.tags,
+    is_tradeable = excluded.is_tradeable,
+    is_active = excluded.is_active,
     updated_at = now();
 
 with practice_profile as (

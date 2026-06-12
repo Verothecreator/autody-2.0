@@ -60,8 +60,9 @@ Live data endpoints:
 ```text
 /api/live/status
 /api/live/refresh
+/api/markets/catalog
 /api/markets/snapshots
 /api/news/snapshots
 ```
 
-The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down.
+The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down. The signed-in demo markets page uses `/api/markets/catalog` for the broader tradeable asset universe.
