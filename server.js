@@ -600,7 +600,7 @@ async function buildDemoWalletSnapshot(account) {
         balance: numberValue(account.user.cashBalance, baseCash.balance),
         valueUsd: numberValue(account.user.cashBalance, baseCash.valueUsd),
         price: 1,
-        changePct: 0,
+        changePct: null,
         url: walletHoldingUrl({ symbol: "USD" }),
         status: "Available",
         detail: "Buying power"
