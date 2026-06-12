@@ -54,6 +54,7 @@ const LIVE_CHART_REFRESH_RANGES = Array.from(new Set((process.env.LIVE_CHART_REF
     .split(",")
     .map((range) => normalizeChartRange(range.trim().toLowerCase()))
     .filter(Boolean)));
+const MARKET_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 
@@ -1344,11 +1345,11 @@ async function fetchCoinbaseCrypto() {
 
 async function fetchYahooChartSignal(symbol, name) {
   const encoded = encodeURIComponent(symbol);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=1d&interval=5m`;
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?range=1d&interval=5m&includePrePost=false`;
   const json = await fetch(url, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Autody/1.0 market preview"
+      "User-Agent": MARKET_BROWSER_USER_AGENT
     }
   }).then((r) => {
     if (!r.ok) throw new Error(`Yahoo chart HTTP ${r.status}`);
@@ -1429,11 +1430,11 @@ async function fetchYahooChartSeries(asset, requestedRange = "1d") {
   const selectedRange = CHART_RANGE_CONFIG[requested] ? requested : "1d";
   const config = CHART_RANGE_CONFIG[selectedRange];
   const encoded = encodeURIComponent(marketDataSymbol(asset));
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=${config.range}&interval=${config.interval}`;
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?range=${config.range}&interval=${config.interval}&includePrePost=false`;
   const json = await fetch(url, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Autody/1.0 market detail"
+      "User-Agent": MARKET_BROWSER_USER_AGENT
     }
   }).then((r) => {
     if (!r.ok) throw new Error(`Yahoo chart HTTP ${r.status}`);
@@ -1714,11 +1715,11 @@ async function fetchCryptoChartSeries(asset, requestedRange = "1d") {
 
 async function fetchYahooAllTimeStats(asset) {
   const encoded = encodeURIComponent(marketDataSymbol(asset));
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=max&interval=1mo`;
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?range=max&interval=1mo&includePrePost=false`;
   const json = await fetch(url, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Autody/1.0 market detail"
+      "User-Agent": MARKET_BROWSER_USER_AGENT
     }
   }).then((r) => {
     if (!r.ok) throw new Error(`Yahoo all-time chart HTTP ${r.status}`);
@@ -1946,11 +1947,11 @@ async function fetchStockMarketData() {
     const quoteResults = [];
     for (const batch of chunkItems(TRADE_STOCK_ASSETS, 60)) {
       const symbols = batch.map((asset) => marketDataSymbol(asset)).join(",");
-      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,currency,regularMarketPrice,regularMarketChangePercent,regularMarketTime,marketCap,regularMarketVolume,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
+      const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,currency,regularMarketPrice,regularMarketChangePercent,regularMarketTime,marketCap,regularMarketVolume,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
       const json = await fetch(url, {
         headers: {
           Accept: "application/json",
-          "User-Agent": "Autody/1.0 market preview"
+          "User-Agent": MARKET_BROWSER_USER_AGENT
         }
       }).then((r) => {
         if (!r.ok) throw new Error(`Yahoo Finance HTTP ${r.status}`);
