@@ -388,13 +388,18 @@ function mapDbUser(row) {
 }
 
 function mapDbHolding(row) {
+    const balance = numberValue(row.quantity, 0);
+    const valueUsd = numberValue(row.value_usd, 0);
     return {
         symbol: row.symbol,
         name: row.asset_name,
         category: row.asset_type,
-        balance: numberValue(row.quantity, 0),
-        valueUsd: numberValue(row.value_usd, 0),
-        status: numberValue(row.quantity, 0) > 0 ? "Held" : row.symbol === "AU" ? "Not held" : "Ready"
+        balance,
+        averageCost: nullableNumber(row.average_cost),
+        lastPrice: nullableNumber(row.last_price),
+        valueUsd,
+        updatedAt: row.updated_at,
+        status: balance > 0 ? "Held" : row.symbol === "AU" ? "Not held" : "Ready"
     };
 }
 
@@ -425,7 +430,7 @@ async function getPracticeAccountFromDatabase() {
 
     const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult] = await Promise.all([
         dbPool.query(`
-            select symbol, asset_name, asset_type, quantity, value_usd
+            select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at
             from holdings
             where wallet_id = $1
             order by case symbol when 'USD' then 0 when 'AU' then 1 when 'CRYPTO' then 2 when 'STOCKS' then 3 else 4 end, symbol
@@ -521,6 +526,170 @@ async function getPracticeAccountAny() {
     }
 
     return { ...getPracticeAccount(), source: "json" };
+}
+
+const WALLET_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS"]);
+
+function walletHoldingUrl(holding) {
+    const symbol = String(holding.symbol || "").toUpperCase();
+    if (symbol === "USD") return "demo-wallet.html?asset=USD";
+    if (symbol === "CRYPTO") return "demo-markets.html?filter=crypto";
+    if (symbol === "STOCKS") return "demo-markets.html?filter=stocks";
+    return `demo-asset.html?symbol=${encodeURIComponent(symbol)}`;
+}
+
+function walletDefaultHolding(symbol, name, category, status = "Ready") {
+    return {
+        symbol,
+        name,
+        category,
+        balance: 0,
+        valueUsd: 0,
+        status
+    };
+}
+
+function walletRecordFromOrder(order) {
+    const side = String(order.side || "order").toLowerCase();
+    const symbol = String(order.symbol || "").toUpperCase();
+    const status = order.status || "draft";
+    const valueUsd = numberValue(order.notional_usd ?? order.notionalUsd, 0);
+
+    return {
+        type: side,
+        title: `${side.charAt(0).toUpperCase()}${side.slice(1)} ${symbol}`,
+        symbol,
+        assetType: order.asset_type || order.assetType || "market",
+        valueUsd,
+        status,
+        createdAt: order.created_at || order.createdAt || null
+    };
+}
+
+function buildWalletRecords(account) {
+    const orderRecords = (account.orders || []).map(walletRecordFromOrder);
+    const fundingRecord = {
+        type: "funding",
+        title: "Demo account funded",
+        symbol: "USD",
+        assetType: "cash",
+        valueUsd: numberValue(account.user.startingBalance, 50000),
+        status: "complete",
+        createdAt: account.user.createdAt || null
+    };
+
+    return [fundingRecord, ...orderRecords]
+        .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
+        .slice(0, 8);
+}
+
+async function buildDemoWalletSnapshot(account) {
+    const baseCash = account.wallet.cash || walletDefaultHolding("USD", "USD Cash", "cash", "Available");
+    const rawHoldings = account.wallet.holdings || [];
+    const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
+    const symbolsForMarket = [...holdingsBySymbol.keys()]
+        .filter((symbol) => symbol !== "AU" && !WALLET_GROUP_SYMBOLS.has(symbol));
+    const marketAssets = symbolsForMarket.length ? await buildMarketCatalog("all").catch(() => []) : [];
+    const marketMap = new Map(marketAssets.map((asset) => [String(asset.symbol || "").toUpperCase(), asset]));
+
+    const cash = {
+        ...baseCash,
+        symbol: "USD",
+        name: "USD Cash",
+        category: "cash",
+        balance: numberValue(account.user.cashBalance, baseCash.balance),
+        valueUsd: numberValue(account.user.cashBalance, baseCash.valueUsd),
+        price: 1,
+        changePct: 0,
+        url: walletHoldingUrl({ symbol: "USD" }),
+        status: "Available",
+        detail: "Buying power"
+    };
+
+    const enrichHolding = (holding) => {
+        const symbol = String(holding.symbol || "").toUpperCase();
+        const marketAsset = marketMap.get(symbol);
+        const category = holding.category || marketAsset?.assetType || "market";
+        const balance = numberValue(holding.balance, 0);
+        const price = firstPositive(marketAsset?.price, holding.lastPrice);
+        const valueUsd = symbol === "USD"
+            ? cash.valueUsd
+            : balance > 0 && price != null
+                ? balance * price
+                : numberValue(holding.valueUsd, 0);
+        const averageCost = positiveNumber(holding.averageCost);
+        const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
+        const unrealizedProfitLoss = costBasis != null ? valueUsd - costBasis : null;
+
+        return {
+            ...holding,
+            symbol,
+            name: holding.name || marketAsset?.name || symbol,
+            category,
+            assetType: category,
+            balance,
+            price,
+            changePct: nullableNumber(marketAsset?.changePct),
+            market: marketAsset?.market || holding.market || null,
+            logoUrl: marketAsset?.logoUrl || holding.logoUrl || null,
+            valueUsd,
+            averageCost,
+            costBasis,
+            unrealizedProfitLoss,
+            url: walletHoldingUrl({ symbol }),
+            status: balance > 0 ? "Held" : symbol === "AU" ? "Not held" : "Ready",
+            updatedAt: holding.updatedAt || marketAsset?.capturedAt || null
+        };
+    };
+
+    const au = enrichHolding(holdingsBySymbol.get("AU") || walletDefaultHolding("AU", "Autody AU", "currency", "Not held"));
+    const rawPositionHoldings = rawHoldings.filter((holding) => {
+        const symbol = String(holding.symbol || "").toUpperCase();
+        return symbol !== "AU" && !WALLET_GROUP_SYMBOLS.has(symbol);
+    });
+    const positions = rawPositionHoldings.map(enrichHolding).filter((holding) => holding.balance > 0 || holding.valueUsd > 0);
+    const cryptoPositions = positions.filter((holding) => holding.category === "crypto" || holding.category === "currency");
+    const stockPositions = positions.filter((holding) => ["stock", "stocks", "etf", "commodity"].includes(holding.category));
+    const cryptoValue = cryptoPositions.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const stockValue = stockPositions.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const auValue = numberValue(au.valueUsd, 0);
+    const totalValue = cash.valueUsd + auValue + cryptoValue + stockValue;
+    const investedValue = auValue + cryptoValue + stockValue;
+
+    const cryptoGroup = {
+        ...walletDefaultHolding("CRYPTO", "Crypto", "crypto"),
+        balance: cryptoPositions.length,
+        valueUsd: cryptoValue,
+        url: walletHoldingUrl({ symbol: "CRYPTO" }),
+        status: cryptoPositions.length ? "Tracking" : "Ready",
+        detail: "Digital assets"
+    };
+    const stockGroup = {
+        ...walletDefaultHolding("STOCKS", "Stocks", "stock"),
+        balance: stockPositions.length,
+        valueUsd: stockValue,
+        url: walletHoldingUrl({ symbol: "STOCKS" }),
+        status: stockPositions.length ? "Tracking" : "Ready",
+        detail: "Equities and ETFs"
+    };
+
+    return {
+        currency: account.user.currency,
+        startingBalance: account.user.startingBalance,
+        cashBalance: cash.valueUsd,
+        reservedCash: account.user.reservedCash,
+        totalValue,
+        investedValue,
+        positionsCount: positions.length + (au.balance > 0 ? 1 : 0),
+        groups: {
+            cashValue: cash.valueUsd,
+            auValue,
+            cryptoValue,
+            stockValue
+        },
+        holdings: [cash, au, cryptoGroup, stockGroup, ...positions],
+        records: buildWalletRecords(account)
+    };
 }
 
 async function createDatabaseSession(profileId) {
@@ -2897,21 +3066,12 @@ app.get("/api/demo/practice-user", async (req, res) => {
 app.get("/api/demo/wallet", async (req, res) => {
   try {
     const account = await getPracticeAccountAny();
-    const cash = account.wallet.cash;
-    const holdings = [cash, ...account.wallet.holdings];
-    const totalValue = holdings.reduce((sum, asset) => sum + Number(asset.valueUsd || 0), 0);
+    const wallet = await buildDemoWalletSnapshot(account);
 
     return res.json({
       success: true,
       user: publicUser(account.user),
-      wallet: {
-        currency: account.user.currency,
-        startingBalance: account.user.startingBalance,
-        cashBalance: account.user.cashBalance,
-        reservedCash: account.user.reservedCash,
-        totalValue,
-        holdings
-      },
+      wallet,
       source: account.source
     });
   } catch (err) {

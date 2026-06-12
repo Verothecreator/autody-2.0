@@ -1,5 +1,8 @@
 let allMarketAssets = [];
-let activeFilter = "all";
+const initialMarketFilter = new URLSearchParams(location.search).get("filter");
+let activeFilter = ["all", "crypto", "stablecoin", "stocks", "etf", "commodity"].includes(initialMarketFilter)
+  ? initialMarketFilter
+  : "all";
 let activeSearch = "";
 let demoWallet = null;
 let marketsLoading = false;
@@ -237,6 +240,12 @@ function renderMarketCards() {
     : `<article class="market-empty-state">No assets match that search.</article>`;
 }
 
+function syncActiveFilterButtons() {
+  document.querySelectorAll("[data-market-filter]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.marketFilter === activeFilter);
+  });
+}
+
 function updateDashboard() {
   const liveAssets = allMarketAssets.filter((asset) => asset.price != null);
   const topMover = sortByMove(liveAssets)[0];
@@ -302,10 +311,12 @@ document.addEventListener("click", (event) => {
   const filter = event.target.closest("[data-market-filter]");
   if (!filter) return;
   activeFilter = filter.dataset.marketFilter;
-  document.querySelectorAll("[data-market-filter]").forEach((button) => button.classList.toggle("active", button === filter));
+  history.replaceState(null, "", `demo-markets.html?filter=${encodeURIComponent(activeFilter)}`);
+  syncActiveFilterButtons();
   renderMarketCards();
 });
 
+syncActiveFilterButtons();
 loadDemoMarkets();
 setInterval(refreshMarketsWhenVisible, MARKET_REFRESH_MS);
 window.addEventListener("focus", refreshMarketsWhenVisible);

@@ -51,9 +51,14 @@
           <small>Ready for demo orders</small>
         </div>
         <div class="app-card mini-metric">
-          <span class="muted-label">AU balance</span>
-          <strong id="wallet-au">0 AU</strong>
-          <small>Add after practice swaps</small>
+          <span class="muted-label">Portfolio value</span>
+          <strong id="wallet-total">$50,000</strong>
+          <small>Cash plus holdings</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Positions</span>
+          <strong id="wallet-positions">0</strong>
+          <small>Assets currently held</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Reserved</span>
@@ -104,18 +109,39 @@
           </div>
         </div>
 
-        <div class="app-card au-vision-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Wallet actions</span>
-              <h2>Practice flows</h2>
+        <div class="wallet-side-stack">
+          <div class="app-card wallet-detail-card">
+            <div class="card-heading">
+              <div>
+                <span class="muted-label" id="wallet-detail-label">Selected balance</span>
+                <h2 id="wallet-detail-title">USD Cash</h2>
+              </div>
+            </div>
+            <div class="wallet-detail-hero">
+              <strong id="wallet-detail-value">$50,000.00</strong>
+              <span id="wallet-detail-subtitle">Available for demo orders</span>
+            </div>
+            <div class="wallet-detail-list" id="wallet-detail-list"></div>
+            <div class="wallet-action-grid" id="wallet-detail-actions">
+              <a href="demo-markets.html">Buy</a>
+              <a href="demo-orders.html">Orders</a>
             </div>
           </div>
-          <div class="vision-steps wallet-actions">
-            <a href="demo-markets.html">Buy</a>
-            <a href="demo-markets.html">Sell</a>
-            <a href="demo-markets.html">Swap</a>
-            <a href="demo-orders.html">History</a>
+
+          <div class="app-card wallet-record-card">
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Records</span>
+                <h2>Wallet history</h2>
+              </div>
+            </div>
+            <div class="wallet-record-list" id="wallet-record-list">
+              <div class="wallet-record-row">
+                <span>USD</span>
+                <strong>Demo account funded</strong>
+                <small>$50,000.00</small>
+              </div>
+            </div>
           </div>
         </div>
       </section>
