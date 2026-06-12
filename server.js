@@ -260,8 +260,22 @@ function safeIsoDate(value) {
 }
 
 function nullableNumber(value) {
+    if (value === undefined || value === null || value === "") return null;
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
+}
+
+function positiveNumber(value) {
+    const number = nullableNumber(value);
+    return number && number > 0 ? number : null;
+}
+
+function firstPositive(...values) {
+    for (const value of values) {
+        const number = positiveNumber(value);
+        if (number !== null) return number;
+    }
+    return null;
 }
 
 function firstPresent(...values) {
@@ -842,17 +856,17 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
                 market: row.market || rich.market || null,
                 price: nullableNumber(row.price_usd),
                 changePct: nullableNumber(row.change_pct),
-                marketCap: nullableNumber(firstPresent(row.market_cap_usd, rich.market_cap_usd)),
-                fdv: nullableNumber(firstPresent(row.fdv_usd, rich.fdv_usd)),
-                liquidityUsd: nullableNumber(firstPresent(row.liquidity_usd, rich.liquidity_usd)),
-                totalVolume: nullableNumber(firstPresent(row.total_volume_usd, rich.total_volume_usd)),
-                high24h: nullableNumber(firstPresent(row.high_24h, rich.high_24h)),
-                low24h: nullableNumber(firstPresent(row.low_24h, rich.low_24h)),
-                ath: nullableNumber(firstPresent(row.ath, rich.ath)),
-                atl: nullableNumber(firstPresent(row.atl, rich.atl)),
-                circulatingSupply: nullableNumber(firstPresent(row.circulating_supply, rich.circulating_supply)),
-                totalSupply: nullableNumber(firstPresent(row.total_supply, rich.total_supply)),
-                maxSupply: nullableNumber(firstPresent(row.max_supply, rich.max_supply)),
+                marketCap: firstPositive(row.market_cap_usd, rich.market_cap_usd),
+                fdv: firstPositive(row.fdv_usd, rich.fdv_usd),
+                liquidityUsd: firstPositive(row.liquidity_usd, rich.liquidity_usd),
+                totalVolume: firstPositive(row.total_volume_usd, rich.total_volume_usd),
+                high24h: firstPositive(row.high_24h, rich.high_24h),
+                low24h: firstPositive(row.low_24h, rich.low_24h),
+                ath: firstPositive(row.ath, rich.ath),
+                atl: firstPositive(row.atl, rich.atl),
+                circulatingSupply: firstPositive(row.circulating_supply, rich.circulating_supply),
+                totalSupply: firstPositive(row.total_supply, rich.total_supply),
+                maxSupply: firstPositive(row.max_supply, rich.max_supply),
                 currency: row.currency || rich.currency || "USD",
                 logoUrl: row.logo_url || rich.logo_url || null,
                 depositNetworks: Array.isArray(row.deposit_networks) && row.deposit_networks.length

@@ -241,11 +241,13 @@ function detailRow(label, value) {
 }
 
 function activityMetric(asset) {
-  if (asset.liquidityUsd != null) {
-    return { label: "Liquidity", value: asset.liquidityUsd };
+  const liquidity = Number(asset.liquidityUsd);
+  const volume = Number(asset.totalVolume);
+  if (Number.isFinite(liquidity) && liquidity > 0) {
+    return { label: "Liquidity", value: liquidity };
   }
-  if (asset.totalVolume != null) {
-    return { label: asset.assetType === "crypto" ? "24h volume" : "Volume", value: asset.totalVolume };
+  if (Number.isFinite(volume) && volume > 0) {
+    return { label: asset.assetType === "crypto" ? "24h volume" : "Volume", value: volume };
   }
   return null;
 }
