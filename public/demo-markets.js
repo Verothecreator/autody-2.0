@@ -101,6 +101,31 @@ async function getJson(url) {
   return response.json();
 }
 
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
+  return data;
+}
+
+function showMarketToast(message, tone = "") {
+  let toast = document.getElementById("market-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "market-toast";
+    toast.className = "market-toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.className = `market-toast show ${tone}`;
+  window.clearTimeout(showMarketToast.timer);
+  showMarketToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+}
+
 function assetSearchText(asset) {
   return [
     asset.symbol,
@@ -152,19 +177,22 @@ function miniChartBars(asset, count = 18) {
 function marketCard(asset) {
   const moveClass = marketMoveClass(asset.changePct);
   return `
-    <a class="market-asset-card ${assetTone(asset)}" href="${assetUrl(asset)}">
-      <div class="asset-card-top">
-        ${marketLogoMarkup(asset)}
-        <span class="asset-pill">${escapeMarketHtml(asset.assetType.toUpperCase())}</span>
-      </div>
-      <strong>${escapeMarketHtml(asset.name)}</strong>
-      <small>${escapeMarketHtml(asset.market || asset.region || "Market")}</small>
-      <div class="asset-card-chart ${moveClass}" aria-hidden="true">${miniChartBars(asset, 14)}</div>
-      <div class="asset-card-bottom">
-        <span>${marketPrice(asset.price, asset.currency || "USD")}</span>
-        <em class="${moveClass}">${marketMove(asset.changePct)}</em>
-      </div>
-    </a>
+    <article class="market-asset-card ${assetTone(asset)}">
+      <button class="market-card-menu" type="button" data-market-watch-symbol="${escapeMarketHtml(asset.symbol)}" aria-label="Add ${escapeMarketHtml(asset.symbol)} to watchlist">...</button>
+      <a class="market-card-main" href="${assetUrl(asset)}">
+        <div class="asset-card-top">
+          ${marketLogoMarkup(asset)}
+          <span class="asset-pill">${escapeMarketHtml(asset.assetType.toUpperCase())}</span>
+        </div>
+        <strong>${escapeMarketHtml(asset.name)}</strong>
+        <small>${escapeMarketHtml(asset.market || asset.region || "Market")}</small>
+        <div class="asset-card-chart ${moveClass}" aria-hidden="true">${miniChartBars(asset, 14)}</div>
+        <div class="asset-card-bottom">
+          <span>${marketPrice(asset.price, asset.currency || "USD")}</span>
+          <em class="${moveClass}">${marketMove(asset.changePct)}</em>
+        </div>
+      </a>
+    </article>
   `;
 }
 
@@ -308,6 +336,19 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const watchButton = event.target.closest("[data-market-watch-symbol]");
+  if (watchButton) {
+    const symbol = watchButton.dataset.marketWatchSymbol;
+    watchButton.disabled = true;
+    postJson("/api/demo/watchlist", { symbol })
+      .then(() => showMarketToast(`${symbol} added to your watchlist.`, "gain"))
+      .catch((err) => showMarketToast(err.message || "Watchlist could not be updated.", "loss"))
+      .finally(() => {
+        watchButton.disabled = false;
+      });
+    return;
+  }
+
   const filter = event.target.closest("[data-market-filter]");
   if (!filter) return;
   activeFilter = filter.dataset.marketFilter;

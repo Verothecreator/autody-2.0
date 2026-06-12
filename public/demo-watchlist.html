@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Demo Account | Watchlist</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="demo-wallet.html">Wallet</a>
+        <a href="demo-markets.html">Markets</a>
+        <a href="demo-orders.html">Orders</a>
+        <a href="demo-account.html">Overview</a>
+        <a href="demo-watchlist.html" class="active">Watchlist</a>
+        <a href="demo-research.html">Research</a>
+        <a href="demo-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Demo mode</span>
+        <strong id="watchlist-sidebar-balance">$50,000 paper USD</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="account.html" class="btn sidebar-return">Live Account</a>
+        <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Demo watchlist</p>
+          <h1>Watchlist</h1>
+          <p class="app-subtitle">Follow the assets that matter before placing a practice trade.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">Saved assets</span>
+          <strong id="watchlist-count">Loading</strong>
+        </div>
+      </header>
+
+      <section class="market-search-panel">
+        <div class="market-search-box">
+          <span aria-hidden="true">/</span>
+          <input id="watchlist-search" type="search" placeholder="Search your saved assets..." autocomplete="off" />
+        </div>
+      </section>
+
+      <section class="account-grid">
+        <article class="app-card wide-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Following</span>
+              <h2>Your saved assets</h2>
+            </div>
+            <a href="demo-markets.html" class="text-link">Browse Markets</a>
+          </div>
+          <div class="market-card-grid watchlist-card-grid" id="watchlist-grid">
+            <article class="market-loading-card">Loading watchlist...</article>
+          </div>
+        </article>
+
+        <article class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Quick groups</span>
+              <h2>Watchlist sections</h2>
+            </div>
+          </div>
+          <div class="activity-list" id="watchlist-groups">
+            <div><span>Crypto</span><strong>Loading</strong><small>Digital assets</small></div>
+            <div><span>Stocks</span><strong>Loading</strong><small>Equities and ETFs</small></div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+  <script src="demo-watchlist.js"></script>
+</body>
+</html>

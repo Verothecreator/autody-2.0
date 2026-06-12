@@ -124,6 +124,24 @@ async function getJson(url) {
   return response.json();
 }
 
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
+  return data;
+}
+
+function setAssetMessage(message, tone = "") {
+  const node = document.getElementById("asset-action-message");
+  if (!node) return;
+  node.textContent = message;
+  node.className = `order-status ${tone}`;
+}
+
 function chartPoints(asset, points) {
   return (points || [])
     .map((point) => ({ ...point, close: Number(point.close) }))
@@ -291,20 +309,20 @@ function renderDetails(asset, chart) {
 }
 
 function renderActions(asset) {
-  const cryptoActions = [
-    ["Buy", "demo-orders.html"],
-    ["Swap", "demo-orders.html"],
-    ["Send", "demo-wallet.html"],
-    ["Receive", "demo-wallet.html"]
-  ];
-  const marketActions = [
-    ["Buy", "demo-orders.html"],
-    ["Sell", "demo-orders.html"],
-    ["Watch", "demo-research.html"],
-    ["Research", "demo-research.html"]
-  ];
-  const actions = asset.assetType === "crypto" ? cryptoActions : marketActions;
-  document.getElementById("asset-action-grid").innerHTML = actions.map(([label, href]) => `<a href="${href}">${label}</a>`).join("");
+  const symbol = encodeURIComponent(asset.symbol);
+  const cryptoActions = `
+    <a href="demo-orders.html?side=buy&symbol=${symbol}">Buy</a>
+    <a href="demo-orders.html?side=swap&symbol=${symbol}">Swap</a>
+    <button type="button" data-demo-blocked-action="Send">Send</button>
+    <button type="button" data-demo-blocked-action="Receive">Receive</button>
+  `;
+  const marketActions = `
+    <a href="demo-orders.html?side=buy&symbol=${symbol}">Buy</a>
+    <a href="demo-orders.html?side=sell&symbol=${symbol}">Sell</a>
+    <button type="button" data-add-watchlist>Watchlist</button>
+    <a href="demo-research.html">Research</a>
+  `;
+  document.getElementById("asset-action-grid").innerHTML = asset.assetType === "crypto" ? cryptoActions : marketActions;
 }
 
 function renderActivity(orders) {
@@ -354,6 +372,7 @@ function renderAsset(data) {
   renderActions(asset);
   renderActivity(data.demo?.orders || []);
   renderChartStats(asset, chart);
+  setAssetMessage("");
 }
 
 function renderChartStats(asset, chart) {
@@ -399,12 +418,49 @@ function refreshAssetWhenVisible() {
   loadAsset({ silent: true });
 }
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const range = event.target.closest("[data-chart-range]");
-  if (!range) return;
-  currentRange = range.dataset.chartRange;
-  document.querySelectorAll("[data-chart-range]").forEach((button) => button.classList.toggle("active", button === range));
-  if (currentAsset) loadAsset({ force: true });
+  if (range) {
+    currentRange = range.dataset.chartRange;
+    document.querySelectorAll("[data-chart-range]").forEach((button) => button.classList.toggle("active", button === range));
+    if (currentAsset) loadAsset({ force: true });
+    return;
+  }
+
+  const moreButton = event.target.closest("#asset-more-button");
+  const moreMenu = document.getElementById("asset-more-menu");
+  if (moreButton && moreMenu) {
+    const isHidden = moreMenu.hidden;
+    moreMenu.hidden = !isHidden;
+    moreButton.setAttribute("aria-expanded", String(isHidden));
+    return;
+  }
+
+  const blocked = event.target.closest("[data-demo-blocked-action]");
+  if (blocked) {
+    const action = blocked.dataset.demoBlockedAction || "Transfer";
+    setAssetMessage(`${action} is disabled in the demo account. Use Buy, Sell, or Swap for paper trading.`, "loss");
+    return;
+  }
+
+  const addWatchlist = event.target.closest("[data-add-watchlist]");
+  if (addWatchlist && currentAsset) {
+    setAssetMessage("Saving to watchlist...");
+    try {
+      await postJson("/api/demo/watchlist", { symbol: currentAsset.symbol });
+      setAssetMessage(`${currentAsset.symbol} is in your watchlist.`, "gain");
+      if (moreMenu) moreMenu.hidden = true;
+      document.getElementById("asset-more-button")?.setAttribute("aria-expanded", "false");
+    } catch (err) {
+      setAssetMessage(err.message || "Watchlist could not be updated.", "loss");
+    }
+    return;
+  }
+
+  if (moreMenu && !event.target.closest(".asset-more-wrap")) {
+    moreMenu.hidden = true;
+    document.getElementById("asset-more-button")?.setAttribute("aria-expanded", "false");
+  }
 });
 
 loadAsset();

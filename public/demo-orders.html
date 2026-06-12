@@ -18,12 +18,13 @@
         <a href="demo-markets.html">Markets</a>
         <a href="demo-orders.html" class="active">Orders</a>
         <a href="demo-account.html">Overview</a>
+        <a href="demo-watchlist.html">Watchlist</a>
         <a href="demo-research.html">Research</a>
         <a href="demo-settings.html">Settings</a>
       </nav>
       <div class="sidebar-profile">
         <span>Demo mode</span>
-        <strong>$50,000 paper USD</strong>
+        <strong id="orders-sidebar-balance">$50,000 paper USD</strong>
       </div>
       <div class="sidebar-actions">
         <a href="account.html" class="btn sidebar-return">Live Account</a>
@@ -36,42 +37,88 @@
         <div>
           <p class="eyebrow">Demo orders</p>
           <h1>Orders</h1>
-          <p class="app-subtitle">Review practice orders, open positions, fills, and cancelled trades.</p>
+          <p class="app-subtitle">Place paper buys, sells, and swaps. Each fill updates the practice wallet, holdings, and history.</p>
         </div>
         <div class="account-mode-stack">
-          <span class="status-pill">No real money</span>
-          <strong>Paper trading</strong>
+          <span class="status-pill">Buying power</span>
+          <strong id="orders-buying-power">$50,000 USD</strong>
         </div>
       </header>
 
       <section class="account-kpi-grid">
         <div class="app-card mini-metric">
-          <span class="muted-label">Open orders</span>
-          <strong>0</strong>
-          <small>No pending demo trades</small>
+          <span class="muted-label">Available cash</span>
+          <strong id="orders-cash">$50,000</strong>
+          <small>Used for demo buys and USD swaps</small>
         </div>
         <div class="app-card mini-metric">
-          <span class="muted-label">Filled today</span>
-          <strong>0</strong>
-          <small>Fresh demo account</small>
+          <span class="muted-label">Portfolio value</span>
+          <strong id="orders-total">$50,000</strong>
+          <small>Cash plus positions</small>
         </div>
         <div class="app-card mini-metric">
-          <span class="muted-label">Reserved cash</span>
-          <strong>$0.00</strong>
-          <small>All funds available</small>
+          <span class="muted-label">Positions</span>
+          <strong id="orders-positions">0</strong>
+          <small>Held assets</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Order type</span>
+          <strong>Market</strong>
+          <small>Instant paper fills</small>
         </div>
       </section>
 
-      <section class="account-grid">
-        <div class="app-card wide-card">
+      <section class="account-grid order-workspace">
+        <article class="app-card trade-ticket">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Trade ticket</span>
+              <h2>Practice order</h2>
+            </div>
+            <span class="status-pill">Demo only</span>
+          </div>
+
+          <form class="ticket-form order-ticket-form" id="order-form">
+            <div class="order-side-toggle" aria-label="Order side">
+              <button type="button" class="active" data-order-side="buy">Buy</button>
+              <button type="button" data-order-side="sell">Sell</button>
+              <button type="button" data-order-side="swap">Swap</button>
+            </div>
+
+            <label id="order-from-wrap" hidden>
+              From
+              <select id="order-from"></select>
+            </label>
+
+            <label>
+              Asset
+              <select id="order-symbol"></select>
+            </label>
+
+            <label>
+              Demo amount
+              <input id="order-amount" type="number" min="1" step="1" value="1000" inputmode="decimal" />
+            </label>
+
+            <div class="order-preview" id="order-preview">
+              <span>Estimated fill</span>
+              <strong>Choose an asset</strong>
+            </div>
+
+            <button class="btn order-submit" type="submit" id="order-submit">Place Demo Buy</button>
+            <p class="order-status" id="order-status" role="status"></p>
+          </form>
+        </article>
+
+        <article class="app-card wide-card">
           <div class="card-heading">
             <div>
               <span class="muted-label">Order history</span>
               <h2>Recent demo activity</h2>
             </div>
-            <a href="demo-markets.html" class="btn btn-small">New Order</a>
+            <a href="demo-markets.html" class="text-link">Find asset</a>
           </div>
-          <div class="asset-table">
+          <div class="asset-table" id="orders-table">
             <div class="asset-table-row head">
               <span>Type</span>
               <span>Asset</span>
@@ -85,24 +132,21 @@
               <span>Fresh account</span>
             </div>
           </div>
-        </div>
+        </article>
 
-        <div class="app-card">
+        <article class="app-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Order rules</span>
-              <h2>Demo limits</h2>
+              <span class="muted-label">Held assets</span>
+              <h2>Available to sell</h2>
             </div>
           </div>
-          <div class="activity-list">
-            <div><span>Cash</span><strong>$50,000 max buying power</strong><small>For demo only</small></div>
-            <div><span>Risk</span><strong>No leverage yet</strong><small>Simple practice first</small></div>
-            <div><span>Assets</span><strong>Crypto and stocks</strong><small>More markets later</small></div>
-          </div>
-        </div>
+          <div class="compact-market-list" id="order-holdings-list"></div>
+        </article>
       </section>
     </main>
   </div>
   <script src="demo-auth.js"></script>
+  <script src="demo-orders.js"></script>
 </body>
 </html>

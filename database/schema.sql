@@ -389,10 +389,7 @@ demo_wallet as (
   insert into wallets (account_mode_id, currency, cash_balance, reserved_cash, starting_balance)
   select id, 'USD', 50000, 0, 50000 from demo_mode
   on conflict (account_mode_id) do update
-  set cash_balance = excluded.cash_balance,
-      reserved_cash = excluded.reserved_cash,
-      starting_balance = excluded.starting_balance,
-      updated_at = now()
+  set currency = wallets.currency
   returning id
 )
 insert into holdings (wallet_id, symbol, asset_name, asset_type, quantity, value_usd)
@@ -405,10 +402,7 @@ cross join (
     ('CRYPTO', 'Crypto', 'crypto', 0::numeric, 0::numeric),
     ('STOCKS', 'Stocks', 'stock', 0::numeric, 0::numeric)
 ) as seed_holdings(symbol, asset_name, asset_type, quantity, value_usd)
-on conflict (wallet_id, symbol) do update
-set quantity = excluded.quantity,
-    value_usd = excluded.value_usd,
-    updated_at = now();
+on conflict (wallet_id, symbol) do nothing;
 
 with practice_profile as (
   select id from profiles where email = 'ontold7@gmail.com'
@@ -459,7 +453,4 @@ with demo_mode as (
 )
 insert into demo_performance (account_mode_id, portfolio_value, starting_balance)
 select id, 50000, 50000 from demo_mode
-on conflict (account_mode_id) do update
-set portfolio_value = excluded.portfolio_value,
-    starting_balance = excluded.starting_balance,
-    updated_at = now();
+on conflict (account_mode_id) do nothing;

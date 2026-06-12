@@ -1353,6 +1353,102 @@ button.asset-table-row {
   background: rgba(255, 255, 255, 0.035);
 }
 
+.wallet-category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.wallet-category-tabs button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.wallet-category-tabs button.active {
+  border-color: rgba(93, 95, 239, 0.85);
+  background: rgba(93, 95, 239, 0.22);
+  color: var(--text);
+}
+
+.wallet-category-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid rgba(93, 95, 239, 0.24);
+  border-radius: 8px;
+  background: rgba(93, 95, 239, 0.08);
+}
+
+.wallet-category-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wallet-category-heading strong {
+  color: var(--green);
+}
+
+.wallet-category-assets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wallet-category-assets a,
+.wallet-category-assets button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 68px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.wallet-category-assets a:hover,
+.wallet-category-assets button:hover {
+  border-color: rgba(93, 95, 239, 0.72);
+  background: rgba(93, 95, 239, 0.14);
+  transform: translateY(-1px);
+}
+
+.wallet-category-assets span b,
+.wallet-category-assets span em {
+  display: block;
+  font-style: normal;
+}
+
+.wallet-category-assets span em,
+.wallet-category-assets small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.wallet-category-assets strong {
+  justify-self: end;
+}
+
 .au-vision-card p {
   color: var(--muted);
 }
@@ -1479,6 +1575,10 @@ button.asset-table-row {
   grid-row: span 2;
 }
 
+.order-workspace {
+  align-items: start;
+}
+
 .ticket-form {
   display: grid;
   gap: 12px;
@@ -1500,6 +1600,87 @@ button.asset-table-row {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   color: var(--text);
+}
+
+.order-side-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.order-side-toggle button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.order-side-toggle button.active {
+  border-color: rgba(93, 95, 239, 0.85);
+  background: rgba(93, 95, 239, 0.24);
+  color: var(--text);
+}
+
+.order-preview {
+  min-height: 74px;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.order-preview span,
+.order-status {
+  color: var(--muted);
+}
+
+.order-preview strong {
+  font-size: 1.15rem;
+}
+
+.order-submit {
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  cursor: pointer;
+}
+
+.order-submit:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.order-status {
+  min-height: 22px;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.order-status.gain {
+  color: var(--green);
+}
+
+.order-status.loss {
+  color: var(--red);
+}
+
+.order-row-link {
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.order-row-link:hover {
+  border-color: rgba(93, 95, 239, 0.65);
+  background: rgba(93, 95, 239, 0.12);
+  transform: translateY(-1px);
 }
 
 .market-topbar {
@@ -1662,6 +1843,54 @@ button.asset-table-row {
   font-weight: 900;
 }
 
+.asset-more-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.asset-more-button {
+  width: 38px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.asset-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 12;
+  min-width: 170px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(12, 16, 22, 0.98);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+}
+
+.asset-more-menu button {
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+}
+
+.asset-more-menu button:hover {
+  background: rgba(93, 95, 239, 0.18);
+}
+
 .spark-chart {
   height: 190px;
   display: flex;
@@ -1784,6 +2013,7 @@ button.asset-table-row {
 }
 
 .market-asset-card {
+  position: relative;
   min-height: 218px;
   display: flex;
   flex-direction: column;
@@ -1795,6 +2025,36 @@ button.asset-table-row {
   color: var(--text);
   text-decoration: none;
   transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.market-card-main {
+  min-height: 100%;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.market-card-menu {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 34px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(12, 16, 22, 0.78);
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.market-card-menu:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .market-asset-card:hover {
@@ -1818,6 +2078,10 @@ button.asset-table-row {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.market-asset-card .asset-card-top {
+  padding-right: 42px;
 }
 
 .asset-token {
@@ -1903,7 +2167,8 @@ button.asset-table-row {
   line-height: 1.25;
 }
 
-.market-asset-card > small {
+.market-asset-card > small,
+.market-card-main > small {
   color: var(--muted);
 }
 
@@ -1935,6 +2200,40 @@ button.asset-table-row {
   border-radius: 8px;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.035);
+}
+
+.market-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 50;
+  max-width: min(320px, calc(100vw - 44px));
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(12, 16, 22, 0.96);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+  color: var(--text);
+  font-weight: 900;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.market-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.market-toast.gain {
+  border-color: rgba(50, 213, 131, 0.48);
+  color: var(--green);
+}
+
+.market-toast.loss {
+  border-color: rgba(255, 92, 122, 0.48);
+  color: var(--red);
 }
 
 .market-columns {
@@ -2099,7 +2398,8 @@ button.asset-table-row {
   margin-top: 18px;
 }
 
-.asset-action-grid a {
+.asset-action-grid a,
+.asset-action-grid button {
   min-height: 78px;
   display: inline-flex;
   align-items: center;
@@ -2108,8 +2408,10 @@ button.asset-table-row {
   border-radius: 8px;
   background: rgba(93, 95, 239, 0.16);
   color: var(--text);
+  font: inherit;
   font-weight: 900;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .asset-balance-row {
@@ -2556,6 +2858,10 @@ button.asset-table-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .wallet-category-assets {
+    grid-template-columns: 1fr;
+  }
+
   .trade-ticket {
     grid-row: auto;
   }
@@ -2679,6 +2985,17 @@ button.asset-table-row {
   .market-card-grid,
   .asset-chart-stats {
     grid-template-columns: 1fr;
+  }
+
+  .wallet-category-assets a,
+  .wallet-category-assets button {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .wallet-category-assets strong,
+  .wallet-category-assets small {
+    justify-self: start;
+    grid-column: 2;
   }
 
   .spotlight-price-row,

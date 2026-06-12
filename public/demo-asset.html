@@ -18,6 +18,7 @@
         <a href="demo-markets.html" class="active">Markets</a>
         <a href="demo-orders.html">Orders</a>
         <a href="demo-account.html">Overview</a>
+        <a href="demo-watchlist.html">Watchlist</a>
         <a href="demo-research.html">Research</a>
         <a href="demo-settings.html">Settings</a>
       </nav>
@@ -46,6 +47,12 @@
           <div class="asset-price-panel">
             <strong id="asset-price">$0.00</strong>
             <span id="asset-change">Live feed</span>
+            <div class="asset-more-wrap">
+              <button class="asset-more-button" id="asset-more-button" type="button" aria-label="More asset actions" aria-expanded="false">...</button>
+              <div class="asset-more-menu" id="asset-more-menu" hidden>
+                <button type="button" data-add-watchlist>Add to watchlist</button>
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -80,6 +87,7 @@
               <a href="demo-wallet.html">Send</a>
               <a href="demo-wallet.html">Receive</a>
             </div>
+            <p class="order-status" id="asset-action-message" role="status"></p>
           </article>
 
           <article class="app-card asset-balance-card">

@@ -436,7 +436,7 @@ async function getPracticeAccountFromDatabase() {
             order by case symbol when 'USD' then 0 when 'AU' then 1 when 'CRYPTO' then 2 when 'STOCKS' then 3 else 4 end, symbol
         `, [row.wallet_id]),
         dbPool.query(`
-            select symbol, asset_type, side, order_type, status, quantity, notional_usd, limit_price, filled_price, created_at, filled_at
+            select id, symbol, asset_type, side, order_type, status, quantity, notional_usd, limit_price, filled_price, created_at, filled_at
             from orders
             where account_mode_id = $1
             order by created_at desc
@@ -690,6 +690,542 @@ async function buildDemoWalletSnapshot(account) {
         holdings: [cash, au, cryptoGroup, stockGroup, ...positions],
         records: buildWalletRecords(account)
     };
+}
+
+function demoTradeError(status, message) {
+    const err = new Error(message);
+    err.status = status;
+    return err;
+}
+
+function tradeAssetType(asset) {
+    if (asset?.symbol === "AU" || asset?.customAsset) return "currency";
+    const assetType = String(asset?.assetType || "crypto").toLowerCase();
+    if (assetType === "stocks") return "stock";
+    if (["crypto", "stock", "etf", "commodity", "currency"].includes(assetType)) return assetType;
+    return "crypto";
+}
+
+function tradeAssetPrice(asset) {
+    return firstPositive(asset?.price, asset?.lastPrice, asset?.value);
+}
+
+function normalizeTradeSymbol(symbol) {
+    return String(symbol || "").trim().toUpperCase();
+}
+
+function orderNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function calculateTradeSize(body, price) {
+    const quantity = orderNumber(body.quantity);
+    const notionalUsd = orderNumber(body.notionalUsd ?? body.notional_usd ?? body.amountUsd ?? body.amount);
+
+    if (quantity != null && quantity > 0) {
+        return {
+            quantity,
+            notionalUsd: quantity * price
+        };
+    }
+
+    if (notionalUsd != null && notionalUsd > 0) {
+        return {
+            quantity: notionalUsd / price,
+            notionalUsd
+        };
+    }
+
+    throw demoTradeError(400, "Enter a demo amount greater than zero.");
+}
+
+async function resolveTradeAsset(symbol) {
+    const lookup = normalizeTradeSymbol(symbol);
+    if (!lookup) throw demoTradeError(400, "Choose an asset first.");
+
+    const asset = await findMarketAssetBySymbol(lookup);
+    if (!asset) throw demoTradeError(404, "That asset is not available in Markets yet.");
+
+    const price = tradeAssetPrice(asset);
+    if (!price) throw demoTradeError(409, `${asset.symbol} does not have a live demo price yet.`);
+
+    return {
+        ...asset,
+        symbol: String(asset.symbol || lookup).toUpperCase(),
+        price
+    };
+}
+
+async function resolveWatchlistAsset(symbol) {
+    const lookup = normalizeTradeSymbol(symbol);
+    if (!lookup) throw demoTradeError(400, "Choose an asset first.");
+
+    const asset = await findMarketAssetBySymbol(lookup);
+    if (!asset) throw demoTradeError(404, "That asset is not available in Markets yet.");
+
+    return {
+        ...asset,
+        symbol: String(asset.symbol || lookup).toUpperCase()
+    };
+}
+
+async function getPracticeDbContext(client = dbPool) {
+    if (!databaseConfigured()) return null;
+
+    const result = await client.query(`
+        select
+            p.id as profile_id,
+            am.id as account_mode_id,
+            w.id as wallet_id,
+            w.cash_balance,
+            w.reserved_cash,
+            w.starting_balance
+        from profiles p
+        join account_modes am on am.profile_id = p.id and am.mode = 'demo'
+        join wallets w on w.account_mode_id = am.id
+        where lower(p.email) = lower($1)
+        limit 1
+    `, [PRACTICE_USER_EMAIL]);
+
+    if (!result.rows[0]) throw demoTradeError(503, "Practice account is not ready yet.");
+    return result.rows[0];
+}
+
+async function adjustDbCash(client, walletId, deltaUsd) {
+    const walletResult = await client.query(`
+        select cash_balance
+        from wallets
+        where id = $1
+        for update
+    `, [walletId]);
+    const currentCash = numberValue(walletResult.rows[0]?.cash_balance, 0);
+    const nextCash = currentCash + deltaUsd;
+
+    if (nextCash < -0.005) {
+        throw demoTradeError(400, "Not enough demo buying power for this order.");
+    }
+
+    await client.query(`
+        update wallets
+        set cash_balance = $2,
+            updated_at = now()
+        where id = $1
+    `, [walletId, nextCash]);
+
+    await client.query(`
+        insert into holdings (wallet_id, symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at)
+        values ($1, 'USD', 'USD Cash', 'cash', $2, 1, 1, $2, now())
+        on conflict (wallet_id, symbol) do update
+        set quantity = excluded.quantity,
+            last_price = 1,
+            value_usd = excluded.value_usd,
+            updated_at = now()
+    `, [walletId, nextCash]);
+
+    return nextCash;
+}
+
+async function readDbHoldingForUpdate(client, walletId, symbol) {
+    const result = await client.query(`
+        select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd
+        from holdings
+        where wallet_id = $1 and upper(symbol) = upper($2)
+        for update
+    `, [walletId, symbol]);
+    return result.rows[0] || null;
+}
+
+async function saveDbHolding(client, walletId, asset, quantity, averageCost, price) {
+    const valueUsd = Math.max(0, quantity * price);
+    await client.query(`
+        insert into holdings (wallet_id, symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, now())
+        on conflict (wallet_id, symbol) do update
+        set asset_name = excluded.asset_name,
+            asset_type = excluded.asset_type,
+            quantity = excluded.quantity,
+            average_cost = excluded.average_cost,
+            last_price = excluded.last_price,
+            value_usd = excluded.value_usd,
+            updated_at = now()
+    `, [
+        walletId,
+        asset.symbol,
+        asset.name || asset.assetName || asset.symbol,
+        tradeAssetType(asset),
+        quantity,
+        averageCost,
+        price,
+        valueUsd
+    ]);
+
+    return valueUsd;
+}
+
+async function applyDbBuy(client, walletId, asset, quantity, notionalUsd) {
+    const existing = await readDbHoldingForUpdate(client, walletId, asset.symbol);
+    const currentQuantity = numberValue(existing?.quantity, 0);
+    const currentAverage = firstPositive(existing?.average_cost, existing?.last_price, asset.price) || asset.price;
+    const nextQuantity = currentQuantity + quantity;
+    const nextAverage = nextQuantity > 0
+        ? ((currentQuantity * currentAverage) + notionalUsd) / nextQuantity
+        : asset.price;
+
+    await saveDbHolding(client, walletId, asset, nextQuantity, nextAverage, asset.price);
+    return { realizedProfitLoss: 0, quantity: nextQuantity };
+}
+
+async function applyDbSell(client, walletId, asset, quantity) {
+    const existing = await readDbHoldingForUpdate(client, walletId, asset.symbol);
+    const currentQuantity = numberValue(existing?.quantity, 0);
+
+    if (currentQuantity + 1e-10 < quantity) {
+        throw demoTradeError(400, `Not enough ${asset.symbol} in this demo wallet.`);
+    }
+
+    const averageCost = firstPositive(existing?.average_cost, existing?.last_price, asset.price) || asset.price;
+    const nextQuantity = Math.max(0, currentQuantity - quantity);
+    const realizedProfitLoss = (asset.price - averageCost) * quantity;
+    await saveDbHolding(client, walletId, {
+        ...asset,
+        name: existing?.asset_name || asset.name,
+        assetType: existing?.asset_type || asset.assetType
+    }, nextQuantity, nextQuantity > 0 ? averageCost : null, asset.price);
+
+    return { realizedProfitLoss, quantity: nextQuantity };
+}
+
+async function insertDbOrder(client, context, order) {
+    const result = await client.query(`
+        insert into orders (account_mode_id, symbol, asset_type, side, order_type, status, quantity, notional_usd, filled_price, filled_at)
+        values ($1, $2, $3, $4, 'market', 'filled', $5, $6, $7, now())
+        returning id, symbol, asset_type, side, order_type, status, quantity, notional_usd, filled_price, created_at, filled_at
+    `, [
+        context.account_mode_id,
+        order.symbol,
+        order.assetType,
+        order.side,
+        order.quantity,
+        order.notionalUsd,
+        order.filledPrice
+    ]);
+    return result.rows[0];
+}
+
+async function refreshDbPerformance(client, context, realizedDelta = 0) {
+    const walletResult = await client.query(`
+        select cash_balance, starting_balance
+        from wallets
+        where id = $1
+    `, [context.wallet_id]);
+    const wallet = walletResult.rows[0] || context;
+    const holdingsResult = await client.query(`
+        select
+            coalesce(sum(case when symbol <> 'USD' then value_usd else 0 end), 0) as invested_value,
+            coalesce(sum(
+                case
+                    when symbol <> 'USD' and quantity > 0 and average_cost is not null and last_price is not null
+                    then (last_price - average_cost) * quantity
+                    else 0
+                end
+            ), 0) as unrealized_profit_loss
+        from holdings
+        where wallet_id = $1
+    `, [context.wallet_id]);
+    const investedValue = numberValue(holdingsResult.rows[0]?.invested_value, 0);
+    const cashBalance = numberValue(wallet.cash_balance, 0);
+    const startingBalance = numberValue(wallet.starting_balance, 50000);
+    const portfolioValue = cashBalance + investedValue;
+    const unrealizedProfitLoss = numberValue(holdingsResult.rows[0]?.unrealized_profit_loss, 0);
+    const totalMove = portfolioValue - startingBalance;
+    const totalMovePct = startingBalance > 0 ? (totalMove / startingBalance) * 100 : 0;
+
+    await client.query(`
+        insert into demo_performance (
+            account_mode_id,
+            portfolio_value,
+            starting_balance,
+            unrealized_profit_loss,
+            realized_profit_loss,
+            today_profit_loss,
+            today_profit_loss_pct,
+            trades_placed,
+            updated_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, 1, now())
+        on conflict (account_mode_id) do update
+        set portfolio_value = excluded.portfolio_value,
+            starting_balance = excluded.starting_balance,
+            unrealized_profit_loss = excluded.unrealized_profit_loss,
+            realized_profit_loss = demo_performance.realized_profit_loss + $5,
+            today_profit_loss = excluded.today_profit_loss,
+            today_profit_loss_pct = excluded.today_profit_loss_pct,
+            trades_placed = demo_performance.trades_placed + 1,
+            updated_at = now()
+    `, [
+        context.account_mode_id,
+        portfolioValue,
+        startingBalance,
+        unrealizedProfitLoss,
+        realizedDelta,
+        totalMove,
+        totalMovePct
+    ]);
+}
+
+async function placeDatabaseDemoOrder(body) {
+    const side = String(body.side || "buy").trim().toLowerCase();
+    const client = await dbPool.connect();
+
+    try {
+        await client.query("begin");
+        const context = await getPracticeDbContext(client);
+        let order;
+        let realizedDelta = 0;
+
+        if (side === "buy") {
+            const asset = await resolveTradeAsset(body.symbol);
+            const trade = calculateTradeSize(body, asset.price);
+            await adjustDbCash(client, context.wallet_id, -trade.notionalUsd);
+            await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
+            order = await insertDbOrder(client, context, {
+                symbol: asset.symbol,
+                assetType: tradeAssetType(asset),
+                side,
+                quantity: trade.quantity,
+                notionalUsd: trade.notionalUsd,
+                filledPrice: asset.price
+            });
+        } else if (side === "sell") {
+            const asset = await resolveTradeAsset(body.symbol);
+            const trade = calculateTradeSize(body, asset.price);
+            const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity);
+            realizedDelta += result.realizedProfitLoss;
+            await adjustDbCash(client, context.wallet_id, trade.notionalUsd);
+            order = await insertDbOrder(client, context, {
+                symbol: asset.symbol,
+                assetType: tradeAssetType(asset),
+                side,
+                quantity: trade.quantity,
+                notionalUsd: trade.notionalUsd,
+                filledPrice: asset.price
+            });
+        } else if (side === "swap") {
+            const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol || "USD");
+            const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
+            const tradeInput = calculateTradeSize(body, 1);
+            const notionalUsd = tradeInput.notionalUsd;
+
+            if (fromSymbol === "USD") {
+                await adjustDbCash(client, context.wallet_id, -notionalUsd);
+            } else {
+                const fromAsset = await resolveTradeAsset(fromSymbol);
+                const fromQuantity = notionalUsd / fromAsset.price;
+                const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
+                realizedDelta += sellResult.realizedProfitLoss;
+            }
+
+            const toQuantity = notionalUsd / toAsset.price;
+            await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, notionalUsd);
+            order = await insertDbOrder(client, context, {
+                symbol: toAsset.symbol,
+                assetType: tradeAssetType(toAsset),
+                side,
+                quantity: toQuantity,
+                notionalUsd,
+                filledPrice: toAsset.price
+            });
+        } else {
+            throw demoTradeError(400, "Choose buy, sell, or swap.");
+        }
+
+        await refreshDbPerformance(client, context, realizedDelta);
+        await client.query("commit");
+        const account = await getPracticeAccountFromDatabase();
+        return {
+            order,
+            account: { ...account, source: "supabase" },
+            source: "supabase"
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+function upsertJsonHolding(wallet, asset, quantity, averageCost, price) {
+    wallet.holdings = wallet.holdings || [];
+    const index = wallet.holdings.findIndex((holding) => normalizeTradeSymbol(holding.symbol) === asset.symbol);
+    const nextHolding = {
+        symbol: asset.symbol,
+        name: asset.name || asset.symbol,
+        category: tradeAssetType(asset),
+        balance: quantity,
+        averageCost,
+        lastPrice: price,
+        valueUsd: Math.max(0, quantity * price),
+        status: quantity > 0 ? "Held" : "Ready",
+        updatedAt: new Date().toISOString()
+    };
+
+    if (index >= 0) {
+        wallet.holdings[index] = { ...wallet.holdings[index], ...nextHolding };
+    } else {
+        wallet.holdings.push(nextHolding);
+    }
+
+    return nextHolding;
+}
+
+async function placeJsonDemoOrder(body) {
+    const db = loadDemoDb();
+    const user = db.users.find((item) => item.id === PRACTICE_USER_ID);
+    const wallet = db.wallets[PRACTICE_USER_ID];
+    const side = String(body.side || "buy").trim().toLowerCase();
+    if (!user || !wallet) throw demoTradeError(503, "Practice account is not ready yet.");
+
+    const adjustCash = (delta) => {
+        const nextCash = numberValue(user.cashBalance, 50000) + delta;
+        if (nextCash < -0.005) throw demoTradeError(400, "Not enough demo buying power for this order.");
+        user.cashBalance = nextCash;
+        wallet.cash = {
+            ...(wallet.cash || {}),
+            symbol: "USD",
+            name: "USD Cash",
+            balance: nextCash,
+            valueUsd: nextCash,
+            status: "Available"
+        };
+        return nextCash;
+    };
+
+    const findHolding = (symbol) => (wallet.holdings || []).find((holding) => normalizeTradeSymbol(holding.symbol) === symbol);
+    const buyHolding = (asset, quantity, notionalUsd) => {
+        const existing = findHolding(asset.symbol);
+        const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
+        const currentAverage = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const nextQuantity = currentQuantity + quantity;
+        const nextAverage = nextQuantity > 0 ? ((currentQuantity * currentAverage) + notionalUsd) / nextQuantity : asset.price;
+        return upsertJsonHolding(wallet, asset, nextQuantity, nextAverage, asset.price);
+    };
+    const sellHolding = (asset, quantity) => {
+        const existing = findHolding(asset.symbol);
+        const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
+        if (currentQuantity + 1e-10 < quantity) {
+            throw demoTradeError(400, `Not enough ${asset.symbol} in this demo wallet.`);
+        }
+        const averageCost = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const nextQuantity = Math.max(0, currentQuantity - quantity);
+        upsertJsonHolding(wallet, asset, nextQuantity, nextQuantity > 0 ? averageCost : null, asset.price);
+        return (asset.price - averageCost) * quantity;
+    };
+
+    let order;
+    let realizedDelta = 0;
+
+    if (side === "buy") {
+        const asset = await resolveTradeAsset(body.symbol);
+        const trade = calculateTradeSize(body, asset.price);
+        adjustCash(-trade.notionalUsd);
+        buyHolding(asset, trade.quantity, trade.notionalUsd);
+        order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
+    } else if (side === "sell") {
+        const asset = await resolveTradeAsset(body.symbol);
+        const trade = calculateTradeSize(body, asset.price);
+        realizedDelta += sellHolding(asset, trade.quantity);
+        adjustCash(trade.notionalUsd);
+        order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
+    } else if (side === "swap") {
+        const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol || "USD");
+        const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
+        const tradeInput = calculateTradeSize(body, 1);
+        const notionalUsd = tradeInput.notionalUsd;
+        if (fromSymbol === "USD") {
+            adjustCash(-notionalUsd);
+        } else {
+            const fromAsset = await resolveTradeAsset(fromSymbol);
+            realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price);
+        }
+        const toQuantity = notionalUsd / toAsset.price;
+        buyHolding(toAsset, toQuantity, notionalUsd);
+        order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };
+    } else {
+        throw demoTradeError(400, "Choose buy, sell, or swap.");
+    }
+
+    order = {
+        id: crypto.randomUUID(),
+        ...order,
+        createdAt: new Date().toISOString(),
+        filledAt: new Date().toISOString()
+    };
+    db.orders = db.orders || {};
+    db.orders[PRACTICE_USER_ID] = [order, ...(db.orders[PRACTICE_USER_ID] || [])].slice(0, 50);
+
+    const investedValue = (wallet.holdings || [])
+        .filter((holding) => !["USD", "CRYPTO", "STOCKS"].includes(normalizeTradeSymbol(holding.symbol)))
+        .reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const startingBalance = numberValue(user.startingBalance, 50000);
+    const portfolioValue = numberValue(user.cashBalance, 0) + investedValue;
+    db.performance = db.performance || {};
+    const existingPerformance = db.performance[PRACTICE_USER_ID] || {};
+    db.performance[PRACTICE_USER_ID] = {
+        ...existingPerformance,
+        portfolioValue,
+        startingBalance,
+        unrealizedProfitLoss: portfolioValue - startingBalance - numberValue(existingPerformance.realizedProfitLoss, 0),
+        realizedProfitLoss: numberValue(existingPerformance.realizedProfitLoss, 0) + realizedDelta,
+        todayProfitLoss: portfolioValue - startingBalance,
+        todayProfitLossPct: startingBalance > 0 ? ((portfolioValue - startingBalance) / startingBalance) * 100 : 0,
+        tradesPlaced: numberValue(existingPerformance.tradesPlaced, 0) + 1
+    };
+
+    saveDemoDb(db);
+    return {
+        order,
+        account: { ...getPracticeAccount(), source: "json" },
+        source: "json"
+    };
+}
+
+async function placeDemoOrder(body) {
+    if (databaseConfigured()) {
+        return placeDatabaseDemoOrder(body);
+    }
+    return placeJsonDemoOrder(body);
+}
+
+async function addDatabaseWatchlistSymbol(symbol) {
+    const asset = await resolveWatchlistAsset(symbol);
+    const context = await getPracticeDbContext();
+    await dbPool.query(`
+        insert into watchlists (profile_id, symbol, asset_type)
+        values ($1, $2, $3)
+        on conflict (profile_id, symbol) do nothing
+    `, [context.profile_id, asset.symbol, tradeAssetType(asset)]);
+
+    return { asset, account: await getPracticeAccountFromDatabase(), source: "supabase" };
+}
+
+async function addJsonWatchlistSymbol(symbol) {
+    const asset = await resolveWatchlistAsset(symbol);
+    const db = loadDemoDb();
+    const watchlist = db.watchlists[PRACTICE_USER_ID] || { crypto: [], stocks: [] };
+    const key = ["stock", "etf", "commodity"].includes(tradeAssetType(asset)) ? "stocks" : "crypto";
+    watchlist[key] = Array.from(new Set([...(watchlist[key] || []), asset.symbol]));
+    db.watchlists[PRACTICE_USER_ID] = watchlist;
+    saveDemoDb(db);
+    return { asset, account: getPracticeAccount(), source: "json" };
+}
+
+async function addDemoWatchlistSymbol(symbol) {
+    if (databaseConfigured()) {
+        return addDatabaseWatchlistSymbol(symbol);
+    }
+    return addJsonWatchlistSymbol(symbol);
 }
 
 async function createDatabaseSession(profileId) {
@@ -3095,6 +3631,27 @@ app.get("/api/demo/orders", async (req, res) => {
   }
 });
 
+app.post("/api/demo/orders", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const result = await placeDemoOrder(body);
+    const wallet = await buildDemoWalletSnapshot(result.account);
+
+    return res.json({
+      success: true,
+      order: result.order,
+      wallet,
+      source: result.source
+    });
+  } catch (err) {
+    console.error("Demo order placement error:", err);
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message || "Demo order could not be placed"
+    });
+  }
+});
+
 app.get("/api/demo/watchlist", async (req, res) => {
   try {
     const account = await getPracticeAccountAny();
@@ -3107,6 +3664,25 @@ app.get("/api/demo/watchlist", async (req, res) => {
   } catch (err) {
     console.error("Demo watchlist API error:", err);
     return res.status(500).json({ success: false, error: "Demo watchlist unavailable" });
+  }
+});
+
+app.post("/api/demo/watchlist", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const result = await addDemoWatchlistSymbol(body.symbol);
+    return res.json({
+      success: true,
+      asset: result.asset,
+      watchlist: result.account.watchlist,
+      source: result.source
+    });
+  } catch (err) {
+    console.error("Demo watchlist add error:", err);
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message || "Watchlist could not be updated"
+    });
   }
 });
 

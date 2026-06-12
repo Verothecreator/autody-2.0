@@ -13,7 +13,18 @@ const wholeMoneyFormat = new Intl.NumberFormat("en-US", {
 const WALLET_REFRESH_MS = 30000;
 
 let walletState = null;
+let walletCatalog = [];
 let selectedSymbol = new URLSearchParams(location.search).get("asset") || "USD";
+let activeWalletCategory = new URLSearchParams(location.search).get("category") || "crypto";
+
+const WALLET_CATEGORY_GROUPS = [
+  { key: "usd", label: "USD", symbols: ["USD"] },
+  { key: "au", label: "Autody AU", symbols: ["AU"] },
+  { key: "crypto", label: "Crypto", symbols: ["BTC", "USDT", "USDC", "ETH", "BNB", "BCH", "DOGE"] },
+  { key: "stocks", label: "Stocks", symbols: ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN"] },
+  { key: "etf", label: "ETFs", symbols: ["SPY", "QQQ", "VOO", "GLD", "VT"] },
+  { key: "commodity", label: "Oil and metals", symbols: ["GC=F", "SI=F", "CL=F", "BZ=F", "NG=F"] }
+];
 
 function escapeHtml(value = "") {
   return String(value)
@@ -64,6 +75,29 @@ function moveClass(value) {
   return number > 0 ? "gain" : "loss";
 }
 
+function priceDigits(number, compact = false) {
+  if (compact) return 2;
+  if (Math.abs(number) < 0.01) return 8;
+  if (Math.abs(number) < 1) return 6;
+  return 2;
+}
+
+function formatPrice(value, currency = "USD") {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "Waiting";
+  const compact = Math.abs(number) >= 100000;
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      notation: compact ? "compact" : "standard",
+      maximumFractionDigits: priceDigits(number, compact)
+    }).format(number);
+  } catch (err) {
+    return `${currency} ${number.toLocaleString("en-US")}`;
+  }
+}
+
 function dotClass(asset) {
   const symbol = String(asset.symbol || "").toLowerCase();
   if (symbol === "usd") return "cash";
@@ -95,6 +129,37 @@ function detailRow(label, value, tone = "") {
   `;
 }
 
+function logoFallbackText(asset) {
+  const symbol = String(asset.symbol || "?")
+    .replace(/=F$/i, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .slice(0, 4)
+    .toUpperCase();
+  return symbol || "?";
+}
+
+function walletLogoSrc(asset) {
+  if (asset.logoUrl) return asset.logoUrl;
+  if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+  if (asset.assetType === "crypto" || asset.category === "crypto") return `https://assets.coincap.io/assets/icons/${encodeURIComponent(logoFallbackText(asset).toLowerCase())}@2x.png`;
+  return "";
+}
+
+function walletLogoMarkup(asset, extraClass = "") {
+  const fallback = logoFallbackText(asset);
+  const src = walletLogoSrc(asset);
+  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const img = src
+    ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    : "";
+  return `
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
+      ${img}
+      <b>${escapeHtml(fallback)}</b>
+    </span>
+  `;
+}
+
 function walletActions(asset) {
   if (asset.symbol === "USD") {
     return [
@@ -105,7 +170,7 @@ function walletActions(asset) {
   if (asset.symbol === "AU") {
     return [
       ["Open AU", "demo-asset.html?symbol=AU"],
-      ["Swap", "demo-orders.html"]
+      ["Swap", "demo-orders.html?side=swap&symbol=AU"]
     ];
   }
   if (asset.symbol === "CRYPTO") {
@@ -122,8 +187,107 @@ function walletActions(asset) {
   }
   return [
     ["Open market", asset.url || `demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}`],
-    ["Trade", "demo-orders.html"]
+    ["Trade", `demo-orders.html?side=buy&symbol=${encodeURIComponent(asset.symbol)}`]
   ];
+}
+
+function catalogAsset(symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  return walletCatalog.find((asset) => String(asset.symbol).toUpperCase() === lookup);
+}
+
+function walletHolding(symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  return (walletState?.holdings || []).find((asset) => String(asset.symbol).toUpperCase() === lookup);
+}
+
+function categoryForHolding(holding) {
+  const category = String(holding.category || holding.assetType || "").toLowerCase();
+  if (holding.symbol === "USD") return "usd";
+  if (holding.symbol === "AU") return "au";
+  if (category === "crypto" || category === "currency") return "crypto";
+  if (category === "stock" || category === "stocks") return "stocks";
+  if (category === "etf") return "etf";
+  if (category === "commodity") return "commodity";
+  return "crypto";
+}
+
+function walletCategoryAssets(group) {
+  const heldSymbols = (walletState?.holdings || [])
+    .filter((holding) => Number(holding.balance) > 0 && categoryForHolding(holding) === group.key)
+    .map((holding) => holding.symbol);
+  const symbols = Array.from(new Set([...heldSymbols, ...group.symbols]));
+
+  return symbols.map((symbol) => {
+    const holding = walletHolding(symbol);
+    const market = catalogAsset(symbol);
+    if (symbol === "USD") {
+      return walletState?.holdings?.find((asset) => asset.symbol === "USD") || {
+        symbol: "USD",
+        name: "USD Cash",
+        category: "cash",
+        balance: walletState?.cashBalance || 0,
+        valueUsd: walletState?.cashBalance || 0,
+        price: 1,
+        changePct: null
+      };
+    }
+    return {
+      ...market,
+      ...holding,
+      symbol,
+      name: holding?.name || market?.name || symbol,
+      category: holding?.category || market?.assetType || group.key,
+      assetType: holding?.assetType || market?.assetType || group.key,
+      price: market?.price ?? holding?.price ?? holding?.lastPrice ?? null,
+      changePct: market?.changePct ?? holding?.changePct ?? null,
+      logoUrl: market?.logoUrl || holding?.logoUrl || null,
+      valueUsd: holding?.valueUsd || 0,
+      balance: holding?.balance || 0,
+      market: market?.market || holding?.market || null,
+      currency: market?.currency || "USD",
+      url: symbol === "AU" ? "demo-asset.html?symbol=AU" : `demo-asset.html?symbol=${encodeURIComponent(symbol)}`
+    };
+  });
+}
+
+function renderWalletCategories() {
+  const tabs = document.getElementById("wallet-category-tabs");
+  const panel = document.getElementById("wallet-category-panel");
+  if (!tabs || !panel) return;
+
+  const activeGroup = WALLET_CATEGORY_GROUPS.find((group) => group.key === activeWalletCategory) || WALLET_CATEGORY_GROUPS[2];
+  activeWalletCategory = activeGroup.key;
+
+  tabs.innerHTML = WALLET_CATEGORY_GROUPS.map((group) => `
+    <button class="${group.key === activeWalletCategory ? "active" : ""}" type="button" data-wallet-category="${escapeHtml(group.key)}">${escapeHtml(group.label)}</button>
+  `).join("");
+
+  const assets = walletCategoryAssets(activeGroup);
+  panel.innerHTML = `
+    <div class="wallet-category-heading">
+      <span>${escapeHtml(activeGroup.label)}</span>
+      <strong>${assets.length} visible</strong>
+    </div>
+    <div class="wallet-category-assets">
+      ${assets.map((asset) => {
+        const held = Number(asset.balance) > 0;
+        const content = `
+          ${walletLogoMarkup(asset, "asset-logo-small")}
+          <span>
+            <b>${escapeHtml(asset.symbol)}</b>
+            <em>${escapeHtml(asset.name || asset.symbol)}</em>
+          </span>
+          <strong>${held ? escapeHtml(formatMoney(asset.valueUsd)) : escapeHtml(formatPrice(asset.price, asset.currency || "USD"))}</strong>
+          <small class="${moveClass(asset.changePct)}">${escapeHtml(held ? `${formatNumber(asset.balance)} held` : formatMove(asset.changePct))}</small>
+        `;
+        if (asset.symbol === "USD") {
+          return `<button type="button" data-wallet-symbol="USD">${content}</button>`;
+        }
+        return `<a href="${escapeHtml(asset.url || `demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}`)}">${content}</a>`;
+      }).join("")}
+    </div>
+  `;
 }
 
 function renderHoldings(holdings) {
@@ -220,18 +384,29 @@ function renderWallet(wallet) {
   setText("wallet-reserved", formatMoney(wallet.reservedCash));
 
   renderHoldings(holdings);
+  renderWalletCategories();
   renderDetail(selected);
   renderRecords(wallet.records || []);
 }
 
 async function loadWallet(options = {}) {
   try {
-    const response = await fetch("/api/demo/wallet", { cache: "no-store" });
-    if (!response.ok) throw new Error(`/api/demo/wallet returned ${response.status}`);
-    const data = await response.json();
+    const [data, catalog] = await Promise.all([
+      fetch("/api/demo/wallet", { cache: "no-store" }).then((response) => {
+        if (!response.ok) throw new Error(`/api/demo/wallet returned ${response.status}`);
+        return response.json();
+      }),
+      walletCatalog.length
+        ? Promise.resolve({ assets: walletCatalog })
+        : fetch("/api/markets/catalog?type=all", { cache: "no-store" }).then((response) => {
+          if (!response.ok) throw new Error(`/api/markets/catalog returned ${response.status}`);
+          return response.json();
+        }).catch(() => ({ assets: walletCatalog }))
+    ]);
     if (!data.success) throw new Error(data.error || "Demo wallet failed");
 
     walletState = data.wallet;
+    walletCatalog = catalog.assets || walletCatalog;
     renderWallet(walletState);
   } catch (err) {
     console.warn("Demo wallet data failed:", err);
@@ -247,10 +422,18 @@ function refreshWalletWhenVisible() {
 }
 
 document.addEventListener("click", (event) => {
+  const category = event.target.closest("[data-wallet-category]");
+  if (category && walletState) {
+    activeWalletCategory = category.dataset.walletCategory;
+    history.replaceState(null, "", `demo-wallet.html?asset=${encodeURIComponent(selectedSymbol)}&category=${encodeURIComponent(activeWalletCategory)}`);
+    renderWallet(walletState);
+    return;
+  }
+
   const row = event.target.closest("[data-wallet-symbol]");
   if (!row || !walletState) return;
   selectedSymbol = row.dataset.walletSymbol;
-  history.replaceState(null, "", `demo-wallet.html?asset=${encodeURIComponent(selectedSymbol)}`);
+  history.replaceState(null, "", `demo-wallet.html?asset=${encodeURIComponent(selectedSymbol)}&category=${encodeURIComponent(activeWalletCategory)}`);
   renderWallet(walletState);
 });
 
