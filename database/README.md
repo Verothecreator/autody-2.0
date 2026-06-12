@@ -23,6 +23,7 @@ Production tables:
 - `watchlists` stores saved symbols.
 - `research_preferences` stores saved topics.
 - `market_snapshots` caches live price data from outside providers.
+- `asset_catalog` stores Autody-supported tradeable assets, quote currencies, regions, markets, and crypto deposit networks.
 - `news_snapshots` caches important news stories.
 - `app_sessions` is only for the current custom demo login; Supabase Auth can replace it later.
 
@@ -65,4 +66,4 @@ Live data endpoints:
 /api/news/snapshots
 ```
 
-The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down. The signed-in demo markets page uses `/api/markets/catalog` for the broader tradeable asset universe.
+The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down. The signed-in demo markets page uses `/api/markets/catalog` for the broader tradeable asset universe: 50 crypto assets with deposit-network metadata and 50 global stock, ETF, oil, metals, and commodity-linked instruments.

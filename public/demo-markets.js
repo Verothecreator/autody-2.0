@@ -1,20 +1,20 @@
-const marketMoney = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2
-});
+function marketPriceDigits(number, compact = false) {
+  if (compact) return 2;
+  if (Math.abs(number) < 0.01) return 8;
+  if (Math.abs(number) < 1) return 4;
+  return 2;
+}
 
-const compactMarketMoney = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 2
-});
-
-function marketPrice(value) {
+function marketPrice(value, currency = "USD") {
   const number = Number(value);
   if (!Number.isFinite(number)) return "Waiting";
-  return number >= 100000 ? compactMarketMoney.format(number) : marketMoney.format(number);
+  const compact = number >= 100000;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    notation: compact ? "compact" : "standard",
+    maximumFractionDigits: marketPriceDigits(number, compact)
+  }).format(number);
 }
 
 function marketMove(value) {
@@ -52,8 +52,8 @@ function renderCatalog(targetId, assets) {
 
   target.innerHTML = assets.map((asset) => `
     <div class="market-choice" data-symbol="${escapeMarketHtml(asset.symbol)}" data-name="${escapeMarketHtml(asset.name)}">
-      <span>${escapeMarketHtml(asset.symbol)}</span>
-      <strong>${marketPrice(asset.price)}</strong>
+      <span><b>${escapeMarketHtml(asset.symbol)}</b><em>${escapeMarketHtml(asset.market || asset.region || asset.name || "Market")}</em></span>
+      <strong>${marketPrice(asset.price, asset.currency || "USD")}</strong>
       <small class="${marketMoveClass(asset.changePct)}">${marketMove(asset.changePct)}</small>
     </div>
   `).join("");

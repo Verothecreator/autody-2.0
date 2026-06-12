@@ -1407,7 +1407,7 @@ h3 {
 
 .watchlist div {
   display: grid;
-  grid-template-columns: 0.6fr 1fr auto;
+  grid-template-columns: minmax(96px, 0.9fr) 1fr auto;
   align-items: center;
   gap: 8px;
 }
@@ -1430,6 +1430,25 @@ h3 {
   font-size: 0.8rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.watchlist span b,
+.watchlist span em {
+  display: block;
+}
+
+.watchlist span b {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.watchlist span em {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  line-height: 1.2;
+  text-transform: none;
 }
 
 .activity-list strong,

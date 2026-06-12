@@ -1,24 +1,23 @@
-const moneyFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2
-});
-
-const compactMoneyFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 2
-});
-
 let newsItems = [];
 let activeNewsIndex = 0;
 let newsSlideTimer = null;
 
-function formatMoney(value, compact = false) {
+function priceDigits(number, compact = false) {
+  if (compact) return 2;
+  if (Math.abs(number) < 0.01) return 8;
+  if (Math.abs(number) < 1) return 4;
+  return 2;
+}
+
+function formatMoney(value, compact = false, currency = "USD") {
   const number = Number(value);
   if (!isFinite(number)) return "-";
-  return compact ? compactMoneyFormatter.format(number) : moneyFormatter.format(number);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    notation: compact ? "compact" : "standard",
+    maximumFractionDigits: priceDigits(number, compact)
+  }).format(number);
 }
 
 function formatPct(value) {
@@ -69,7 +68,7 @@ function renderMarketList(targetId, assets, options = {}) {
           <span>${asset.symbol || asset.id || "Live"}</span>
         </div>
         <div>
-          <strong>${formatMoney(asset.price, options.compact)}</strong>
+          <strong>${formatMoney(asset.price, options.compact, asset.currency || "USD")}</strong>
           <span class="${changeClass(change)}">${formatMove(change)}</span>
         </div>
       </div>
@@ -90,12 +89,12 @@ function renderHeroPulse(cryptoAssets, stockAssets, signals = {}) {
   target.innerHTML = `
     <div class="pulse-card">
       <span>Bitcoin</span>
-      <strong>${btc?.price ? formatMoney(btc.price, true) : "Unavailable"}</strong>
+      <strong>${btc?.price ? formatMoney(btc.price, true, btc.currency || "USD") : "Unavailable"}</strong>
       <small class="${changeClass(btc?.changePct)}">${formatMove(btc?.changePct)}</small>
     </div>
     <div class="pulse-card">
       <span>S&P ETF</span>
-      <strong>${spy?.price ? formatMoney(spy.price) : "Unavailable"}</strong>
+      <strong>${spy?.price ? formatMoney(spy.price, false, spy.currency || "USD") : "Unavailable"}</strong>
       <small class="${changeClass(spy?.changePct)}">${formatMove(spy?.changePct)}</small>
     </div>
     <div class="pulse-card">

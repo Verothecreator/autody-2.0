@@ -251,6 +251,10 @@ function catalogAssets(type = "all") {
     return [...TRADE_CRYPTO_ASSETS, ...TRADE_STOCK_ASSETS];
 }
 
+function marketDataSymbol(asset) {
+    return asset.providerSymbol || asset.yahooSymbol || asset.product || asset.symbol;
+}
+
 function assetCatalogEntry(asset) {
     return {
         rank: asset.rank,
@@ -258,8 +262,13 @@ function assetCatalogEntry(asset) {
         name: asset.name,
         id: asset.id || asset.symbol,
         assetType: asset.assetType,
-        providerSymbol: asset.product || asset.symbol,
+        providerSymbol: marketDataSymbol(asset),
+        market: asset.market || "Global",
+        region: asset.region || "Global",
+        currency: asset.currency || "USD",
         tags: asset.tags || [],
+        depositNetworks: asset.depositNetworks || [],
+        depositEnabled: Boolean(asset.depositNetworks?.length),
         tradeable: true
     };
 }
@@ -486,7 +495,7 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
         const placeholders = assets
             .filter((asset) => asset?.symbol)
             .map((asset, index) => {
-                const offset = index * 7;
+                const offset = index * 8;
                 values.push(
                     provider,
                     asset.symbol,
@@ -494,15 +503,16 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
                     asset.assetType || assetType,
                     asset.price ?? asset.value ?? null,
                     asset.changePct ?? null,
-                    asset.marketCap ?? null
+                    asset.marketCap ?? null,
+                    asset.currency || "USD"
                 );
-                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
             });
 
         if (!placeholders.length) return;
 
         await dbPool.query(`
-            insert into market_snapshots (provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd)
+            insert into market_snapshots (provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, currency)
             values ${placeholders.join(", ")}
         `, values);
     } catch (err) {
@@ -563,6 +573,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
                     price_usd,
                     change_pct,
                     market_cap_usd,
+                    currency,
                     captured_at
                 from market_snapshots
                 where asset_type = any($1)
@@ -578,6 +589,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
             price: row.price_usd == null ? null : Number(row.price_usd),
             changePct: row.change_pct == null ? null : Number(row.change_pct),
             marketCap: row.market_cap_usd == null ? null : Number(row.market_cap_usd),
+            currency: row.currency || "USD",
             capturedAt: row.captured_at,
             provider: row.provider
         }));
@@ -619,8 +631,8 @@ async function buildMarketCatalog(type = "all") {
     const snapshotTypes = type === "crypto"
         ? ["crypto"]
         : type === "stocks"
-            ? ["stock", "etf"]
-            : ["crypto", "stock", "etf"];
+            ? ["stock", "etf", "commodity", "index", "forex"]
+            : ["crypto", "stock", "etf", "commodity", "index", "forex"];
     const snapshots = await readLatestMarketSnapshots(snapshotTypes, Math.max(catalog.length, 30));
     const snapshotMap = new Map(snapshots.map((asset) => [asset.symbol, asset]));
 
@@ -631,11 +643,23 @@ async function buildMarketCatalog(type = "all") {
             price: snapshot?.price ?? null,
             changePct: snapshot?.changePct ?? null,
             marketCap: snapshot?.marketCap ?? null,
+            currency: snapshot?.currency || asset.currency,
             dataProvider: snapshot?.provider ?? null,
             capturedAt: snapshot?.capturedAt ?? null,
             status: snapshot ? "Live" : "Waiting for first refresh"
         };
     });
+}
+
+function mergeRankedMarketAssets(...assetGroups) {
+    const merged = new Map();
+    for (const assets of assetGroups) {
+        for (const asset of assets || []) {
+            if (!asset?.symbol || asset.price == null) continue;
+            if (!merged.has(asset.symbol)) merged.set(asset.symbol, asset);
+        }
+    }
+    return [...merged.values()].sort((a, b) => (a.rank || 999) - (b.rank || 999));
 }
 
 // ------------------ EXPRESS --------------------
@@ -776,45 +800,109 @@ const fallbackNews = [
 ];
 
 const TRADE_CRYPTO_ASSETS = [
-  { rank: 1, id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD", assetType: "crypto", tags: ["Blue chip", "Store of value"] },
-  { rank: 2, id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD", assetType: "crypto", tags: ["Smart contracts", "DeFi"] },
-  { rank: 3, id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD", assetType: "crypto", tags: ["High demand", "Apps"] },
-  { rank: 4, id: "ripple", symbol: "XRP", name: "XRP", product: "XRP-USD", assetType: "crypto", tags: ["Payments"] },
-  { rank: 5, id: "binancecoin", symbol: "BNB", name: "BNB", product: null, assetType: "crypto", tags: ["Large cap"] },
-  { rank: 6, id: "dogecoin", symbol: "DOGE", name: "Dogecoin", product: "DOGE-USD", assetType: "crypto", tags: ["Popular"] },
-  { rank: 7, id: "cardano", symbol: "ADA", name: "Cardano", product: "ADA-USD", assetType: "crypto", tags: ["Smart contracts"] },
-  { rank: 8, id: "avalanche-2", symbol: "AVAX", name: "Avalanche", product: "AVAX-USD", assetType: "crypto", tags: ["Layer 1"] },
-  { rank: 9, id: "chainlink", symbol: "LINK", name: "Chainlink", product: "LINK-USD", assetType: "crypto", tags: ["Data oracles"] },
-  { rank: 10, id: "litecoin", symbol: "LTC", name: "Litecoin", product: "LTC-USD", assetType: "crypto", tags: ["Payments"] },
-  { rank: 11, id: "polkadot", symbol: "DOT", name: "Polkadot", product: "DOT-USD", assetType: "crypto", tags: ["Interoperability"] },
-  { rank: 12, id: "bitcoin-cash", symbol: "BCH", name: "Bitcoin Cash", product: "BCH-USD", assetType: "crypto", tags: ["Payments"] },
-  { rank: 13, id: "stellar", symbol: "XLM", name: "Stellar", product: "XLM-USD", assetType: "crypto", tags: ["Payments"] },
-  { rank: 14, id: "shiba-inu", symbol: "SHIB", name: "Shiba Inu", product: "SHIB-USD", assetType: "crypto", tags: ["Popular"] },
-  { rank: 15, id: "polygon-ecosystem-token", symbol: "POL", name: "Polygon", product: "POL-USD", assetType: "crypto", tags: ["Scaling"] },
-  { rank: 16, id: "uniswap", symbol: "UNI", name: "Uniswap", product: "UNI-USD", assetType: "crypto", tags: ["DeFi"] }
+  { rank: 1, id: "bitcoin", symbol: "BTC", name: "Bitcoin", product: "BTC-USD", assetType: "crypto", market: "Crypto", tags: ["Blue chip", "Store of value"], depositNetworks: ["Bitcoin"] },
+  { rank: 2, id: "ethereum", symbol: "ETH", name: "Ethereum", product: "ETH-USD", assetType: "crypto", market: "Crypto", tags: ["Smart contracts", "DeFi"], depositNetworks: ["Ethereum"] },
+  { rank: 3, id: "tether", symbol: "USDT", name: "Tether USDt", product: "USDT-USD", assetType: "crypto", market: "Stablecoin", tags: ["Stablecoin", "Payments"], depositNetworks: ["Ethereum ERC-20", "Tron TRC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Solana SPL", "Arbitrum One", "Optimism", "Avalanche C-Chain"] },
+  { rank: 4, id: "usd-coin", symbol: "USDC", name: "USD Coin", product: "USDC-USD", assetType: "crypto", market: "Stablecoin", tags: ["Stablecoin", "Payments"], depositNetworks: ["Ethereum ERC-20", "Base", "Solana SPL", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain", "Stellar"] },
+  { rank: 5, id: "solana", symbol: "SOL", name: "Solana", product: "SOL-USD", assetType: "crypto", market: "Crypto", tags: ["High demand", "Apps"], depositNetworks: ["Solana"] },
+  { rank: 6, id: "ripple", symbol: "XRP", name: "XRP", product: "XRP-USD", assetType: "crypto", market: "Crypto", tags: ["Payments"], depositNetworks: ["XRP Ledger"] },
+  { rank: 7, id: "binancecoin", symbol: "BNB", name: "BNB", product: null, yahooSymbol: "BNB-USD", assetType: "crypto", market: "Crypto", tags: ["Large cap"], depositNetworks: ["BNB Smart Chain BEP-20", "BNB Beacon Chain"] },
+  { rank: 8, id: "dogecoin", symbol: "DOGE", name: "Dogecoin", product: "DOGE-USD", assetType: "crypto", market: "Crypto", tags: ["Popular"], depositNetworks: ["Dogecoin"] },
+  { rank: 9, id: "cardano", symbol: "ADA", name: "Cardano", product: "ADA-USD", assetType: "crypto", market: "Crypto", tags: ["Smart contracts"], depositNetworks: ["Cardano"] },
+  { rank: 10, id: "avalanche-2", symbol: "AVAX", name: "Avalanche", product: "AVAX-USD", assetType: "crypto", market: "Crypto", tags: ["Layer 1"], depositNetworks: ["Avalanche C-Chain"] },
+  { rank: 11, id: "chainlink", symbol: "LINK", name: "Chainlink", product: "LINK-USD", assetType: "crypto", market: "Crypto", tags: ["Data oracles"], depositNetworks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"] },
+  { rank: 12, id: "litecoin", symbol: "LTC", name: "Litecoin", product: "LTC-USD", assetType: "crypto", market: "Crypto", tags: ["Payments"], depositNetworks: ["Litecoin"] },
+  { rank: 13, id: "polkadot", symbol: "DOT", name: "Polkadot", product: "DOT-USD", assetType: "crypto", market: "Crypto", tags: ["Interoperability"], depositNetworks: ["Polkadot"] },
+  { rank: 14, id: "bitcoin-cash", symbol: "BCH", name: "Bitcoin Cash", product: "BCH-USD", assetType: "crypto", market: "Crypto", tags: ["Payments"], depositNetworks: ["Bitcoin Cash"] },
+  { rank: 15, id: "stellar", symbol: "XLM", name: "Stellar", product: "XLM-USD", assetType: "crypto", market: "Crypto", tags: ["Payments"], depositNetworks: ["Stellar"] },
+  { rank: 16, id: "tron", symbol: "TRX", name: "TRON", product: null, yahooSymbol: "TRX-USD", assetType: "crypto", market: "Crypto", tags: ["Payments"], depositNetworks: ["Tron TRC-20"] },
+  { rank: 17, id: "the-open-network", symbol: "TON", name: "Toncoin", product: null, yahooSymbol: "TON11419-USD", assetType: "crypto", market: "Crypto", tags: ["Messaging", "Layer 1"], depositNetworks: ["TON"] },
+  { rank: 18, id: "sui", symbol: "SUI", name: "Sui", product: "SUI-USD", assetType: "crypto", market: "Crypto", tags: ["Layer 1"], depositNetworks: ["Sui"] },
+  { rank: 19, id: "hedera-hashgraph", symbol: "HBAR", name: "Hedera", product: "HBAR-USD", assetType: "crypto", market: "Crypto", tags: ["Enterprise"], depositNetworks: ["Hedera"] },
+  { rank: 20, id: "shiba-inu", symbol: "SHIB", name: "Shiba Inu", product: "SHIB-USD", assetType: "crypto", market: "Crypto", tags: ["Popular"], depositNetworks: ["Ethereum ERC-20", "Shibarium"] },
+  { rank: 21, id: "polygon-ecosystem-token", symbol: "POL", name: "Polygon", product: "POL-USD", assetType: "crypto", market: "Crypto", tags: ["Scaling"], depositNetworks: ["Polygon PoS", "Ethereum ERC-20"] },
+  { rank: 22, id: "uniswap", symbol: "UNI", name: "Uniswap", product: "UNI-USD", assetType: "crypto", market: "Crypto", tags: ["DeFi"], depositNetworks: ["Ethereum ERC-20", "Arbitrum One", "Polygon PoS"] },
+  { rank: 23, id: "aave", symbol: "AAVE", name: "Aave", product: "AAVE-USD", assetType: "crypto", market: "Crypto", tags: ["DeFi", "Lending"], depositNetworks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"] },
+  { rank: 24, id: "cosmos", symbol: "ATOM", name: "Cosmos", product: "ATOM-USD", assetType: "crypto", market: "Crypto", tags: ["Interoperability"], depositNetworks: ["Cosmos"] },
+  { rank: 25, id: "near", symbol: "NEAR", name: "NEAR Protocol", product: "NEAR-USD", assetType: "crypto", market: "Crypto", tags: ["Layer 1"], depositNetworks: ["NEAR"] },
+  { rank: 26, id: "aptos", symbol: "APT", name: "Aptos", product: "APT-USD", assetType: "crypto", market: "Crypto", tags: ["Layer 1"], depositNetworks: ["Aptos"] },
+  { rank: 27, id: "arbitrum", symbol: "ARB", name: "Arbitrum", product: "ARB-USD", assetType: "crypto", market: "Crypto", tags: ["Scaling"], depositNetworks: ["Arbitrum One"] },
+  { rank: 28, id: "optimism", symbol: "OP", name: "Optimism", product: "OP-USD", assetType: "crypto", market: "Crypto", tags: ["Scaling"], depositNetworks: ["Optimism"] },
+  { rank: 29, id: "injective-protocol", symbol: "INJ", name: "Injective", product: "INJ-USD", assetType: "crypto", market: "Crypto", tags: ["DeFi"], depositNetworks: ["Injective", "Ethereum ERC-20"] },
+  { rank: 30, id: "internet-computer", symbol: "ICP", name: "Internet Computer", product: "ICP-USD", assetType: "crypto", market: "Crypto", tags: ["Compute"], depositNetworks: ["Internet Computer"] },
+  { rank: 31, id: "filecoin", symbol: "FIL", name: "Filecoin", product: "FIL-USD", assetType: "crypto", market: "Crypto", tags: ["Storage"], depositNetworks: ["Filecoin"] },
+  { rank: 32, id: "ethereum-classic", symbol: "ETC", name: "Ethereum Classic", product: "ETC-USD", assetType: "crypto", market: "Crypto", tags: ["Proof of work"], depositNetworks: ["Ethereum Classic"] },
+  { rank: 33, id: "vechain", symbol: "VET", name: "VeChain", product: null, yahooSymbol: "VET-USD", assetType: "crypto", market: "Crypto", tags: ["Supply chain"], depositNetworks: ["VeChain"] },
+  { rank: 34, id: "algorand", symbol: "ALGO", name: "Algorand", product: "ALGO-USD", assetType: "crypto", market: "Crypto", tags: ["Layer 1"], depositNetworks: ["Algorand"] },
+  { rank: 35, id: "monero", symbol: "XMR", name: "Monero", product: null, yahooSymbol: "XMR-USD", assetType: "crypto", market: "Crypto", tags: ["Privacy"], depositNetworks: ["Monero"] },
+  { rank: 36, id: "fetch-ai", symbol: "FET", name: "Artificial Superintelligence Alliance", product: "FET-USD", assetType: "crypto", market: "Crypto", tags: ["AI"], depositNetworks: ["Ethereum ERC-20", "Cosmos"] },
+  { rank: 37, id: "render-token", symbol: "RENDER", name: "Render", product: "RENDER-USD", assetType: "crypto", market: "Crypto", tags: ["AI", "Compute"], depositNetworks: ["Solana SPL", "Ethereum ERC-20"] },
+  { rank: 38, id: "pepe", symbol: "PEPE", name: "Pepe", product: "PEPE-USD", assetType: "crypto", market: "Crypto", tags: ["Popular"], depositNetworks: ["Ethereum ERC-20"] },
+  { rank: 39, id: "bonk", symbol: "BONK", name: "Bonk", product: "BONK-USD", assetType: "crypto", market: "Crypto", tags: ["Popular"], depositNetworks: ["Solana SPL"] },
+  { rank: 40, id: "dogwifcoin", symbol: "WIF", name: "dogwifhat", product: "WIF-USD", assetType: "crypto", market: "Crypto", tags: ["Popular"], depositNetworks: ["Solana SPL"] },
+  { rank: 41, id: "dai", symbol: "DAI", name: "Dai", product: "DAI-USD", assetType: "crypto", market: "Stablecoin", tags: ["Stablecoin", "DeFi"], depositNetworks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One", "Optimism"] },
+  { rank: 42, id: "paypal-usd", symbol: "PYUSD", name: "PayPal USD", product: "PYUSD-USD", assetType: "crypto", market: "Stablecoin", tags: ["Stablecoin", "Payments"], depositNetworks: ["Ethereum ERC-20", "Solana SPL"] },
+  { rank: 43, id: "first-digital-usd", symbol: "FDUSD", name: "First Digital USD", product: null, yahooSymbol: "FDUSD-USD", assetType: "crypto", market: "Stablecoin", tags: ["Stablecoin"], depositNetworks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20"] },
+  { rank: 44, id: "true-usd", symbol: "TUSD", name: "TrueUSD", product: null, yahooSymbol: "TUSD-USD", assetType: "crypto", market: "Stablecoin", tags: ["Stablecoin"], depositNetworks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Tron TRC-20"] },
+  { rank: 45, id: "maker", symbol: "MKR", name: "Maker", product: "MKR-USD", assetType: "crypto", market: "Crypto", tags: ["DeFi"], depositNetworks: ["Ethereum ERC-20"] },
+  { rank: 46, id: "lido-dao", symbol: "LDO", name: "Lido DAO", product: "LDO-USD", assetType: "crypto", market: "Crypto", tags: ["Staking"], depositNetworks: ["Ethereum ERC-20", "Arbitrum One"] },
+  { rank: 47, id: "quant-network", symbol: "QNT", name: "Quant", product: "QNT-USD", assetType: "crypto", market: "Crypto", tags: ["Interoperability"], depositNetworks: ["Ethereum ERC-20"] },
+  { rank: 48, id: "the-graph", symbol: "GRT", name: "The Graph", product: "GRT-USD", assetType: "crypto", market: "Crypto", tags: ["Data"], depositNetworks: ["Ethereum ERC-20", "Arbitrum One"] },
+  { rank: 49, id: "curve-dao-token", symbol: "CRV", name: "Curve DAO", product: "CRV-USD", assetType: "crypto", market: "Crypto", tags: ["DeFi"], depositNetworks: ["Ethereum ERC-20", "Arbitrum One"] },
+  { rank: 50, id: "decentraland", symbol: "MANA", name: "Decentraland", product: "MANA-USD", assetType: "crypto", market: "Crypto", tags: ["Gaming"], depositNetworks: ["Ethereum ERC-20", "Polygon PoS"] }
 ];
 
 const TRADE_STOCK_ASSETS = [
-  { rank: 1, symbol: "SPY", name: "SPDR S&P 500 ETF", assetType: "etf", tags: ["S&P 500", "ETF"] },
-  { rank: 2, symbol: "QQQ", name: "Invesco QQQ Trust", assetType: "etf", tags: ["Nasdaq", "ETF"] },
-  { rank: 3, symbol: "NVDA", name: "NVIDIA", assetType: "stock", tags: ["AI", "Semiconductors"] },
-  { rank: 4, symbol: "AAPL", name: "Apple", assetType: "stock", tags: ["Mega cap", "Consumer tech"] },
-  { rank: 5, symbol: "MSFT", name: "Microsoft", assetType: "stock", tags: ["AI", "Cloud"] },
-  { rank: 6, symbol: "TSLA", name: "Tesla", assetType: "stock", tags: ["EV", "High demand"] },
-  { rank: 7, symbol: "AMZN", name: "Amazon", assetType: "stock", tags: ["Cloud", "Consumer"] },
-  { rank: 8, symbol: "GOOGL", name: "Alphabet", assetType: "stock", tags: ["AI", "Search"] },
-  { rank: 9, symbol: "META", name: "Meta Platforms", assetType: "stock", tags: ["AI", "Social"] },
-  { rank: 10, symbol: "AMD", name: "AMD", assetType: "stock", tags: ["Semiconductors"] },
-  { rank: 11, symbol: "AVGO", name: "Broadcom", assetType: "stock", tags: ["Semiconductors"] },
-  { rank: 12, symbol: "NFLX", name: "Netflix", assetType: "stock", tags: ["Streaming"] },
-  { rank: 13, symbol: "PLTR", name: "Palantir", assetType: "stock", tags: ["AI", "Data"] },
-  { rank: 14, symbol: "COIN", name: "Coinbase Global", assetType: "stock", tags: ["Crypto equity"] },
-  { rank: 15, symbol: "MSTR", name: "Strategy", assetType: "stock", tags: ["Bitcoin equity"] },
-  { rank: 16, symbol: "JPM", name: "JPMorgan Chase", assetType: "stock", tags: ["Banking"] },
-  { rank: 17, symbol: "V", name: "Visa", assetType: "stock", tags: ["Payments"] },
-  { rank: 18, symbol: "DIA", name: "SPDR Dow Jones ETF", assetType: "etf", tags: ["Dow", "ETF"] },
-  { rank: 19, symbol: "IWM", name: "iShares Russell 2000 ETF", assetType: "etf", tags: ["Small caps", "ETF"] },
-  { rank: 20, symbol: "GLD", name: "SPDR Gold Shares", assetType: "etf", tags: ["Gold", "ETF"] }
+  { rank: 1, symbol: "SPY", name: "SPDR S&P 500 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["S&P 500", "ETF"] },
+  { rank: 2, symbol: "QQQ", name: "Invesco QQQ Trust", assetType: "etf", market: "Nasdaq", region: "US", tags: ["Nasdaq 100", "ETF"] },
+  { rank: 3, symbol: "VOO", name: "Vanguard S&P 500 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["S&P 500", "ETF"] },
+  { rank: 4, symbol: "VT", name: "Vanguard Total World Stock ETF", assetType: "etf", market: "NYSE Arca", region: "Global", tags: ["World equity", "ETF"] },
+  { rank: 5, symbol: "DIA", name: "SPDR Dow Jones ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Dow", "ETF"] },
+  { rank: 6, symbol: "IWM", name: "iShares Russell 2000 ETF", assetType: "etf", market: "NYSE Arca", region: "US", tags: ["Small caps", "ETF"] },
+  { rank: 7, symbol: "GLD", name: "SPDR Gold Shares", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Gold", "Commodity ETF"] },
+  { rank: 8, symbol: "SLV", name: "iShares Silver Trust", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Silver", "Commodity ETF"] },
+  { rank: 9, symbol: "USO", name: "United States Oil Fund", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Oil", "WTI"] },
+  { rank: 10, symbol: "BNO", name: "United States Brent Oil Fund", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Oil", "Brent"] },
+  { rank: 11, symbol: "UNG", name: "United States Natural Gas Fund", assetType: "etf", market: "NYSE Arca", region: "Commodity", tags: ["Natural gas", "Energy"] },
+  { rank: 12, symbol: "NVDA", name: "NVIDIA", assetType: "stock", market: "Nasdaq", region: "US", tags: ["AI", "Semiconductors"] },
+  { rank: 13, symbol: "AAPL", name: "Apple", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Mega cap", "Consumer tech"] },
+  { rank: 14, symbol: "MSFT", name: "Microsoft", assetType: "stock", market: "Nasdaq", region: "US", tags: ["AI", "Cloud"] },
+  { rank: 15, symbol: "TSLA", name: "Tesla", assetType: "stock", market: "Nasdaq", region: "US", tags: ["EV", "High demand"] },
+  { rank: 16, symbol: "AMZN", name: "Amazon", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Cloud", "Consumer"] },
+  { rank: 17, symbol: "GOOGL", name: "Alphabet", assetType: "stock", market: "Nasdaq", region: "US", tags: ["AI", "Search"] },
+  { rank: 18, symbol: "META", name: "Meta Platforms", assetType: "stock", market: "Nasdaq", region: "US", tags: ["AI", "Social"] },
+  { rank: 19, symbol: "AMD", name: "AMD", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Semiconductors"] },
+  { rank: 20, symbol: "AVGO", name: "Broadcom", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Semiconductors"] },
+  { rank: 21, symbol: "NFLX", name: "Netflix", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Streaming"] },
+  { rank: 22, symbol: "PLTR", name: "Palantir", assetType: "stock", market: "Nasdaq", region: "US", tags: ["AI", "Data"] },
+  { rank: 23, symbol: "COIN", name: "Coinbase Global", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Crypto equity"] },
+  { rank: 24, symbol: "MSTR", name: "Strategy", assetType: "stock", market: "Nasdaq", region: "US", tags: ["Bitcoin equity"] },
+  { rank: 25, symbol: "JPM", name: "JPMorgan Chase", assetType: "stock", market: "NYSE", region: "US", tags: ["Banking"] },
+  { rank: 26, symbol: "V", name: "Visa", assetType: "stock", market: "NYSE", region: "US", tags: ["Payments"] },
+  { rank: 27, symbol: "XOM", name: "Exxon Mobil", assetType: "stock", market: "NYSE", region: "US", tags: ["Oil", "Energy"] },
+  { rank: 28, symbol: "CVX", name: "Chevron", assetType: "stock", market: "NYSE", region: "US", tags: ["Oil", "Energy"] },
+  { rank: 29, symbol: "SHEL", name: "Shell ADR", assetType: "stock", market: "NYSE", region: "UK", tags: ["Oil", "Energy"] },
+  { rank: 30, symbol: "BP", name: "BP ADR", assetType: "stock", market: "NYSE", region: "UK", tags: ["Oil", "Energy"] },
+  { rank: 31, symbol: "TSM", name: "Taiwan Semiconductor", assetType: "stock", market: "NYSE", region: "Taiwan", tags: ["Semiconductors"] },
+  { rank: 32, symbol: "ASML", name: "ASML Holding", assetType: "stock", market: "Nasdaq", region: "Netherlands", tags: ["Semiconductors"] },
+  { rank: 33, symbol: "NVO", name: "Novo Nordisk ADR", assetType: "stock", market: "NYSE", region: "Denmark", tags: ["Healthcare"] },
+  { rank: 34, symbol: "BABA", name: "Alibaba ADR", assetType: "stock", market: "NYSE", region: "China", tags: ["Ecommerce", "China"] },
+  { rank: 35, symbol: "TM", name: "Toyota Motor ADR", assetType: "stock", market: "NYSE", region: "Japan", tags: ["Autos"] },
+  { rank: 36, symbol: "SONY", name: "Sony Group ADR", assetType: "stock", market: "NYSE", region: "Japan", tags: ["Consumer tech", "Entertainment"] },
+  { rank: 37, symbol: "SHOP", name: "Shopify", assetType: "stock", market: "NYSE", region: "Canada", tags: ["Ecommerce"] },
+  { rank: 38, symbol: "MELI", name: "MercadoLibre", assetType: "stock", market: "Nasdaq", region: "Latin America", tags: ["Ecommerce", "Fintech"] },
+  { rank: 39, symbol: "RIO", name: "Rio Tinto ADR", assetType: "stock", market: "NYSE", region: "UK/Australia", tags: ["Mining", "Materials"] },
+  { rank: 40, symbol: "BHP", name: "BHP Group ADR", assetType: "stock", market: "NYSE", region: "Australia", tags: ["Mining", "Materials"] },
+  { rank: 41, symbol: "HSBC", name: "HSBC Holdings ADR", assetType: "stock", market: "NYSE", region: "UK/Hong Kong", tags: ["Banking"] },
+  { rank: 42, symbol: "SAP", name: "SAP ADR", assetType: "stock", market: "NYSE", region: "Germany", tags: ["Software"] },
+  { rank: 43, symbol: "RELIANCE.NS", name: "Reliance Industries", assetType: "stock", market: "NSE India", region: "India", currency: "INR", tags: ["Energy", "Conglomerate"] },
+  { rank: 44, symbol: "INFY.NS", name: "Infosys", assetType: "stock", market: "NSE India", region: "India", currency: "INR", tags: ["Technology"] },
+  { rank: 45, symbol: "0700.HK", name: "Tencent Holdings", assetType: "stock", market: "Hong Kong", region: "China", currency: "HKD", tags: ["Internet", "Gaming"] },
+  { rank: 46, symbol: "9988.HK", name: "Alibaba Hong Kong", assetType: "stock", market: "Hong Kong", region: "China", currency: "HKD", tags: ["Ecommerce", "China"] },
+  { rank: 47, symbol: "7203.T", name: "Toyota Motor", assetType: "stock", market: "Tokyo", region: "Japan", currency: "JPY", tags: ["Autos"] },
+  { rank: 48, symbol: "005930.KS", name: "Samsung Electronics", assetType: "stock", market: "Korea Exchange", region: "South Korea", currency: "KRW", tags: ["Semiconductors", "Consumer tech"] },
+  { rank: 49, symbol: "MC.PA", name: "LVMH", assetType: "stock", market: "Euronext Paris", region: "France", currency: "EUR", tags: ["Luxury", "Consumer"] },
+  { rank: 50, symbol: "NESN.SW", name: "Nestle", assetType: "stock", market: "SIX Swiss", region: "Switzerland", currency: "CHF", tags: ["Consumer staples"] }
 ];
 
 function parseStooqCsv(csv) {
@@ -912,7 +1000,7 @@ async function fetchYahooChartSignal(symbol, name) {
 
 async function fetchYahooChartAssets(assets) {
   const settled = await Promise.allSettled(assets.map(async (asset) => {
-    const quote = await fetchYahooChartSignal(asset.symbol, asset.name);
+    const quote = await fetchYahooChartSignal(marketDataSymbol(asset), asset.name);
     return {
       ...assetCatalogEntry(asset),
       price: quote.price,
@@ -1053,16 +1141,32 @@ async function fetchCryptoMarketData() {
       })
       .filter(Boolean);
 
+    const minimumUsefulCryptoCount = Math.ceil(TRADE_CRYPTO_ASSETS.length * 0.7);
+    if (assets.length < minimumUsefulCryptoCount) {
+      throw new Error(`CoinGecko returned only ${assets.length} crypto assets`);
+    }
+
     saveMarketSnapshots("coingecko", "crypto", assets);
     return { success: true, provider: "coingecko", assets };
   } catch (err) {
     console.error("Crypto market proxy error:", err);
     try {
-      const assets = await fetchCoinbaseCrypto();
-      saveMarketSnapshots("coinbase", "crypto", assets);
-      return { success: true, provider: "coinbase", assets };
+      const [coinbaseAssets, yahooAssets] = await Promise.all([
+        fetchCoinbaseCrypto().catch((fallbackErr) => {
+          console.error("Coinbase crypto fallback error:", fallbackErr);
+          return [];
+        }),
+        fetchYahooChartAssets(TRADE_CRYPTO_ASSETS).catch((fallbackErr) => {
+          console.error("Yahoo crypto fallback error:", fallbackErr);
+          return [];
+        })
+      ]);
+      const assets = mergeRankedMarketAssets(coinbaseAssets, yahooAssets);
+      if (!assets.length) throw new Error("Crypto fallbacks returned no assets");
+      saveMarketSnapshots("coinbase-yahoo", "crypto", assets);
+      return { success: true, provider: "coinbase-yahoo", assets };
     } catch (fallbackErr) {
-      console.error("Coinbase crypto fallback error:", fallbackErr);
+      console.error("Crypto fallback error:", fallbackErr);
       const cachedAssets = await readLatestMarketSnapshots("crypto", TRADE_CRYPTO_ASSETS.length);
       if (cachedAssets.length) {
         return { success: true, provider: "supabase-cache", cached: true, assets: cachedAssets };
@@ -1079,7 +1183,7 @@ async function fetchCryptoMarketData() {
 
 async function fetchStockMarketData() {
   try {
-    const symbols = TRADE_STOCK_ASSETS.map((asset) => asset.symbol).join(",");
+    const symbols = TRADE_STOCK_ASSETS.map((asset) => marketDataSymbol(asset)).join(",");
     const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=symbol,shortName,regularMarketPrice,regularMarketChangePercent,regularMarketTime`;
     const json = await fetch(url, {
       headers: {
@@ -1091,7 +1195,10 @@ async function fetchStockMarketData() {
       return r.json();
     });
 
-    const catalogBySymbol = new Map(TRADE_STOCK_ASSETS.map((asset) => [asset.symbol, asset]));
+    const catalogBySymbol = new Map(TRADE_STOCK_ASSETS.flatMap((asset) => [
+      [asset.symbol, asset],
+      [marketDataSymbol(asset), asset]
+    ]));
     const assets = (json.quoteResponse?.result || []).map((quote) => {
       const catalog = catalogBySymbol.get(quote.symbol) || { symbol: quote.symbol, name: quote.shortName || quote.symbol, assetType: "stock", rank: 999 };
       return {
@@ -1104,7 +1211,8 @@ async function fetchStockMarketData() {
       };
     }).filter((asset) => asset.price != null).sort((a, b) => a.rank - b.rank);
 
-    if (assets.length < 8) {
+    const minimumUsefulStockCount = Math.ceil(TRADE_STOCK_ASSETS.length * 0.6);
+    if (assets.length < minimumUsefulStockCount) {
       throw new Error(`Yahoo quote returned only ${assets.length} stock assets`);
     }
 
@@ -1120,11 +1228,15 @@ async function fetchStockMarketData() {
     } catch (chartErr) {
       console.error("Yahoo chart stock fallback error:", chartErr);
       try {
-        const stooqSymbols = TRADE_STOCK_ASSETS.map((asset) => `${asset.symbol.toLowerCase()}.us`).join(",");
+        const stooqCandidates = TRADE_STOCK_ASSETS.filter((asset) => asset.stooqSymbol || (asset.region === "US" && /^[A-Z]+$/.test(asset.symbol)));
+        const stooqSymbols = stooqCandidates.map((asset) => asset.stooqSymbol || `${asset.symbol.toLowerCase()}.us`).join(",");
         const stooqAssets = await fetchStooqQuotes(stooqSymbols);
-        const catalogBySymbol = new Map(TRADE_STOCK_ASSETS.map((asset) => [asset.symbol, asset]));
+        const catalogBySymbol = new Map(stooqCandidates.flatMap((asset) => [
+          [asset.symbol, asset],
+          [(asset.stooqSymbol || `${asset.symbol}.US`).toUpperCase(), asset]
+        ]));
         const assets = stooqAssets.map((asset) => {
-          const catalog = catalogBySymbol.get(asset.symbol) || { symbol: asset.symbol, name: asset.name, assetType: "stock", rank: 999 };
+          const catalog = catalogBySymbol.get(asset.symbol) || catalogBySymbol.get(String(asset.symbol).toUpperCase()) || { symbol: asset.symbol, name: asset.name, assetType: "stock", rank: 999 };
           return {
             ...assetCatalogEntry(catalog),
             price: asset.price,
@@ -1139,7 +1251,7 @@ async function fetchStockMarketData() {
         console.error("Stooq stock fallback error:", fallbackErr);
       }
 
-      const cachedAssets = await readLatestMarketSnapshots(["stock", "etf"], TRADE_STOCK_ASSETS.length);
+      const cachedAssets = await readLatestMarketSnapshots(["stock", "etf", "commodity", "index", "forex"], TRADE_STOCK_ASSETS.length);
       if (cachedAssets.length) {
         return { success: true, provider: "supabase-cache", cached: true, assets: cachedAssets };
       }
