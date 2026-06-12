@@ -1414,7 +1414,7 @@ function isUsableChartSnapshot(snapshot, range) {
   if (!snapshot?.points?.length) return false;
   const selectedRange = normalizeChartRange(range);
   if (normalizeChartRange(snapshot.range) !== selectedRange) return false;
-  if (snapshot.provider === "coingecko-sparkline" && selectedRange !== "1w") return false;
+  if (snapshot.provider === "coingecko-sparkline") return false;
   return true;
 }
 
