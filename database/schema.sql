@@ -107,6 +107,22 @@ alter table if exists market_snapshots
 create index if not exists market_snapshots_symbol_time_idx
   on market_snapshots (symbol, captured_at desc);
 
+create table if not exists market_chart_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  symbol text not null,
+  asset_type text not null,
+  range_key text not null check (range_key in ('1d', '1w', '1m', '3m', '1y', 'all')),
+  provider_symbol text,
+  currency text not null default 'USD',
+  points jsonb not null default '[]'::jsonb,
+  stats jsonb not null default '{}'::jsonb,
+  captured_at timestamptz not null default now()
+);
+
+create index if not exists market_chart_snapshots_symbol_range_time_idx
+  on market_chart_snapshots (symbol, range_key, captured_at desc);
+
 create table if not exists asset_catalog (
   symbol text primary key,
   asset_name text not null,

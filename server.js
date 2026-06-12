@@ -45,6 +45,14 @@ const dbPool = DATABASE_URL ? new Pool({
 }) : null;
 const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 5 * 60 * 1000);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
+const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD")
+    .split(",")
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter(Boolean);
+const LIVE_CHART_REFRESH_RANGES = (process.env.LIVE_CHART_REFRESH_RANGES || "1d,1w,1m")
+    .split(",")
+    .map((range) => range.trim().toLowerCase())
+    .filter(Boolean);
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 
@@ -535,6 +543,64 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
         `, values);
     } catch (err) {
         console.error("Market snapshot save failed:", err);
+    }
+}
+
+function normalizeChartRange(range = "1d") {
+    const selected = String(range || "1d").toLowerCase();
+    return ["1d", "1w", "1m", "3m", "1y", "all"].includes(selected) ? selected : "1d";
+}
+
+async function saveMarketChartSnapshot(provider, asset, chart) {
+    if (!databaseConfigured() || !asset?.symbol || !chart?.points?.length) return;
+
+    try {
+        await dbPool.query(`
+            insert into market_chart_snapshots (provider, symbol, asset_type, range_key, provider_symbol, currency, points, stats)
+            values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
+        `, [
+            provider || chart.provider || "market-provider",
+            asset.symbol,
+            asset.assetType || "market",
+            normalizeChartRange(chart.range),
+            chart.providerSymbol || asset.providerSymbol || marketDataSymbol(asset),
+            chart.currency || asset.currency || "USD",
+            JSON.stringify(chart.points || []),
+            JSON.stringify(chart.stats || {})
+        ]);
+    } catch (err) {
+        console.error("Market chart snapshot save failed:", err);
+    }
+}
+
+async function readLatestMarketChartSnapshot(symbol, range = "1d") {
+    if (!databaseConfigured() || !symbol) return null;
+
+    try {
+        const result = await dbPool.query(`
+            select provider, symbol, asset_type, range_key, provider_symbol, currency, points, stats, captured_at
+            from market_chart_snapshots
+            where upper(symbol) = upper($1) and range_key = $2
+            order by captured_at desc
+            limit 1
+        `, [symbol, normalizeChartRange(range)]);
+
+        const row = result.rows[0];
+        if (!row) return null;
+
+        return {
+            range: row.range_key,
+            provider: row.provider,
+            providerSymbol: row.provider_symbol || row.symbol,
+            currency: row.currency || "USD",
+            points: Array.isArray(row.points) ? row.points : [],
+            stats: row.stats && typeof row.stats === "object" ? row.stats : {},
+            cached: true,
+            capturedAt: row.captured_at
+        };
+    } catch (err) {
+        console.error("Market chart snapshot fallback read failed:", err);
+        return null;
     }
 }
 
@@ -1213,7 +1279,7 @@ const COINGECKO_CHART_DAYS = {
 };
 
 async function fetchYahooChartSeries(asset, requestedRange = "1d") {
-  const requested = String(requestedRange || "1d").toLowerCase();
+  const requested = normalizeChartRange(requestedRange);
   const selectedRange = CHART_RANGE_CONFIG[requested] ? requested : "1d";
   const config = CHART_RANGE_CONFIG[selectedRange];
   const encoded = encodeURIComponent(marketDataSymbol(asset));
@@ -1248,6 +1314,7 @@ async function fetchYahooChartSeries(asset, requestedRange = "1d") {
 
   return {
     range: selectedRange,
+    provider: "yahoo",
     providerSymbol: marketDataSymbol(asset),
     currency: meta.currency || asset.currency || "USD",
     points,
@@ -1284,6 +1351,7 @@ function sparklineChartSeries(asset, selectedRange = "1w") {
   const range = pointRangeStats(points);
   return {
     range: selectedRange,
+    provider: "coingecko-sparkline",
     providerSymbol: asset.id || asset.symbol,
     currency: asset.currency || "USD",
     points,
@@ -1298,7 +1366,7 @@ function sparklineChartSeries(asset, selectedRange = "1w") {
 }
 
 async function fetchCoinGeckoChartSeries(asset, requestedRange = "1d") {
-  const requested = String(requestedRange || "1d").toLowerCase();
+  const requested = normalizeChartRange(requestedRange);
   const selectedRange = COINGECKO_CHART_DAYS[requested] ? requested : "1d";
   const days = COINGECKO_CHART_DAYS[selectedRange];
   const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(asset.id)}/market_chart?vs_currency=usd&days=${days}&precision=full`;
@@ -1328,6 +1396,7 @@ async function fetchCoinGeckoChartSeries(asset, requestedRange = "1d") {
     const lastVolume = [...points].reverse().find((point) => Number.isFinite(point.volume))?.volume ?? asset.totalVolume ?? asset.liquidityUsd ?? null;
     return {
       range: selectedRange,
+      provider: "coingecko",
       providerSymbol: asset.id || asset.symbol,
       currency: "USD",
       points,
@@ -1371,9 +1440,12 @@ async function fetchYahooAllTimeStats(asset) {
 }
 
 async function fetchAssetChartSeries(asset, requestedRange = "1d") {
+  const selectedRange = normalizeChartRange(requestedRange);
+
   if (asset.customAsset) {
     return {
-      range: CHART_RANGE_CONFIG[String(requestedRange || "1d").toLowerCase()] ? String(requestedRange || "1d").toLowerCase() : "1d",
+      range: selectedRange,
+      provider: "autody",
       providerSymbol: asset.symbol,
       currency: asset.currency || "USD",
       points: [],
@@ -1381,14 +1453,24 @@ async function fetchAssetChartSeries(asset, requestedRange = "1d") {
     };
   }
 
-  if (asset.assetType === "crypto" && asset.id && !asset.customAsset) {
-    return fetchCoinGeckoChartSeries(asset, requestedRange);
-  }
+  try {
+    const chart = asset.assetType === "crypto" && asset.id
+      ? await fetchCoinGeckoChartSeries(asset, selectedRange)
+      : await (async () => {
+          const yahooChart = await fetchYahooChartSeries(asset, selectedRange);
+          const allTimeStats = await fetchYahooAllTimeStats(asset).catch(() => ({}));
+          yahooChart.stats = { ...(yahooChart.stats || {}), ...allTimeStats };
+          return yahooChart;
+        })();
 
-  const chart = await fetchYahooChartSeries(asset, requestedRange);
-  const allTimeStats = await fetchYahooAllTimeStats(asset).catch(() => ({}));
-  chart.stats = { ...(chart.stats || {}), ...allTimeStats };
-  return chart;
+    await saveMarketChartSnapshot(chart.provider, asset, chart);
+    return chart;
+  } catch (err) {
+    console.error(`Live chart failed for ${asset.symbol} ${selectedRange}, checking chart cache:`, err);
+    const cached = await readLatestMarketChartSnapshot(asset.symbol, selectedRange);
+    if (cached) return cached;
+    throw err;
+  }
 }
 
 async function fetchYahooChartAssets(assets) {
@@ -1779,12 +1861,39 @@ async function fetchNewsData() {
   }
 }
 
+async function refreshCoreChartSnapshots() {
+  if (!databaseConfigured() || !LIVE_CHART_REFRESH_SYMBOLS.length) {
+    return { count: 0, skipped: true };
+  }
+
+  let count = 0;
+  for (const symbol of LIVE_CHART_REFRESH_SYMBOLS) {
+    const asset = await findMarketAssetBySymbol(symbol).catch((err) => {
+      console.error(`Core chart asset lookup failed for ${symbol}:`, err);
+      return null;
+    });
+    if (!asset || asset.customAsset) continue;
+
+    for (const range of LIVE_CHART_REFRESH_RANGES.map(normalizeChartRange)) {
+      try {
+        const chart = await fetchAssetChartSeries(asset, range);
+        if (chart?.points?.length) count += 1;
+      } catch (err) {
+        console.error(`Core chart refresh failed for ${symbol} ${range}:`, err);
+      }
+    }
+  }
+
+  return { count };
+}
+
 async function refreshLiveData({ includeNews = false, reason = "manual" } = {}) {
   const startedAt = new Date();
   const refreshes = [
     ["crypto", fetchCryptoMarketData()],
     ["stocks", fetchStockMarketData()],
-    ["signals", fetchSignalMarketData()]
+    ["signals", fetchSignalMarketData()],
+    ["charts", refreshCoreChartSnapshots()]
   ];
 
   if (includeNews) refreshes.push(["news", fetchNewsData()]);
@@ -1796,7 +1905,7 @@ async function refreshLiveData({ includeNews = false, reason = "manual" } = {}) 
     const key = refreshes[index][0];
     const value = result.status === "fulfilled" ? result.value : null;
     const count = value
-      ? value.assets?.length ?? value.articles?.length ?? [value.gold, value.economy].filter(Boolean).length
+      ? value.count ?? value.assets?.length ?? value.articles?.length ?? [value.gold, value.economy].filter(Boolean).length
       : 0;
     results[key] = result.status === "fulfilled"
       ? { ok: true, provider: value.provider || null, count }
@@ -1955,15 +2064,44 @@ app.get("/api/markets/catalog", async (req, res) => {
   }
 });
 
+async function findMarketAssetBySymbol(symbol) {
+  const lookup = String(symbol || "").trim().toUpperCase();
+  const assets = await buildMarketCatalog("all");
+  return assets.find((item) => {
+    const candidates = [item.symbol, item.id, item.providerSymbol].filter(Boolean).map((value) => String(value).toUpperCase());
+    return candidates.includes(lookup);
+  }) || null;
+}
+
+app.get("/api/markets/charts/:symbol", async (req, res) => {
+  try {
+    const symbol = decodeURIComponent(req.params.symbol || "").trim().toUpperCase();
+    const range = normalizeChartRange(req.query.range);
+    const asset = await findMarketAssetBySymbol(symbol);
+
+    if (!asset) {
+      return res.status(404).json({ success: false, error: "Asset not found" });
+    }
+
+    const chart = await fetchAssetChartSeries(asset, range);
+    return res.json({
+      success: true,
+      symbol: asset.symbol,
+      assetType: asset.assetType,
+      range,
+      chart
+    });
+  } catch (err) {
+    console.error("Market chart API error:", err);
+    return res.status(500).json({ success: false, error: "Market chart unavailable" });
+  }
+});
+
 app.get("/api/markets/asset/:symbol", async (req, res) => {
   try {
     const symbol = decodeURIComponent(req.params.symbol || "").trim().toUpperCase();
-    const range = String(req.query.range || "1d").toLowerCase();
-    const assets = await buildMarketCatalog("all");
-    const asset = assets.find((item) => {
-      const candidates = [item.symbol, item.id, item.providerSymbol].filter(Boolean).map((value) => String(value).toUpperCase());
-      return candidates.includes(symbol);
-    });
+    const range = normalizeChartRange(req.query.range);
+    const asset = await findMarketAssetBySymbol(symbol);
 
     if (!asset) {
       return res.status(404).json({ success: false, error: "Asset not found" });

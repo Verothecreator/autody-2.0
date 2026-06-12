@@ -48,6 +48,13 @@ Render environment variable:
 DATABASE_URL=postgresql://...
 ```
 
+Optional chart cache controls:
+
+```text
+LIVE_CHART_REFRESH_SYMBOLS=BTC,ETH,SOL,SPY,QQQ,GLD
+LIVE_CHART_REFRESH_RANGES=1d,1w,1m
+```
+
 Useful check after deployment:
 
 ```text
@@ -63,8 +70,9 @@ Live data endpoints:
 /api/live/refresh
 /api/markets/catalog
 /api/markets/asset/:symbol
+/api/markets/charts/:symbol
 /api/markets/snapshots
 /api/news/snapshots
 ```
 
-The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down. The signed-in demo markets page uses `/api/markets/catalog` for the broader tradeable asset universe: a CoinGecko-ranked crypto catalog up to 200 assets, AU as an Autody-owned pending-market asset, and 100 global stock, ETF, oil, metals, and commodity-linked instruments. The asset detail page calls `/api/markets/asset/:symbol` for a single instrument, chart points, all-time high/low, FDV/liquidity where available, and the practice account's current demo holding/activity for that asset.
+The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down. The signed-in demo markets page uses `/api/markets/catalog` for the broader tradeable asset universe: a CoinGecko-ranked crypto catalog up to 200 assets, AU as an Autody-owned pending-market crypto asset, and 100 global stock, ETF, oil, metals, and commodity-linked instruments. The asset detail page calls `/api/markets/asset/:symbol` for a single instrument, chart points, all-time high/low, FDV/liquidity where available, and the practice account's current demo holding/activity for that asset. The chart-only API `/api/markets/charts/:symbol?range=1d` stores each symbol/range response in `market_chart_snapshots`, giving `1d`, `1w`, `1m`, `3m`, `1y`, and `all` their own database fallback when a live provider is unavailable.

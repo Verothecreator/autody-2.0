@@ -85,7 +85,9 @@ function filterAsset(asset) {
   if (activeFilter === "stablecoin") return asset.market === "Stablecoin" || (asset.tags || []).includes("Stablecoin");
   if (activeFilter === "stocks") return asset.assetType === "stock";
   if (activeFilter === "etf") return asset.assetType === "etf";
-  if (activeFilter === "commodity") return asset.region === "Commodity" || (asset.tags || []).some((tag) => /oil|gold|silver|gas|commodity/i.test(tag));
+  if (activeFilter === "commodity") {
+    return asset.assetType !== "crypto" && (asset.region === "Commodity" || (asset.tags || []).some((tag) => /oil|gold|silver|gas|commodity/i.test(tag)));
+  }
   return true;
 }
 
@@ -94,6 +96,7 @@ function sortByMove(assets) {
 }
 
 function assetTone(asset) {
+  if (asset.market === "Autody" || asset.customAsset) return "crypto";
   if (asset.market === "Stablecoin") return "stable";
   if (asset.assetType === "crypto") return "crypto";
   if (asset.region === "Commodity") return "commodity";
