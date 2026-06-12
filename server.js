@@ -289,9 +289,19 @@ function financialLogoSymbol(asset) {
     return FINANCIAL_LOGO_SYMBOLS[symbol] || symbol.replace(/\.[A-Z]+$/, "");
 }
 
+function cryptoLogoSymbol(asset) {
+    return String(asset.symbol || "")
+        .replace(/[^a-z0-9]/gi, "")
+        .toLowerCase();
+}
+
 function assetLogoUrl(asset) {
     if (asset.logoUrl || asset.image) return asset.logoUrl || asset.image;
     if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+    if (asset.assetType === "crypto") {
+        const symbol = cryptoLogoSymbol(asset);
+        return symbol ? `https://assets.coincap.io/assets/icons/${encodeURIComponent(symbol)}@2x.png` : null;
+    }
     if (asset.assetType && asset.assetType !== "crypto") {
         const symbol = financialLogoSymbol(asset);
         return symbol ? `https://financialmodelingprep.com/image-stock/${encodeURIComponent(symbol)}.png` : null;
@@ -707,6 +717,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
         return result.rows.map((row) => ({
             symbol: row.symbol,
             name: row.asset_name,
+            assetType: row.asset_type,
             price: row.price_usd == null ? null : Number(row.price_usd),
             changePct: row.change_pct == null ? null : Number(row.change_pct),
             marketCap: row.market_cap_usd == null ? null : Number(row.market_cap_usd),
@@ -752,14 +763,39 @@ async function buildMarketCatalog(type = "all") {
     const includeStocks = type !== "crypto";
     const cryptoCatalog = includeCrypto ? await getCryptoCatalogAssets() : [];
     const stockCatalog = includeStocks ? TRADE_STOCK_ASSETS.map(assetCatalogEntry) : [];
-    const catalog = [...cryptoCatalog, ...stockCatalog];
+    let catalog = [...cryptoCatalog, ...stockCatalog];
     const snapshotTypes = type === "crypto"
         ? ["crypto"]
         : type === "stocks"
             ? ["stock", "etf", "commodity", "index", "forex"]
             : ["crypto", "stock", "etf", "commodity", "index", "forex"];
-    const snapshots = await readLatestMarketSnapshots(snapshotTypes, Math.max(catalog.length, 30));
+    const snapshotLimit = Math.max(catalog.length, includeCrypto ? CRYPTO_MARKET_LIMIT + stockCatalog.length + 1 : stockCatalog.length, 30);
+    const snapshots = await readLatestMarketSnapshots(snapshotTypes, snapshotLimit);
+    const cryptoSnapshots = includeCrypto ? await readLatestMarketSnapshots("crypto", CRYPTO_MARKET_LIMIT) : [];
     const snapshotMap = new Map(snapshots.map((asset) => [asset.symbol, asset]));
+    cryptoSnapshots.forEach((asset) => snapshotMap.set(asset.symbol, asset));
+
+    if (includeCrypto && cryptoSnapshots.length && cryptoCatalog.length < CRYPTO_MARKET_LIMIT + 1) {
+        const catalogSymbols = new Set(catalog.map((asset) => asset.symbol));
+        const supplementalCrypto = cryptoSnapshots
+            .filter((asset) => asset.symbol && !catalogSymbols.has(asset.symbol))
+            .map((asset, index) => assetCatalogEntry({
+                rank: CRYPTO_MARKET_LIMIT + index + 1,
+                symbol: asset.symbol,
+                name: asset.name || asset.symbol,
+                assetType: "crypto",
+                market: "Crypto",
+                region: "Global",
+                currency: asset.currency || "USD",
+                price: asset.price,
+                changePct: asset.changePct,
+                marketCap: asset.marketCap,
+                dataProvider: asset.provider,
+                capturedAt: asset.capturedAt,
+                status: "Cached live"
+            }));
+        catalog = [...catalog, ...supplementalCrypto];
+    }
 
     return catalog.map((asset) => {
         const snapshot = snapshotMap.get(asset.symbol);
@@ -1092,6 +1128,10 @@ async function getCryptoCatalogAssets(options = {}) {
 
   try {
     const liveAssets = await fetchCoinGeckoRankedCryptoAssets(CRYPTO_MARKET_LIMIT);
+    const minimumUsefulCryptoCount = CRYPTO_MARKET_LIMIT;
+    if (liveAssets.length < minimumUsefulCryptoCount) {
+      throw new Error(`CoinGecko returned only ${liveAssets.length} ranked assets`);
+    }
     const assets = [assetCatalogEntry(AUTODY_MARKET_ASSET), ...liveAssets];
     cryptoCatalogCache = { assets, expiresAt: Date.now() + CRYPTO_CATALOG_CACHE_MS };
     return assets;
@@ -1939,7 +1979,7 @@ async function fetchCryptoMarketData() {
     const assets = (await getCryptoCatalogAssets({ forceRefresh: true, throwOnError: true }))
       .filter((asset) => asset.symbol !== AUTODY_MARKET_ASSET.symbol && asset.price != null);
 
-    const minimumUsefulCryptoCount = Math.ceil(CRYPTO_MARKET_LIMIT * 0.7);
+    const minimumUsefulCryptoCount = CRYPTO_MARKET_LIMIT;
     if (assets.length < minimumUsefulCryptoCount) {
       throw new Error(`CoinGecko returned only ${assets.length} crypto assets`);
     }

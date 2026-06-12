@@ -2,6 +2,10 @@ let allMarketAssets = [];
 let activeFilter = "all";
 let activeSearch = "";
 let demoWallet = null;
+let marketsLoading = false;
+
+const MARKET_REFRESH_MS = 30000;
+const MIN_STABLE_MARKET_ASSETS = 390;
 
 function marketPriceDigits(number, compact = false) {
   if (compact) return 2;
@@ -69,17 +73,19 @@ function logoFallbackText(asset) {
 function marketLogoSrc(asset) {
   if (asset.logoUrl) return asset.logoUrl;
   if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+  if (asset.assetType === "crypto") return `https://assets.coincap.io/assets/icons/${encodeURIComponent(logoFallbackText(asset).toLowerCase())}@2x.png`;
   return "";
 }
 
 function marketLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallbackText(asset);
   const src = marketLogoSrc(asset);
+  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
   const img = src
     ? `<img src="${escapeMarketHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${escapeMarketHtml(extraClass)}" data-symbol="${escapeMarketHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeMarketHtml(extraClass)}" data-symbol="${escapeMarketHtml(fallback)}">
       ${img}
       <b>${escapeMarketHtml(fallback)}</b>
     </span>
@@ -252,20 +258,38 @@ function updateDashboard() {
   renderMarketCards();
 }
 
-async function loadDemoMarkets() {
+async function loadDemoMarkets(options = {}) {
+  if (marketsLoading) return;
+  marketsLoading = true;
+
   try {
     const [catalog, wallet] = await Promise.all([
       getJson("/api/markets/catalog?type=all"),
       getJson("/api/demo/wallet").catch(() => null)
     ]);
 
-    allMarketAssets = catalog.assets || [];
+    const nextAssets = catalog.assets || [];
+    if (allMarketAssets.length >= MIN_STABLE_MARKET_ASSETS && nextAssets.length < MIN_STABLE_MARKET_ASSETS) {
+      console.warn(`Skipping short market catalog refresh: ${nextAssets.length} assets`);
+      return;
+    }
+
+    allMarketAssets = nextAssets;
     demoWallet = wallet?.wallet || null;
     updateDashboard();
   } catch (err) {
     console.warn("Demo market catalog failed:", err);
-    document.getElementById("market-card-grid").innerHTML = `<article class="market-empty-state">Market data is still loading. Try refreshing in a moment.</article>`;
+    if (!options.silent && !allMarketAssets.length) {
+      document.getElementById("market-card-grid").innerHTML = `<article class="market-empty-state">Market data is still loading. Try refreshing in a moment.</article>`;
+    }
+  } finally {
+    marketsLoading = false;
   }
+}
+
+function refreshMarketsWhenVisible() {
+  if (document.hidden) return;
+  loadDemoMarkets({ silent: true });
 }
 
 document.addEventListener("input", (event) => {
@@ -283,4 +307,6 @@ document.addEventListener("click", (event) => {
 });
 
 loadDemoMarkets();
-setInterval(loadDemoMarkets, 60000);
+setInterval(refreshMarketsWhenVisible, MARKET_REFRESH_MS);
+window.addEventListener("focus", refreshMarketsWhenVisible);
+document.addEventListener("visibilitychange", refreshMarketsWhenVisible);

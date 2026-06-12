@@ -1,6 +1,10 @@
 let currentSymbol = new URLSearchParams(location.search).get("symbol") || "BTC";
 let currentRange = "1d";
 let currentAsset = null;
+let assetLoading = false;
+let assetRequestToken = 0;
+
+const ASSET_REFRESH_MS = 30000;
 
 function priceDigits(number, compact = false) {
   if (compact) return 2;
@@ -85,17 +89,19 @@ function logoFallbackText(asset) {
 function assetLogoSrc(asset) {
   if (asset.logoUrl) return asset.logoUrl;
   if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+  if (asset.assetType === "crypto") return `https://assets.coincap.io/assets/icons/${encodeURIComponent(logoFallbackText(asset).toLowerCase())}@2x.png`;
   return "";
 }
 
 function assetLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallbackText(asset);
   const src = assetLogoSrc(asset);
+  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
   const img = src
     ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
       ${img}
       <b>${escapeHtml(fallback)}</b>
     </span>
@@ -354,16 +360,30 @@ function renderChartStats(asset, chart) {
   target.hidden = !rows.length;
 }
 
-async function loadAsset() {
+async function loadAsset(options = {}) {
+  if (assetLoading && !options.force) return;
+  assetLoading = true;
+  const requestToken = ++assetRequestToken;
+
   try {
     const data = await getJson(`/api/markets/asset/${encodeURIComponent(currentSymbol)}?range=${encodeURIComponent(currentRange)}`);
     if (!data.success) throw new Error(data.error || "Asset detail failed");
+    if (requestToken !== assetRequestToken) return;
     renderAsset(data);
   } catch (err) {
     console.warn("Asset detail failed:", err);
-    document.getElementById("asset-name").textContent = "This asset could not be loaded.";
-    document.getElementById("asset-line-chart").innerHTML = `<div class="asset-empty-activity">Market details are not available right now.</div>`;
+    if (!options.silent && !currentAsset) {
+      document.getElementById("asset-name").textContent = "This asset could not be loaded.";
+      document.getElementById("asset-line-chart").innerHTML = `<div class="asset-empty-activity">Market details are not available right now.</div>`;
+    }
+  } finally {
+    if (requestToken === assetRequestToken) assetLoading = false;
   }
+}
+
+function refreshAssetWhenVisible() {
+  if (document.hidden) return;
+  loadAsset({ silent: true });
 }
 
 document.addEventListener("click", (event) => {
@@ -371,7 +391,10 @@ document.addEventListener("click", (event) => {
   if (!range) return;
   currentRange = range.dataset.chartRange;
   document.querySelectorAll("[data-chart-range]").forEach((button) => button.classList.toggle("active", button === range));
-  if (currentAsset) loadAsset();
+  if (currentAsset) loadAsset({ force: true });
 });
 
 loadAsset();
+setInterval(refreshAssetWhenVisible, ASSET_REFRESH_MS);
+window.addEventListener("focus", refreshAssetWhenVisible);
+document.addEventListener("visibilitychange", refreshAssetWhenVisible);
