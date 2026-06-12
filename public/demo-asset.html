@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Demo Account | Asset</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="demo-wallet.html">Wallet</a>
+        <a href="demo-markets.html" class="active">Markets</a>
+        <a href="demo-orders.html">Orders</a>
+        <a href="demo-account.html">Overview</a>
+        <a href="demo-research.html">Research</a>
+        <a href="demo-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Demo mode</span>
+        <strong id="asset-sidebar-balance">$50,000 paper USD</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="account.html" class="btn sidebar-return">Live Account</a>
+        <a href="index.html" class="btn btn-ghost sidebar-return">Back Home</a>
+      </div>
+    </aside>
+
+    <main class="app-main asset-detail-main">
+      <header class="asset-detail-hero">
+        <a href="demo-markets.html" class="text-link">Back to Markets</a>
+        <div class="asset-hero-row">
+          <div>
+            <p class="eyebrow" id="asset-type-label">Market asset</p>
+            <h1 id="asset-symbol">Asset</h1>
+            <p class="app-subtitle" id="asset-name">Loading market details...</p>
+          </div>
+          <div class="asset-price-panel">
+            <strong id="asset-price">$0.00</strong>
+            <span id="asset-change">Live feed</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="asset-detail-layout">
+        <article class="app-card asset-chart-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Price chart</span>
+              <h2 id="asset-chart-title">Live movement</h2>
+            </div>
+            <div class="chart-range-tabs" aria-label="Chart range">
+              <button class="active" type="button" data-chart-range="1d">1D</button>
+              <button type="button" data-chart-range="1w">1W</button>
+              <button type="button" data-chart-range="1m">1M</button>
+              <button type="button" data-chart-range="3m">3M</button>
+              <button type="button" data-chart-range="1y">1Y</button>
+              <button type="button" data-chart-range="all">All</button>
+            </div>
+          </div>
+          <div class="asset-line-chart" id="asset-line-chart" aria-label="Asset price chart"></div>
+          <div class="asset-chart-stats" id="asset-chart-stats"></div>
+        </article>
+
+        <aside class="asset-side-stack">
+          <article class="app-card asset-action-card">
+            <span class="muted-label">Demo actions</span>
+            <h2 id="asset-action-title">Practice with this asset</h2>
+            <div class="asset-action-grid" id="asset-action-grid">
+              <a href="demo-orders.html">Buy</a>
+              <a href="demo-orders.html">Sell</a>
+              <a href="demo-wallet.html">Send</a>
+              <a href="demo-wallet.html">Receive</a>
+            </div>
+          </article>
+
+          <article class="app-card asset-balance-card">
+            <span class="muted-label">Your demo balance</span>
+            <div class="asset-balance-row">
+              <strong id="asset-owned">0</strong>
+              <span id="asset-owned-value">$0.00</span>
+            </div>
+            <small id="asset-buying-power">Buying power $50,000</small>
+          </article>
+        </aside>
+
+        <article class="app-card asset-details-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Asset details</span>
+              <h2 id="asset-detail-heading">Token details</h2>
+            </div>
+          </div>
+          <div class="asset-detail-list" id="asset-detail-list"></div>
+        </article>
+
+        <article class="app-card asset-activity-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Your activity</span>
+              <h2>Demo history</h2>
+            </div>
+          </div>
+          <div class="asset-activity-list" id="asset-activity-list">
+            <div class="asset-empty-activity">No practice trades yet.</div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+  <script src="demo-asset.js"></script>
+</body>
+</html>

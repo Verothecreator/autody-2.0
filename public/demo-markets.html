@@ -32,67 +32,111 @@
     </aside>
 
     <main class="app-main">
-      <header class="app-topbar">
+      <header class="app-topbar market-topbar">
         <div>
           <p class="eyebrow">Demo markets</p>
           <h1>Markets</h1>
-          <p class="app-subtitle">Choose crypto, stocks, ETFs, and commodity market instruments before real trading is connected.</p>
+          <p class="app-subtitle">Search coins, stocks, ETFs, and global instruments. Open any asset to inspect the chart, details, demo balance, and market activity.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Buying power</span>
-          <strong>$50,000</strong>
+          <strong id="market-buying-power">$50,000</strong>
         </div>
       </header>
 
-      <section class="markets-layout">
+      <section class="market-search-panel">
+        <div class="market-search-box">
+          <span aria-hidden="true">/</span>
+          <input id="market-search" type="search" placeholder="Search Bitcoin, USDT, Apple, oil, gold, ticker..." autocomplete="off" />
+        </div>
+        <div class="market-filter-row" aria-label="Market filters">
+          <button class="active" type="button" data-market-filter="all">All</button>
+          <button type="button" data-market-filter="crypto">Crypto</button>
+          <button type="button" data-market-filter="stablecoin">Stablecoins</button>
+          <button type="button" data-market-filter="stocks">Stocks</button>
+          <button type="button" data-market-filter="etf">ETFs</button>
+          <button type="button" data-market-filter="commodity">Oil and metals</button>
+        </div>
+      </section>
+
+      <section class="market-intel-grid">
+        <article class="market-intel-card">
+          <span class="muted-label">Markets loaded</span>
+          <strong id="market-total-count">100</strong>
+          <small>Crypto, stocks, ETFs, and commodities</small>
+        </article>
+        <article class="market-intel-card">
+          <span class="muted-label">Top mover</span>
+          <strong id="market-top-mover">Loading</strong>
+          <small id="market-top-mover-detail">Live percentage move</small>
+        </article>
+        <article class="market-intel-card">
+          <span class="muted-label">Demo exposure</span>
+          <strong id="market-open-positions">0 positions</strong>
+          <small>Based on the practice wallet</small>
+        </article>
+      </section>
+
+      <section class="market-feature-grid">
+        <article class="app-card market-spotlight-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Market spotlight</span>
+              <h2 id="spotlight-name">Bitcoin</h2>
+            </div>
+            <a id="spotlight-link" class="text-link" href="demo-asset.html?symbol=BTC">Open details</a>
+          </div>
+          <div class="spotlight-price-row">
+            <strong id="spotlight-price">$0.00</strong>
+            <span id="spotlight-move">Live feed</span>
+          </div>
+          <div class="spark-chart" id="spotlight-chart" aria-label="Market movement preview"></div>
+          <div class="spotlight-meta" id="spotlight-meta"></div>
+        </article>
+
+        <article class="app-card market-movers-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Live movers</span>
+              <h2>What traders are watching</h2>
+            </div>
+          </div>
+          <div class="market-mover-list" id="market-movers-list"></div>
+        </article>
+      </section>
+
+      <section class="app-card market-board-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Explore</span>
+            <h2 id="market-list-title">All markets</h2>
+          </div>
+          <span class="market-result-count" id="market-result-count">Loading</span>
+        </div>
+        <div class="market-card-grid" id="market-card-grid">
+          <article class="market-loading-card">Loading markets...</article>
+        </div>
+      </section>
+
+      <section class="market-columns">
         <div class="app-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Crypto and deposits</span>
-              <h2>Digital assets</h2>
+              <span class="muted-label">Deposit-ready crypto</span>
+              <h2>Popular funding assets</h2>
             </div>
           </div>
-          <div class="watchlist" id="demo-crypto-list">
-            <div><span>BTC</span><strong>$63,100</strong><small class="gain">&uarr; +3.47%</small></div>
-            <div><span>ETH</span><strong>$3,280</strong><small class="gain">&uarr; +1.12%</small></div>
-            <div><span>SOL</span><strong>$142.80</strong><small class="loss">&darr; -0.64%</small></div>
-            <div><span>DOGE</span><strong>$0.12</strong><small class="gain">&uarr; +2.05%</small></div>
-            <div><span>ADA</span><strong>$0.41</strong><small class="loss">&darr; -0.38%</small></div>
-            <div><span>AU</span><strong>Demo</strong><small>Currency vision</small></div>
-          </div>
-        </div>
-
-        <div class="app-card trade-ticket">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Order ticket</span>
-              <h2>Practice trade</h2>
-            </div>
-          </div>
-          <form class="ticket-form">
-            <label>Asset<input id="ticket-asset" value="BTC / Bitcoin" readonly></label>
-            <label>Action<select><option>Buy</option><option>Sell</option></select></label>
-            <label>Order type<select><option>Market</option><option>Limit</option></select></label>
-            <label>Demo amount<input value="$1,000.00"></label>
-            <button type="button" class="btn">Preview Order</button>
-          </form>
+          <div class="compact-market-list" id="funding-assets-list"></div>
         </div>
 
         <div class="app-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Stocks, ETFs, and commodities</span>
-              <h2>Global markets</h2>
+              <span class="muted-label">World economy</span>
+              <h2>Global instruments</h2>
             </div>
           </div>
-          <div class="watchlist" id="demo-stock-list">
-            <div><span>SPY</span><strong>$608.42</strong><small class="gain">&uarr; +0.42%</small></div>
-            <div><span>QQQ</span><strong>$526.18</strong><small class="gain">&uarr; +0.58%</small></div>
-            <div><span>AAPL</span><strong>$201.34</strong><small class="gain">&uarr; +1.12%</small></div>
-            <div><span>NVDA</span><strong>$141.36</strong><small class="loss">&darr; -0.40%</small></div>
-            <div><span>TSLA</span><strong>$184.29</strong><small class="gain">&uarr; +0.90%</small></div>
-            <div><span>MSFT</span><strong>$448.10</strong><small class="loss">&darr; -0.21%</small></div>
-          </div>
+          <div class="compact-market-list" id="global-assets-list"></div>
         </div>
       </section>
     </main>

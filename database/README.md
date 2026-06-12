@@ -62,8 +62,9 @@ Live data endpoints:
 /api/live/status
 /api/live/refresh
 /api/markets/catalog
+/api/markets/asset/:symbol
 /api/markets/snapshots
 /api/news/snapshots
 ```
 
-The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down. The signed-in demo markets page uses `/api/markets/catalog` for the broader tradeable asset universe: 50 crypto assets with deposit-network metadata and 50 global stock, ETF, oil, metals, and commodity-linked instruments.
+The homepage still calls `/api/markets/crypto`, `/api/markets/stocks`, `/api/markets/signals`, and `/api/news`. Those routes now save fresh provider data into Supabase and fall back to Supabase snapshots if a live provider is down. The signed-in demo markets page uses `/api/markets/catalog` for the broader tradeable asset universe: 50 crypto assets with deposit-network metadata and 50 global stock, ETF, oil, metals, and commodity-linked instruments. The asset detail page calls `/api/markets/asset/:symbol` for a single instrument, Yahoo chart points, and the practice account's current demo holding/activity for that asset.

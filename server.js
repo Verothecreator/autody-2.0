@@ -998,6 +998,65 @@ async function fetchYahooChartSignal(symbol, name) {
   };
 }
 
+const CHART_RANGE_CONFIG = {
+  "1d": { range: "1d", interval: "5m" },
+  "1w": { range: "5d", interval: "15m" },
+  "1m": { range: "1mo", interval: "1d" },
+  "3m": { range: "3mo", interval: "1d" },
+  "1y": { range: "1y", interval: "1wk" },
+  all: { range: "5y", interval: "1mo" }
+};
+
+async function fetchYahooChartSeries(asset, requestedRange = "1d") {
+  const requested = String(requestedRange || "1d").toLowerCase();
+  const selectedRange = CHART_RANGE_CONFIG[requested] ? requested : "1d";
+  const config = CHART_RANGE_CONFIG[selectedRange];
+  const encoded = encodeURIComponent(marketDataSymbol(asset));
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=${config.range}&interval=${config.interval}`;
+  const json = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Autody/1.0 market detail"
+    }
+  }).then((r) => {
+    if (!r.ok) throw new Error(`Yahoo chart HTTP ${r.status}`);
+    return r.json();
+  });
+
+  const result = json.chart?.result?.[0];
+  const meta = result?.meta || {};
+  const timestamps = result?.timestamp || [];
+  const quote = result?.indicators?.quote?.[0] || {};
+  const closes = quote.close || [];
+  const volumes = quote.volume || [];
+
+  const points = timestamps.map((time, index) => ({
+    time: new Date(time * 1000).toISOString(),
+    close: Number(closes[index]),
+    volume: volumes[index] == null ? null : Number(volumes[index])
+  })).filter((point) => Number.isFinite(point.close));
+
+  const high = Number(meta.regularMarketDayHigh);
+  const low = Number(meta.regularMarketDayLow);
+  const previousClose = Number(meta.previousClose ?? meta.chartPreviousClose);
+  const volume = Number(meta.regularMarketVolume);
+
+  return {
+    range: selectedRange,
+    providerSymbol: marketDataSymbol(asset),
+    currency: meta.currency || asset.currency || "USD",
+    points,
+    stats: {
+      previousClose: Number.isFinite(previousClose) ? previousClose : null,
+      dayHigh: Number.isFinite(high) ? high : null,
+      dayLow: Number.isFinite(low) ? low : null,
+      volume: Number.isFinite(volume) ? volume : null,
+      exchangeName: meta.exchangeName || asset.market || null,
+      instrumentType: meta.instrumentType || null
+    }
+  };
+}
+
 async function fetchYahooChartAssets(assets) {
   const settled = await Promise.allSettled(assets.map(async (asset) => {
     const quote = await fetchYahooChartSignal(marketDataSymbol(asset), asset.name);
@@ -1522,14 +1581,14 @@ app.get("/api/markets/snapshots", async (req, res) => {
     const limit = Math.min(Number(req.query.limit || 30), 100);
     const result = symbol
       ? await dbPool.query(`
-          select provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, captured_at
+          select provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, currency, captured_at
           from market_snapshots
           where upper(symbol) = $1
           order by captured_at desc
           limit $2
         `, [symbol, limit])
       : await dbPool.query(`
-          select distinct on (symbol) provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, captured_at
+          select distinct on (symbol) provider, symbol, asset_name, asset_type, price_usd, change_pct, market_cap_usd, currency, captured_at
           from market_snapshots
           order by symbol, captured_at desc
           limit $1
@@ -1578,6 +1637,52 @@ app.get("/api/markets/catalog", async (req, res) => {
   } catch (err) {
     console.error("Market catalog error:", err);
     return res.status(500).json({ success: false, error: "Market catalog unavailable" });
+  }
+});
+
+app.get("/api/markets/asset/:symbol", async (req, res) => {
+  try {
+    const symbol = decodeURIComponent(req.params.symbol || "").trim().toUpperCase();
+    const range = String(req.query.range || "1d").toLowerCase();
+    const assets = await buildMarketCatalog("all");
+    const asset = assets.find((item) => {
+      const candidates = [item.symbol, item.id, item.providerSymbol].filter(Boolean).map((value) => String(value).toUpperCase());
+      return candidates.includes(symbol);
+    });
+
+    if (!asset) {
+      return res.status(404).json({ success: false, error: "Asset not found" });
+    }
+
+    const [chartResult, accountResult] = await Promise.allSettled([
+      fetchYahooChartSeries(asset, range),
+      getPracticeAccountAny()
+    ]);
+
+    const chart = chartResult.status === "fulfilled"
+      ? chartResult.value
+      : { range, providerSymbol: asset.providerSymbol, currency: asset.currency || "USD", points: [], stats: {} };
+
+    const account = accountResult.status === "fulfilled" ? accountResult.value : null;
+    const holding = account?.wallet?.holdings?.find((item) => String(item.symbol).toUpperCase() === asset.symbol) || null;
+    const orders = (account?.orders || [])
+      .filter((order) => String(order.symbol).toUpperCase() === asset.symbol)
+      .slice(0, 8);
+
+    return res.json({
+      success: true,
+      asset,
+      chart,
+      demo: {
+        buyingPower: account?.user?.cashBalance ?? 50000,
+        startingBalance: account?.user?.startingBalance ?? 50000,
+        holding,
+        orders
+      }
+    });
+  } catch (err) {
+    console.error("Market asset detail error:", err);
+    return res.status(500).json({ success: false, error: "Market asset unavailable" });
   }
 });
 
