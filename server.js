@@ -71,6 +71,7 @@ let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
 let lastChartRefresh = null;
+let liveMarketAssetCache = { assets: [], bySymbol: new Map(), updatedAt: 0 };
 const marketCatalogCache = new Map();
 const SERVER_STARTED_AT = Date.now();
 let dbSlowUntil = SERVER_STARTED_AT + DB_STARTUP_FALLBACK_MS;
@@ -1886,31 +1887,32 @@ async function buildMarketCatalog(type = "all") {
 
     const assets = catalog.map((asset) => {
         const snapshot = snapshotMap.get(asset.symbol);
+        const memorySnapshot = liveMarketAssetCache.bySymbol.get(String(asset.symbol || "").toUpperCase());
         const fallbackQuote = fallbackMarketQuote(asset.symbol);
         const fallbackStatus = fallbackQuote.price != null ? "Backup quote" : "Waiting for first refresh";
         return {
             ...asset,
-            price: snapshot?.price ?? asset.price ?? fallbackQuote.price ?? null,
-            changePct: snapshot?.changePct ?? asset.changePct ?? fallbackQuote.changePct ?? null,
-            marketCap: asset.marketCap ?? snapshot?.marketCap ?? null,
-            fdv: asset.fdv ?? snapshot?.fdv ?? null,
-            liquidityUsd: asset.liquidityUsd ?? snapshot?.liquidityUsd ?? null,
-            totalVolume: asset.totalVolume ?? snapshot?.totalVolume ?? null,
-            high24h: asset.high24h ?? snapshot?.high24h ?? null,
-            low24h: asset.low24h ?? snapshot?.low24h ?? null,
-            ath: asset.ath ?? snapshot?.ath ?? null,
-            atl: asset.atl ?? snapshot?.atl ?? null,
-            circulatingSupply: asset.circulatingSupply ?? snapshot?.circulatingSupply ?? null,
-            totalSupply: asset.totalSupply ?? snapshot?.totalSupply ?? null,
-            maxSupply: asset.maxSupply ?? snapshot?.maxSupply ?? null,
-            currency: asset.currency || snapshot?.currency || "USD",
-            providerSymbol: asset.providerSymbol || snapshot?.providerSymbol || marketDataSymbol(asset),
-            market: asset.market || snapshot?.market || "Global",
-            depositNetworks: asset.depositNetworks?.length ? asset.depositNetworks : snapshot?.depositNetworks || [],
-            logoUrl: asset.logoUrl || snapshot?.logoUrl || assetLogoUrl(asset),
-            dataProvider: asset.dataProvider || snapshot?.provider || null,
-            capturedAt: asset.capturedAt || snapshot?.capturedAt || null,
-            status: asset.status || (snapshot ? "Live" : fallbackStatus)
+            price: memorySnapshot?.price ?? snapshot?.price ?? asset.price ?? fallbackQuote.price ?? null,
+            changePct: memorySnapshot?.changePct ?? snapshot?.changePct ?? asset.changePct ?? fallbackQuote.changePct ?? null,
+            marketCap: memorySnapshot?.marketCap ?? asset.marketCap ?? snapshot?.marketCap ?? null,
+            fdv: memorySnapshot?.fdv ?? asset.fdv ?? snapshot?.fdv ?? null,
+            liquidityUsd: memorySnapshot?.liquidityUsd ?? asset.liquidityUsd ?? snapshot?.liquidityUsd ?? null,
+            totalVolume: memorySnapshot?.totalVolume ?? asset.totalVolume ?? snapshot?.totalVolume ?? null,
+            high24h: memorySnapshot?.high24h ?? asset.high24h ?? snapshot?.high24h ?? null,
+            low24h: memorySnapshot?.low24h ?? asset.low24h ?? snapshot?.low24h ?? null,
+            ath: memorySnapshot?.ath ?? asset.ath ?? snapshot?.ath ?? null,
+            atl: memorySnapshot?.atl ?? asset.atl ?? snapshot?.atl ?? null,
+            circulatingSupply: memorySnapshot?.circulatingSupply ?? asset.circulatingSupply ?? snapshot?.circulatingSupply ?? null,
+            totalSupply: memorySnapshot?.totalSupply ?? asset.totalSupply ?? snapshot?.totalSupply ?? null,
+            maxSupply: memorySnapshot?.maxSupply ?? asset.maxSupply ?? snapshot?.maxSupply ?? null,
+            currency: memorySnapshot?.currency || asset.currency || snapshot?.currency || "USD",
+            providerSymbol: memorySnapshot?.providerSymbol || asset.providerSymbol || snapshot?.providerSymbol || marketDataSymbol(asset),
+            market: memorySnapshot?.market || asset.market || snapshot?.market || "Global",
+            depositNetworks: asset.depositNetworks?.length ? asset.depositNetworks : memorySnapshot?.depositNetworks || snapshot?.depositNetworks || [],
+            logoUrl: memorySnapshot?.logoUrl || asset.logoUrl || snapshot?.logoUrl || assetLogoUrl(asset),
+            dataProvider: memorySnapshot?.dataProvider || asset.dataProvider || snapshot?.provider || null,
+            capturedAt: memorySnapshot?.capturedAt || asset.capturedAt || snapshot?.capturedAt || null,
+            status: memorySnapshot ? "Live" : asset.status || (snapshot ? "Live" : fallbackStatus)
         };
     });
 
@@ -1930,6 +1932,31 @@ function mergeRankedMarketAssets(...assetGroups) {
         }
     }
     return [...merged.values()].sort((a, b) => (a.rank || 999) - (b.rank || 999));
+}
+
+function cacheLiveMarketAssets(assets = [], provider = "live-provider") {
+  const existing = new Map(liveMarketAssetCache.bySymbol);
+  const capturedAt = new Date().toISOString();
+
+  for (const asset of assets || []) {
+    if (!asset?.symbol || asset.price == null) continue;
+    const entry = {
+      ...asset,
+      symbol: String(asset.symbol).toUpperCase(),
+      dataProvider: asset.dataProvider || asset.provider || provider,
+      provider: asset.provider || asset.dataProvider || provider,
+      capturedAt: asset.capturedAt || capturedAt,
+      status: "Live"
+    };
+    existing.set(entry.symbol, entry);
+  }
+
+  liveMarketAssetCache = {
+    assets: [...existing.values()],
+    bySymbol: existing,
+    updatedAt: Date.now()
+  };
+  marketCatalogCache.clear();
 }
 
 // ------------------ EXPRESS --------------------
@@ -3282,7 +3309,10 @@ async function fetchCryptoMarketData() {
       throw new Error(`CoinGecko returned only ${assets.length} crypto assets`);
     }
 
-    await saveMarketSnapshots("coingecko", "crypto", assets);
+    await saveMarketSnapshots("coingecko", "crypto", assets).catch((saveErr) => {
+      console.error("Crypto market snapshot save unavailable:", saveErr);
+    });
+    cacheLiveMarketAssets(assets, "coingecko");
     return { success: true, provider: "coingecko", assets };
   } catch (err) {
     console.error("Crypto market proxy error:", err);
@@ -3299,7 +3329,10 @@ async function fetchCryptoMarketData() {
       ]);
       const assets = mergeRankedMarketAssets(coinbaseAssets, yahooAssets);
       if (!assets.length) throw new Error("Crypto fallbacks returned no assets");
-      await saveMarketSnapshots("coinbase-yahoo", "crypto", assets);
+      await saveMarketSnapshots("coinbase-yahoo", "crypto", assets).catch((saveErr) => {
+        console.error("Crypto fallback snapshot save unavailable:", saveErr);
+      });
+      cacheLiveMarketAssets(assets, "coinbase-yahoo");
       return { success: true, provider: "coinbase-yahoo", assets };
     } catch (fallbackErr) {
       console.error("Crypto fallback error:", fallbackErr);
@@ -3360,14 +3393,20 @@ async function fetchStockMarketData() {
       throw new Error(`Yahoo quote returned only ${assets.length} stock assets`);
     }
 
-    await saveMarketSnapshots("yahoo", "stock", assets);
+    await saveMarketSnapshots("yahoo", "stock", assets).catch((saveErr) => {
+      console.error("Stock market snapshot save unavailable:", saveErr);
+    });
+    cacheLiveMarketAssets(assets, "yahoo");
     return { success: true, provider: "yahoo", assets };
   } catch (err) {
     console.error("Stock market proxy error:", err);
     try {
       const assets = await fetchYahooChartAssets(TRADE_STOCK_ASSETS);
       if (!assets.length) throw new Error("Yahoo chart returned no stock assets");
-      await saveMarketSnapshots("yahoo-chart", "stock", assets);
+      await saveMarketSnapshots("yahoo-chart", "stock", assets).catch((saveErr) => {
+        console.error("Yahoo chart snapshot save unavailable:", saveErr);
+      });
+      cacheLiveMarketAssets(assets, "yahoo-chart");
       return { success: true, provider: "yahoo-chart", assets };
     } catch (chartErr) {
       console.error("Yahoo chart stock fallback error:", chartErr);
@@ -3389,7 +3428,10 @@ async function fetchStockMarketData() {
             time: asset.time
           };
         }).sort((a, b) => a.rank - b.rank);
-        await saveMarketSnapshots("stooq", "stock", assets);
+        await saveMarketSnapshots("stooq", "stock", assets).catch((saveErr) => {
+          console.error("Stooq snapshot save unavailable:", saveErr);
+        });
+        cacheLiveMarketAssets(assets, "stooq");
         return { success: true, provider: "stooq", assets };
       } catch (fallbackErr) {
         console.error("Stooq stock fallback error:", fallbackErr);
@@ -3418,10 +3460,14 @@ async function fetchSignalMarketData() {
     const gold = goldResult.status === "fulfilled" ? goldResult.value : null;
     const economy = economyResult.status === "fulfilled" ? economyResult.value : null;
 
-    await saveMarketSnapshots("yahoo", "signal", [
+    const signalAssets = [
       gold ? { symbol: "GC=F", name: gold.name, price: gold.price, changePct: gold.changePct } : null,
       economy ? { symbol: "^TNX", name: economy.name, price: economy.price, changePct: economy.changePct } : null
-    ].filter(Boolean));
+    ].filter(Boolean);
+    await saveMarketSnapshots("yahoo", "signal", signalAssets).catch((saveErr) => {
+      console.error("Signal snapshot save unavailable:", saveErr);
+    });
+    cacheLiveMarketAssets(signalAssets, "yahoo");
 
     return {
       success: true,
@@ -3932,6 +3978,10 @@ app.get("/api/live/status", (req, res) => {
       staleMs: LIVE_MARKET_STALE_MS,
       chartMs: LIVE_CHART_REFRESH_MS,
       newsMs: LIVE_NEWS_REFRESH_MS
+    },
+    liveCache: {
+      count: liveMarketAssetCache.assets.length,
+      updatedAt: liveMarketAssetCache.updatedAt ? new Date(liveMarketAssetCache.updatedAt).toISOString() : null
     },
     lastRefresh: lastLiveRefresh,
     lastChartRefresh
