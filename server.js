@@ -407,7 +407,6 @@ function assetCatalogEntry(asset) {
         circulatingSupply: asset.circulatingSupply ?? null,
         totalSupply: asset.totalSupply ?? null,
         maxSupply: asset.maxSupply ?? null,
-        sparkline: asset.sparkline || null,
         logoUrl: assetLogoUrl(asset),
         dataProvider: asset.dataProvider || null,
         capturedAt: asset.capturedAt || null,
