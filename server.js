@@ -3795,7 +3795,12 @@ app.get("/api/markets/snapshots", async (req, res) => {
     return res.json({ success: true, configured: true, snapshots: result.rows });
   } catch (err) {
     console.error("Market snapshot read failed:", err);
-    return res.status(500).json({ success: false, error: "Market snapshots unavailable" });
+    return res.status(500).json({
+      success: false,
+      error: "Market snapshots unavailable",
+      detail: err.message || String(err),
+      code: err.code || null
+    });
   }
 });
 
