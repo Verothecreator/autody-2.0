@@ -41,7 +41,7 @@ const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 1000);
 const DB_SLOW_RETRY_MS = Number(process.env.DB_SLOW_RETRY_MS || 30 * 1000);
-const DB_STARTUP_FALLBACK_MS = Number(process.env.DB_STARTUP_FALLBACK_MS || 60 * 1000);
+const DB_STARTUP_FALLBACK_MS = Number(process.env.DB_STARTUP_FALLBACK_MS || 10 * 1000);
 const dbPool = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
     ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
@@ -50,13 +50,13 @@ const dbPool = DATABASE_URL ? new Pool({
     statement_timeout: DB_QUERY_TIMEOUT_MS
 }) : null;
 const CHART_RANGE_KEYS = ["1d", "1w", "1m", "3m", "1y", "all"];
-const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 10 * 60 * 1000);
+const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 2 * 60 * 1000);
 const LIVE_MARKET_STALE_MS = Number(process.env.LIVE_MARKET_STALE_MS || Math.max(2 * 60 * 1000, LIVE_MARKET_REFRESH_MS));
 const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 0);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
-const MARKET_CATALOG_CACHE_MS = Number(process.env.MARKET_CATALOG_CACHE_MS || 60 * 1000);
-const REQUEST_TRIGGERED_REFRESH_ENABLED = process.env.REQUEST_TRIGGERED_REFRESH_ENABLED === "true";
-const STARTUP_MARKET_REFRESH_DELAY_MS = Number(process.env.STARTUP_MARKET_REFRESH_DELAY_MS || 0);
+const MARKET_CATALOG_CACHE_MS = Number(process.env.MARKET_CATALOG_CACHE_MS || 15 * 1000);
+const REQUEST_TRIGGERED_REFRESH_ENABLED = process.env.REQUEST_TRIGGERED_REFRESH_ENABLED !== "false";
+const STARTUP_MARKET_REFRESH_DELAY_MS = Number(process.env.STARTUP_MARKET_REFRESH_DELAY_MS || 8 * 1000);
 const STARTUP_CHART_REFRESH_DELAY_MS = Number(process.env.STARTUP_CHART_REFRESH_DELAY_MS || 0);
 const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD,GC=F,CL=F")
     .split(",")
@@ -111,13 +111,18 @@ function temporaryDatabaseError(err) {
     return /timeout|timed out|terminated|connection|ECONN|ETIMEDOUT|ECONNRESET|server closed|too many clients|remaining connection slots|read-only transaction|read only transaction/i.test(`${code} ${message}`);
 }
 
+function readOnlyTransactionError(err) {
+    const message = String(err?.message || err || "");
+    return /read-only transaction|read only transaction/i.test(message);
+}
+
 async function withDemoWriteFallback(label, databaseWrite, jsonWrite) {
     if (databaseConfigured() && !dbCircuitOpen()) {
         try {
             return await databaseWrite();
         } catch (err) {
             if (!temporaryDatabaseError(err)) throw err;
-            markDatabaseSlow(err);
+            if (!readOnlyTransactionError(err)) markDatabaseSlow(err);
             console.error(`${label} fell back to JSON demo storage:`, err.message || err);
         }
     }

@@ -1312,20 +1312,24 @@ a.asset-table-row {
 
 .wallet-subasset-row .wallet-asset-name,
 .watchlist-row > span:first-child {
-  min-height: 42px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  column-gap: 12px;
+  min-height: 44px;
   align-items: center;
-  gap: 12px;
 }
 
 .wallet-subasset-row .asset-copy,
 .watchlist-row .asset-copy {
   align-self: center;
-  justify-content: center;
+  align-content: center;
 }
 
 .wallet-subasset-row .asset-logo-small,
 .watchlist-row .asset-logo {
   margin: 0;
+  justify-self: center;
+  align-self: center;
 }
 
 .wallet-subasset-row span:first-child a,
@@ -2743,11 +2747,12 @@ a.asset-table-row {
 }
 
 .watchlist-row > span:first-child {
-  display: flex;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  column-gap: 12px;
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
 }
 
 .watchlist-row > span:first-child a {
