@@ -40,6 +40,7 @@ const PRACTICE_USER_ID = "practice-user";
 const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 1000);
+const DB_SLOW_RETRY_MS = Number(process.env.DB_SLOW_RETRY_MS || 30 * 1000);
 const dbPool = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
     ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
@@ -48,12 +49,13 @@ const dbPool = DATABASE_URL ? new Pool({
     statement_timeout: DB_QUERY_TIMEOUT_MS
 }) : null;
 const CHART_RANGE_KEYS = ["1d", "1w", "1m", "3m", "1y", "all"];
-const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 5 * 60 * 1000);
+const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 10 * 60 * 1000);
 const LIVE_MARKET_STALE_MS = Number(process.env.LIVE_MARKET_STALE_MS || Math.max(2 * 60 * 1000, LIVE_MARKET_REFRESH_MS));
-const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 15 * 60 * 1000);
+const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 0);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
-const MARKET_CATALOG_CACHE_MS = Number(process.env.MARKET_CATALOG_CACHE_MS || 15 * 1000);
-const STARTUP_MARKET_REFRESH_DELAY_MS = Number(process.env.STARTUP_MARKET_REFRESH_DELAY_MS || 45 * 1000);
+const MARKET_CATALOG_CACHE_MS = Number(process.env.MARKET_CATALOG_CACHE_MS || 60 * 1000);
+const REQUEST_TRIGGERED_REFRESH_ENABLED = process.env.REQUEST_TRIGGERED_REFRESH_ENABLED === "true";
+const STARTUP_MARKET_REFRESH_DELAY_MS = Number(process.env.STARTUP_MARKET_REFRESH_DELAY_MS || 0);
 const STARTUP_CHART_REFRESH_DELAY_MS = Number(process.env.STARTUP_CHART_REFRESH_DELAY_MS || 0);
 const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD,GC=F,CL=F")
     .split(",")
@@ -70,6 +72,7 @@ let chartRefreshInFlight = null;
 let lastChartRefresh = null;
 const marketCatalogCache = new Map();
 const SERVER_STARTED_AT = Date.now();
+let dbSlowUntil = 0;
 
 function withTimeout(promise, ms, label = "Operation") {
     let timeout;
@@ -81,6 +84,24 @@ function withTimeout(promise, ms, label = "Operation") {
         Promise.resolve(promise).finally(() => clearTimeout(timeout)),
         timeoutPromise
     ]);
+}
+
+function dbCircuitOpen() {
+    return Date.now() < dbSlowUntil;
+}
+
+function markDatabaseSlow(err) {
+    dbSlowUntil = Date.now() + DB_SLOW_RETRY_MS;
+    if (err) console.warn(`Database fallback active for ${DB_SLOW_RETRY_MS}ms:`, err.message || err);
+}
+
+async function withDbTimeout(promise, label = "Database query") {
+    try {
+        return await withTimeout(promise, DB_QUERY_TIMEOUT_MS, label);
+    } catch (err) {
+        markDatabaseSlow(err);
+        throw err;
+    }
 }
 
 function loadOrders() {
@@ -537,11 +558,10 @@ async function getPracticeAccountFromDatabase() {
 }
 
 async function getPracticeAccountAny() {
-    if (databaseConfigured()) {
+    if (databaseConfigured() && !dbCircuitOpen()) {
         try {
-            const account = await withTimeout(
+            const account = await withDbTimeout(
                 getPracticeAccountFromDatabase(),
-                DB_QUERY_TIMEOUT_MS,
                 "Supabase practice account read"
             );
             if (account) return { ...account, source: "supabase" };
@@ -1521,11 +1541,11 @@ async function saveNewsSnapshots(provider, articles = []) {
 }
 
 async function readLatestMarketSnapshots(assetType, limit = 6) {
-    if (!databaseConfigured()) return [];
+    if (!databaseConfigured() || dbCircuitOpen()) return [];
 
     try {
         const assetTypes = Array.isArray(assetType) ? assetType : [assetType];
-        const latestResult = await withTimeout(dbPool.query(`
+        const latestResult = await withDbTimeout(dbPool.query(`
             select *
             from (
                 select distinct on (symbol)
@@ -1558,13 +1578,13 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
             ) latest
             order by captured_at desc
             limit $2
-        `, [assetTypes, limit]), DB_QUERY_TIMEOUT_MS, "Market snapshot read");
+        `, [assetTypes, limit]), "Market snapshot read");
 
         const symbols = latestResult.rows.map((row) => row.symbol).filter(Boolean);
         const richRows = new Map();
 
         if (symbols.length) {
-            const richResult = await withTimeout(dbPool.query(`
+            const richResult = await withDbTimeout(dbPool.query(`
                 select distinct on (symbol)
                     provider,
                     symbol,
@@ -1604,7 +1624,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
                     or max_supply is not null
                   )
                 order by symbol, captured_at desc
-            `, [assetTypes, symbols]), DB_QUERY_TIMEOUT_MS, "Market snapshot metadata read");
+            `, [assetTypes, symbols]), "Market snapshot metadata read");
 
             richResult.rows.forEach((row) => richRows.set(row.symbol, row));
         }
@@ -3322,6 +3342,7 @@ function lastMarketRefreshTime() {
 }
 
 function maybeKickLiveMarketRefresh(reason = "request-stale") {
+  if (!REQUEST_TRIGGERED_REFRESH_ENABLED) return;
   if (!databaseConfigured()) return;
   if (liveRefreshInFlight) return;
 
@@ -3393,10 +3414,19 @@ app.get("/api/db/status", async (req, res) => {
     });
   }
 
+  if (dbCircuitOpen()) {
+    return res.status(503).json({
+      success: true,
+      configured: true,
+      provider: "supabase-postgres",
+      connected: false,
+      error: "Database connection is slow right now. Demo routes will use the local fallback."
+    });
+  }
+
   try {
-    const result = await withTimeout(
+    const result = await withDbTimeout(
       dbPool.query("select now() as connected_at"),
-      DB_QUERY_TIMEOUT_MS,
       "Database status"
     );
     return res.json({
