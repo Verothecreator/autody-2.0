@@ -41,6 +41,7 @@ const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 1000);
 const DB_SLOW_RETRY_MS = Number(process.env.DB_SLOW_RETRY_MS || 30 * 1000);
+const DB_STARTUP_FALLBACK_MS = Number(process.env.DB_STARTUP_FALLBACK_MS || 60 * 1000);
 const dbPool = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
     ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
@@ -72,7 +73,7 @@ let chartRefreshInFlight = null;
 let lastChartRefresh = null;
 const marketCatalogCache = new Map();
 const SERVER_STARTED_AT = Date.now();
-let dbSlowUntil = 0;
+let dbSlowUntil = SERVER_STARTED_AT + DB_STARTUP_FALLBACK_MS;
 
 function withTimeout(promise, ms, label = "Operation") {
     let timeout;
