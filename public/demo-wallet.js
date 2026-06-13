@@ -572,18 +572,20 @@ function renderWallet(wallet) {
 
 async function loadWallet(options = {}) {
   try {
-    const [data, catalog] = await Promise.all([
-      fetch("/api/demo/wallet", { cache: "no-store" }).then((response) => {
-        if (!response.ok) throw new Error(`/api/demo/wallet returned ${response.status}`);
-        return response.json();
-      }),
-      fetch("/api/markets/catalog?type=all", { cache: "no-store" }).then((response) => {
+    const catalogRequest = fetch("/api/markets/catalog?type=all", { cache: "no-store" }).then((response) => {
         if (!response.ok) throw new Error(`/api/markets/catalog returned ${response.status}`);
         return response.json();
-      }).catch(() => ({ assets: walletCatalog }))
-    ]);
+      }).catch(() => ({ assets: walletCatalog }));
+
+    const data = await fetch("/api/demo/wallet", { cache: "no-store" }).then((response) => {
+      if (!response.ok) throw new Error(`/api/demo/wallet returned ${response.status}`);
+      return response.json();
+    });
     if (!data.success) throw new Error(data.error || "Demo wallet failed");
 
+    renderWallet(data.wallet);
+
+    const catalog = await catalogRequest;
     walletCatalog = catalog.assets || walletCatalog;
     renderWallet(data.wallet);
   } catch (err) {

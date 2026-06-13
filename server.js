@@ -48,6 +48,7 @@ const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 60 *
 const LIVE_MARKET_STALE_MS = Number(process.env.LIVE_MARKET_STALE_MS || Math.max(45 * 1000, LIVE_MARKET_REFRESH_MS));
 const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 5 * 60 * 1000);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
+const MARKET_CATALOG_CACHE_MS = Number(process.env.MARKET_CATALOG_CACHE_MS || 15 * 1000);
 const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD,GC=F,CL=F")
     .split(",")
     .map((symbol) => symbol.trim().toUpperCase())
@@ -61,6 +62,7 @@ let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
 let lastChartRefresh = null;
+const marketCatalogCache = new Map();
 
 function loadOrders() {
     return JSON.parse(fs.readFileSync(ORDER_STORE));
@@ -1650,9 +1652,17 @@ async function readLatestNewsSnapshots(limit = 9) {
 }
 
 async function buildMarketCatalog(type = "all") {
+    const cacheKey = String(type || "all");
+    const cached = marketCatalogCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.assets;
+    }
+
     const includeCrypto = type !== "stocks";
     const includeStocks = type !== "crypto";
-    const cryptoCatalog = includeCrypto ? await getCryptoCatalogAssets() : [];
+    const cryptoCatalog = includeCrypto
+        ? (cryptoCatalogCache.assets.length ? cryptoCatalogCache.assets : staticCryptoFallbackCatalog())
+        : [];
     const stockCatalog = includeStocks ? TRADE_STOCK_ASSETS.map(assetCatalogEntry) : [];
     let catalog = [...cryptoCatalog, ...stockCatalog];
     const snapshotTypes = type === "crypto"
@@ -1700,7 +1710,7 @@ async function buildMarketCatalog(type = "all") {
         catalog = [...catalog, ...supplementalCrypto];
     }
 
-    return catalog.map((asset) => {
+    const assets = catalog.map((asset) => {
         const snapshot = snapshotMap.get(asset.symbol);
         return {
             ...asset,
@@ -1727,6 +1737,12 @@ async function buildMarketCatalog(type = "all") {
             status: asset.status || (snapshot ? "Live" : "Waiting for first refresh")
         };
     });
+
+    marketCatalogCache.set(cacheKey, {
+        assets,
+        expiresAt: Date.now() + MARKET_CATALOG_CACHE_MS
+    });
+    return assets;
 }
 
 function mergeRankedMarketAssets(...assetGroups) {
