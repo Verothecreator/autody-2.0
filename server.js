@@ -1499,10 +1499,12 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
 
     try {
         const columnCount = 22;
-        const values = [];
-        const placeholders = assets
-            .filter((asset) => asset?.symbol)
-            .map((asset, index) => {
+        const normalizedAssets = assets.filter((asset) => asset?.symbol);
+        let savedCount = 0;
+
+        for (const batch of chunkItems(normalizedAssets, 40)) {
+            const values = [];
+            const placeholders = batch.map((asset, index) => {
                 const offset = index * columnCount;
                 values.push(
                     provider,
@@ -1535,37 +1537,42 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
                 return `(${fields.join(", ")})`;
             });
 
-        if (!placeholders.length) return;
+            if (!placeholders.length) continue;
 
-        await dbPool.query(`
-            insert into market_snapshots (
-                provider,
-                symbol,
-                asset_name,
-                asset_type,
-                provider_symbol,
-                market,
-                price_usd,
-                change_pct,
-                market_cap_usd,
-                fdv_usd,
-                liquidity_usd,
-                total_volume_usd,
-                high_24h,
-                low_24h,
-                ath,
-                atl,
-                circulating_supply,
-                total_supply,
-                max_supply,
-                currency,
-                logo_url,
-                deposit_networks
-            )
-            values ${placeholders.join(", ")}
-        `, values);
+            await dbPool.query(`
+                insert into market_snapshots (
+                    provider,
+                    symbol,
+                    asset_name,
+                    asset_type,
+                    provider_symbol,
+                    market,
+                    price_usd,
+                    change_pct,
+                    market_cap_usd,
+                    fdv_usd,
+                    liquidity_usd,
+                    total_volume_usd,
+                    high_24h,
+                    low_24h,
+                    ath,
+                    atl,
+                    circulating_supply,
+                    total_supply,
+                    max_supply,
+                    currency,
+                    logo_url,
+                    deposit_networks
+                )
+                values ${placeholders.join(", ")}
+            `, values);
+            savedCount += placeholders.length;
+        }
+
+        return savedCount;
     } catch (err) {
         console.error("Market snapshot save failed:", err);
+        throw err;
     }
 }
 
@@ -3275,7 +3282,7 @@ async function fetchCryptoMarketData() {
       throw new Error(`CoinGecko returned only ${assets.length} crypto assets`);
     }
 
-    saveMarketSnapshots("coingecko", "crypto", assets);
+    await saveMarketSnapshots("coingecko", "crypto", assets);
     return { success: true, provider: "coingecko", assets };
   } catch (err) {
     console.error("Crypto market proxy error:", err);
@@ -3292,7 +3299,7 @@ async function fetchCryptoMarketData() {
       ]);
       const assets = mergeRankedMarketAssets(coinbaseAssets, yahooAssets);
       if (!assets.length) throw new Error("Crypto fallbacks returned no assets");
-      saveMarketSnapshots("coinbase-yahoo", "crypto", assets);
+      await saveMarketSnapshots("coinbase-yahoo", "crypto", assets);
       return { success: true, provider: "coinbase-yahoo", assets };
     } catch (fallbackErr) {
       console.error("Crypto fallback error:", fallbackErr);
@@ -3353,14 +3360,14 @@ async function fetchStockMarketData() {
       throw new Error(`Yahoo quote returned only ${assets.length} stock assets`);
     }
 
-    saveMarketSnapshots("yahoo", "stock", assets);
+    await saveMarketSnapshots("yahoo", "stock", assets);
     return { success: true, provider: "yahoo", assets };
   } catch (err) {
     console.error("Stock market proxy error:", err);
     try {
       const assets = await fetchYahooChartAssets(TRADE_STOCK_ASSETS);
       if (!assets.length) throw new Error("Yahoo chart returned no stock assets");
-      saveMarketSnapshots("yahoo-chart", "stock", assets);
+      await saveMarketSnapshots("yahoo-chart", "stock", assets);
       return { success: true, provider: "yahoo-chart", assets };
     } catch (chartErr) {
       console.error("Yahoo chart stock fallback error:", chartErr);
@@ -3382,7 +3389,7 @@ async function fetchStockMarketData() {
             time: asset.time
           };
         }).sort((a, b) => a.rank - b.rank);
-        saveMarketSnapshots("stooq", "stock", assets);
+        await saveMarketSnapshots("stooq", "stock", assets);
         return { success: true, provider: "stooq", assets };
       } catch (fallbackErr) {
         console.error("Stooq stock fallback error:", fallbackErr);
@@ -3411,7 +3418,7 @@ async function fetchSignalMarketData() {
     const gold = goldResult.status === "fulfilled" ? goldResult.value : null;
     const economy = economyResult.status === "fulfilled" ? economyResult.value : null;
 
-    saveMarketSnapshots("yahoo", "signal", [
+    await saveMarketSnapshots("yahoo", "signal", [
       gold ? { symbol: "GC=F", name: gold.name, price: gold.price, changePct: gold.changePct } : null,
       economy ? { symbol: "^TNX", name: economy.name, price: economy.price, changePct: economy.changePct } : null
     ].filter(Boolean));
