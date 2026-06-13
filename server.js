@@ -39,9 +39,13 @@ const DATABASE_SCHEMA_STORE = path.join(__dirname, "database", "schema.sql");
 const PRACTICE_USER_ID = "practice-user";
 const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
+const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 2500);
 const dbPool = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
-    ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
+    ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
+    connectionTimeoutMillis: DB_QUERY_TIMEOUT_MS,
+    query_timeout: DB_QUERY_TIMEOUT_MS,
+    statement_timeout: DB_QUERY_TIMEOUT_MS
 }) : null;
 const CHART_RANGE_KEYS = ["1d", "1w", "1m", "3m", "1y", "all"];
 const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 60 * 1000);
@@ -63,6 +67,18 @@ let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
 let lastChartRefresh = null;
 const marketCatalogCache = new Map();
+
+function withTimeout(promise, ms, label = "Operation") {
+    let timeout;
+    const timeoutPromise = new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+        timeout.unref?.();
+    });
+    return Promise.race([
+        Promise.resolve(promise).finally(() => clearTimeout(timeout)),
+        timeoutPromise
+    ]);
+}
 
 function loadOrders() {
     return JSON.parse(fs.readFileSync(ORDER_STORE));
@@ -520,7 +536,11 @@ async function getPracticeAccountFromDatabase() {
 async function getPracticeAccountAny() {
     if (databaseConfigured()) {
         try {
-            const account = await getPracticeAccountFromDatabase();
+            const account = await withTimeout(
+                getPracticeAccountFromDatabase(),
+                DB_QUERY_TIMEOUT_MS,
+                "Supabase practice account read"
+            );
             if (account) return { ...account, source: "supabase" };
         } catch (err) {
             console.error("Supabase practice account read failed, using JSON fallback:", err);
@@ -1502,7 +1522,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
 
     try {
         const assetTypes = Array.isArray(assetType) ? assetType : [assetType];
-        const latestResult = await dbPool.query(`
+        const latestResult = await withTimeout(dbPool.query(`
             select *
             from (
                 select distinct on (symbol)
@@ -1535,13 +1555,13 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
             ) latest
             order by captured_at desc
             limit $2
-        `, [assetTypes, limit]);
+        `, [assetTypes, limit]), DB_QUERY_TIMEOUT_MS, "Market snapshot read");
 
         const symbols = latestResult.rows.map((row) => row.symbol).filter(Boolean);
         const richRows = new Map();
 
         if (symbols.length) {
-            const richResult = await dbPool.query(`
+            const richResult = await withTimeout(dbPool.query(`
                 select distinct on (symbol)
                     provider,
                     symbol,
@@ -1581,7 +1601,7 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
                     or max_supply is not null
                   )
                 order by symbol, captured_at desc
-            `, [assetTypes, symbols]);
+            `, [assetTypes, symbols]), DB_QUERY_TIMEOUT_MS, "Market snapshot metadata read");
 
             richResult.rows.forEach((row) => richRows.set(row.symbol, row));
         }
@@ -3362,7 +3382,11 @@ app.get("/api/db/status", async (req, res) => {
   }
 
   try {
-    const result = await dbPool.query("select now() as connected_at");
+    const result = await withTimeout(
+      dbPool.query("select now() as connected_at"),
+      DB_QUERY_TIMEOUT_MS,
+      "Database status"
+    );
     return res.json({
       success: true,
       configured: true,
@@ -3371,11 +3395,12 @@ app.get("/api/db/status", async (req, res) => {
     });
   } catch (err) {
     console.error("Database status error:", err);
-    return res.status(500).json({
-      success: false,
+    return res.status(503).json({
+      success: true,
       configured: true,
       provider: "supabase-postgres",
-      error: "Database connection failed"
+      connected: false,
+      error: "Database connection is slow right now. Demo routes will use the local fallback."
     });
   }
 });
