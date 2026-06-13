@@ -60,6 +60,12 @@ function escapeMarketHtml(value = "") {
     .replace(/'/g, "&#39;");
 }
 
+function cssValue(value = "") {
+  return window.CSS?.escape
+    ? CSS.escape(String(value))
+    : String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+}
+
 function assetUrl(asset) {
   return `demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}`;
 }
@@ -178,7 +184,10 @@ function marketCard(asset) {
   const moveClass = marketMoveClass(asset.changePct);
   return `
     <article class="market-asset-card ${assetTone(asset)}">
-      <button class="market-card-menu" type="button" data-market-watch-symbol="${escapeMarketHtml(asset.symbol)}" aria-label="Add ${escapeMarketHtml(asset.symbol)} to watchlist">...</button>
+      <button class="market-card-menu" type="button" data-market-menu-symbol="${escapeMarketHtml(asset.symbol)}" aria-label="More ${escapeMarketHtml(asset.symbol)} actions" aria-expanded="false">...</button>
+      <div class="market-card-popover" data-market-menu="${escapeMarketHtml(asset.symbol)}" hidden>
+        <button type="button" data-market-watch-symbol="${escapeMarketHtml(asset.symbol)}">Add to watchlist</button>
+      </div>
       <a class="market-card-main" href="${assetUrl(asset)}">
         <div class="asset-card-top">
           ${marketLogoMarkup(asset)}
@@ -336,17 +345,44 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const menuButton = event.target.closest("[data-market-menu-symbol]");
+  if (menuButton) {
+    const symbol = menuButton.dataset.marketMenuSymbol;
+    document.querySelectorAll("[data-market-menu]").forEach((menu) => {
+      const isTarget = menu.dataset.marketMenu === symbol;
+      menu.hidden = !isTarget || !menu.hidden;
+    });
+    document.querySelectorAll("[data-market-menu-symbol]").forEach((button) => {
+      const expanded = button === menuButton && !document.querySelector(`[data-market-menu="${cssValue(symbol)}"]`)?.hidden;
+      button.setAttribute("aria-expanded", String(expanded));
+    });
+    return;
+  }
+
   const watchButton = event.target.closest("[data-market-watch-symbol]");
   if (watchButton) {
     const symbol = watchButton.dataset.marketWatchSymbol;
     watchButton.disabled = true;
     postJson("/api/demo/watchlist", { symbol })
-      .then(() => showMarketToast(`${symbol} added to your watchlist.`, "gain"))
+      .then(() => {
+        document.querySelector(`[data-market-menu="${cssValue(symbol)}"]`)?.setAttribute("hidden", "");
+        document.querySelector(`[data-market-menu-symbol="${cssValue(symbol)}"]`)?.setAttribute("aria-expanded", "false");
+        showMarketToast(`${symbol} added to your watchlist.`, "gain");
+      })
       .catch((err) => showMarketToast(err.message || "Watchlist could not be updated.", "loss"))
       .finally(() => {
         watchButton.disabled = false;
       });
     return;
+  }
+
+  if (!event.target.closest(".market-asset-card")) {
+    document.querySelectorAll("[data-market-menu]").forEach((menu) => {
+      menu.hidden = true;
+    });
+    document.querySelectorAll("[data-market-menu-symbol]").forEach((button) => {
+      button.setAttribute("aria-expanded", "false");
+    });
   }
 
   const filter = event.target.closest("[data-market-filter]");

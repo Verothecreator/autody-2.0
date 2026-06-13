@@ -1208,6 +1208,11 @@ button.asset-table-row {
   cursor: pointer;
 }
 
+a.asset-table-row {
+  color: var(--muted);
+  text-decoration: none;
+}
+
 .asset-table-row.head {
   min-height: auto;
   background: transparent;
@@ -1236,6 +1241,10 @@ button.asset-table-row {
   transform: translateY(-1px);
 }
 
+.wallet-group-row.active {
+  border-color: rgba(93, 95, 239, 0.78) !important;
+}
+
 .wallet-holding-row span:first-child {
   display: flex;
   align-items: center;
@@ -1253,6 +1262,39 @@ button.asset-table-row {
   margin-left: auto;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.wallet-subasset-row {
+  grid-template-columns: 1.25fr 1fr 1fr 0.6fr;
+  margin-left: 22px;
+  width: calc(100% - 22px);
+  border: 1px solid rgba(93, 95, 239, 0.22);
+  background: rgba(255, 255, 255, 0.025);
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.wallet-subasset-row:hover {
+  border-color: rgba(93, 95, 239, 0.66);
+  background: rgba(93, 95, 239, 0.09);
+  transform: translateY(-1px);
+}
+
+.wallet-subasset-row span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wallet-subasset-row span:first-child a,
+.wallet-subasset-row span:first-child b,
+.wallet-subasset-row span:first-child small {
+  display: block;
+}
+
+.wallet-subasset-row span:first-child small {
+  color: var(--muted);
+  font-size: 0.74rem;
 }
 
 .asset-dot.cash {
@@ -2057,6 +2099,42 @@ button.asset-table-row {
   cursor: wait;
 }
 
+.market-card-popover,
+.asset-row-menu {
+  position: absolute;
+  z-index: 12;
+  min-width: 170px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(12, 16, 22, 0.98);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+}
+
+.market-card-popover {
+  top: 48px;
+  right: 12px;
+}
+
+.market-card-popover button,
+.asset-row-menu button {
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+}
+
+.market-card-popover button:hover,
+.asset-row-menu button:hover {
+  background: rgba(93, 95, 239, 0.18);
+}
+
 .market-asset-card:hover {
   border-color: rgba(93, 95, 239, 0.75);
   background: rgba(93, 95, 239, 0.11);
@@ -2534,6 +2612,55 @@ button.asset-table-row {
   font-style: normal;
   line-height: 1.2;
   text-transform: none;
+}
+
+.watchlist-row {
+  position: relative;
+}
+
+.watchlist-row > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.watchlist-row > span:first-child a {
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.watchlist-row > span:first-child b,
+.watchlist-row > span:first-child small {
+  display: block;
+}
+
+.watchlist-row > span:first-child small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.watchlist-menu-cell {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.asset-row-menu-button {
+  width: 34px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.asset-row-menu {
+  top: 38px;
+  right: 0;
 }
 
 .activity-list strong,

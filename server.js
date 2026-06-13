@@ -1228,6 +1228,39 @@ async function addDemoWatchlistSymbol(symbol) {
     return addJsonWatchlistSymbol(symbol);
 }
 
+async function removeDatabaseWatchlistSymbol(symbol) {
+    const lookup = normalizeTradeSymbol(symbol);
+    if (!lookup) throw demoTradeError(400, "Choose an asset first.");
+
+    const context = await getPracticeDbContext();
+    await dbPool.query(`
+        delete from watchlists
+        where profile_id = $1 and upper(symbol) = upper($2)
+    `, [context.profile_id, lookup]);
+
+    return { account: await getPracticeAccountFromDatabase(), source: "supabase" };
+}
+
+async function removeJsonWatchlistSymbol(symbol) {
+    const lookup = normalizeTradeSymbol(symbol);
+    if (!lookup) throw demoTradeError(400, "Choose an asset first.");
+
+    const db = loadDemoDb();
+    const watchlist = db.watchlists[PRACTICE_USER_ID] || { crypto: [], stocks: [] };
+    watchlist.crypto = (watchlist.crypto || []).filter((item) => normalizeTradeSymbol(item) !== lookup);
+    watchlist.stocks = (watchlist.stocks || []).filter((item) => normalizeTradeSymbol(item) !== lookup);
+    db.watchlists[PRACTICE_USER_ID] = watchlist;
+    saveDemoDb(db);
+    return { account: getPracticeAccount(), source: "json" };
+}
+
+async function removeDemoWatchlistSymbol(symbol) {
+    if (databaseConfigured()) {
+        return removeDatabaseWatchlistSymbol(symbol);
+    }
+    return removeJsonWatchlistSymbol(symbol);
+}
+
 async function createDatabaseSession(profileId) {
     const token = crypto.randomBytes(32).toString("hex");
     const now = new Date();
@@ -3679,6 +3712,24 @@ app.post("/api/demo/watchlist", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo watchlist add error:", err);
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message || "Watchlist could not be updated"
+    });
+  }
+});
+
+app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
+  try {
+    const symbol = decodeURIComponent(req.params.symbol || "");
+    const result = await removeDemoWatchlistSymbol(symbol);
+    return res.json({
+      success: true,
+      watchlist: result.account.watchlist,
+      source: result.source
+    });
+  } catch (err) {
+    console.error("Demo watchlist remove error:", err);
     return res.status(err.status || 500).json({
       success: false,
       error: err.message || "Watchlist could not be updated"
