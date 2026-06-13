@@ -48,11 +48,13 @@ const dbPool = DATABASE_URL ? new Pool({
     statement_timeout: DB_QUERY_TIMEOUT_MS
 }) : null;
 const CHART_RANGE_KEYS = ["1d", "1w", "1m", "3m", "1y", "all"];
-const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 60 * 1000);
-const LIVE_MARKET_STALE_MS = Number(process.env.LIVE_MARKET_STALE_MS || Math.max(45 * 1000, LIVE_MARKET_REFRESH_MS));
-const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 5 * 60 * 1000);
+const LIVE_MARKET_REFRESH_MS = Number(process.env.LIVE_MARKET_REFRESH_MS || 5 * 60 * 1000);
+const LIVE_MARKET_STALE_MS = Number(process.env.LIVE_MARKET_STALE_MS || Math.max(2 * 60 * 1000, LIVE_MARKET_REFRESH_MS));
+const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 15 * 60 * 1000);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
 const MARKET_CATALOG_CACHE_MS = Number(process.env.MARKET_CATALOG_CACHE_MS || 15 * 1000);
+const STARTUP_MARKET_REFRESH_DELAY_MS = Number(process.env.STARTUP_MARKET_REFRESH_DELAY_MS || 45 * 1000);
+const STARTUP_CHART_REFRESH_DELAY_MS = Number(process.env.STARTUP_CHART_REFRESH_DELAY_MS || 0);
 const LIVE_CHART_REFRESH_SYMBOLS = (process.env.LIVE_CHART_REFRESH_SYMBOLS || "BTC,ETH,SOL,SPY,QQQ,GLD,GC=F,CL=F")
     .split(",")
     .map((symbol) => symbol.trim().toUpperCase())
@@ -67,6 +69,7 @@ let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
 let lastChartRefresh = null;
 const marketCatalogCache = new Map();
+const SERVER_STARTED_AT = Date.now();
 
 function withTimeout(promise, ms, label = "Operation") {
     let timeout;
@@ -3323,6 +3326,7 @@ function maybeKickLiveMarketRefresh(reason = "request-stale") {
   if (liveRefreshInFlight) return;
 
   const lastRefreshAt = lastMarketRefreshTime();
+  if (!lastRefreshAt && Date.now() - SERVER_STARTED_AT < STARTUP_MARKET_REFRESH_DELAY_MS) return;
   if (lastRefreshAt && Date.now() - lastRefreshAt < LIVE_MARKET_STALE_MS) return;
 
   runLiveRefresh({ includeNews: false, includeCharts: false, reason }).catch((err) => {
@@ -3333,15 +3337,23 @@ function maybeKickLiveMarketRefresh(reason = "request-stale") {
 function startLiveDataRefreshLoop() {
   if (!databaseConfigured()) return;
 
-  const startupTimer = setTimeout(() => {
-    runLiveRefresh({ includeNews: true, includeCharts: false, reason: "startup" }).catch((err) => {
-      console.error("Startup live data refresh failed:", err);
-    });
-    runChartRefresh("startup-charts").catch((err) => {
-      console.error("Startup chart refresh failed:", err);
-    });
-  }, 5000);
-  startupTimer.unref?.();
+  if (STARTUP_MARKET_REFRESH_DELAY_MS > 0) {
+    const startupTimer = setTimeout(() => {
+      runLiveRefresh({ includeNews: false, includeCharts: false, reason: "startup" }).catch((err) => {
+        console.error("Startup live data refresh failed:", err);
+      });
+    }, STARTUP_MARKET_REFRESH_DELAY_MS);
+    startupTimer.unref?.();
+  }
+
+  if (STARTUP_CHART_REFRESH_DELAY_MS > 0) {
+    const startupChartTimer = setTimeout(() => {
+      runChartRefresh("startup-charts").catch((err) => {
+        console.error("Startup chart refresh failed:", err);
+      });
+    }, STARTUP_CHART_REFRESH_DELAY_MS);
+    startupChartTimer.unref?.();
+  }
 
   if (LIVE_MARKET_REFRESH_MS > 0) {
     const marketTimer = setInterval(() => {
