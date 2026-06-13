@@ -1188,6 +1188,10 @@ h3 {
   gap: 8px;
 }
 
+#wallet-holdings {
+  gap: 10px;
+}
+
 .asset-table-row {
   display: grid;
   grid-template-columns: 1.25fr 1fr 1fr 0.6fr;
@@ -1227,6 +1231,8 @@ a.asset-table-row {
 }
 
 .wallet-holding-row {
+  position: relative;
+  cursor: pointer;
   border: 1px solid transparent !important;
   transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
@@ -1234,7 +1240,9 @@ a.asset-table-row {
 .wallet-holding-row:hover,
 .wallet-holding-row.active {
   border-color: rgba(93, 95, 239, 0.72) !important;
-  background: rgba(93, 95, 239, 0.12);
+  background:
+    linear-gradient(135deg, rgba(93, 95, 239, 0.18), rgba(50, 213, 131, 0.045)),
+    rgba(255, 255, 255, 0.045);
 }
 
 .wallet-holding-row:hover {
@@ -1245,6 +1253,7 @@ a.asset-table-row {
   border-color: rgba(93, 95, 239, 0.78) !important;
 }
 
+.wallet-asset-name,
 .wallet-holding-row span:first-child {
   display: flex;
   align-items: center;
@@ -1252,20 +1261,35 @@ a.asset-table-row {
   min-width: 0;
 }
 
+.asset-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  line-height: 1.15;
+}
+
+.asset-copy b,
 .wallet-holding-row span:first-child b {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.wallet-holding-row span:first-child small {
+.wallet-group-row > span:first-child > small {
   margin-left: auto;
   font-weight: 900;
   white-space: nowrap;
 }
 
+.wallet-subasset-row .asset-copy small,
+.watchlist-row .asset-copy small {
+  margin-left: 0;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .wallet-subasset-row {
-  grid-template-columns: 1.25fr 1fr 1fr 0.6fr;
+  grid-template-columns: 1.25fr 0.9fr 0.9fr minmax(150px, 0.7fr);
   margin-left: 22px;
   width: calc(100% - 22px);
   border: 1px solid rgba(93, 95, 239, 0.22);
@@ -1288,13 +1312,54 @@ a.asset-table-row {
 
 .wallet-subasset-row span:first-child a,
 .wallet-subasset-row span:first-child b,
-.wallet-subasset-row span:first-child small {
+.wallet-subasset-row span:first-child small,
+.asset-copy small {
   display: block;
 }
 
-.wallet-subasset-row span:first-child small {
+.wallet-subasset-row span:first-child small,
+.asset-copy small {
   color: var(--muted);
   font-size: 0.74rem;
+}
+
+.wallet-menu-cell {
+  position: relative;
+  min-width: 0;
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wallet-row-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-asset-menu {
+  top: 38px;
+  right: 0;
+}
+
+.wallet-asset-menu a,
+.asset-row-menu a {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--text);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.wallet-asset-menu a:hover,
+.asset-row-menu a:hover {
+  background: rgba(93, 95, 239, 0.18);
 }
 
 .asset-dot.cash {
@@ -1310,6 +1375,35 @@ a.asset-table-row {
 .wallet-record-list {
   display: grid;
   gap: 12px;
+}
+
+.wallet-detail-card {
+  background:
+    linear-gradient(180deg, rgba(93, 95, 239, 0.1), rgba(18, 22, 31, 0.82)),
+    rgba(255, 255, 255, 0.035);
+}
+
+.holdings-card {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(93, 95, 239, 0.14), transparent 34%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.wallet-detail-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wallet-detail-heading > div {
+  min-width: 0;
+}
+
+.wallet-detail-heading h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wallet-detail-hero {
@@ -1362,7 +1456,7 @@ a.asset-table-row {
 
 .wallet-action-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
@@ -2178,6 +2272,11 @@ a.asset-table-row {
   overflow: hidden;
 }
 
+.asset-token.asset-logo {
+  align-self: center;
+  justify-self: start;
+}
+
 .asset-logo img {
   width: 100%;
   height: 100%;
@@ -2218,8 +2317,8 @@ a.asset-table-row {
 }
 
 .asset-logo-small {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
   font-size: 0.7rem;
 }

@@ -10,11 +10,12 @@ const wholeMoneyFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0
 });
 
-const WALLET_REFRESH_MS = 30000;
+const WALLET_REFRESH_MS = 15000;
 
 let walletState = null;
 let walletCatalog = [];
 let selectedSymbol = new URLSearchParams(location.search).get("asset") || "USD";
+let expandedGroupKey = null;
 
 const WALLET_GROUPS = [
   { symbol: "USD", key: "usd", name: "USD Cash", category: "cash", defaults: [], detail: "Buying power" },
@@ -94,6 +95,37 @@ function setText(id, value) {
   if (node) node.textContent = value;
 }
 
+function cssWalletValue(value = "") {
+  return window.CSS?.escape
+    ? CSS.escape(String(value))
+    : String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+}
+
+function showWalletToast(message, tone = "") {
+  let toast = document.getElementById("wallet-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "wallet-toast";
+    toast.className = "market-toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.className = `market-toast show ${tone}`;
+  window.clearTimeout(showWalletToast.timer);
+  showWalletToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+}
+
+async function postWalletJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
+  return data;
+}
+
 function catalogAsset(symbol) {
   const lookup = String(symbol || "").toUpperCase();
   return walletCatalog.find((asset) => String(asset.symbol).toUpperCase() === lookup) || null;
@@ -130,10 +162,16 @@ function groupBySymbol(symbol) {
 }
 
 function selectedGroupKey() {
-  const group = groupBySymbol(selectedSymbol);
+  return expandedGroupKey;
+}
+
+function groupKeyForSymbol(symbol) {
+  const group = groupBySymbol(symbol);
   if (group) return group.key;
-  const selectedHolding = walletHolding(selectedSymbol);
-  return selectedHolding ? groupKeyForAsset(selectedHolding) : null;
+  const selectedHolding = walletHolding(symbol);
+  if (selectedHolding) return groupKeyForAsset(selectedHolding);
+  const market = catalogAsset(symbol);
+  return market ? groupKeyForAsset(market) : null;
 }
 
 function dotClass(asset) {
@@ -175,6 +213,12 @@ function walletLogoMarkup(asset, extraClass = "") {
       <b>${escapeHtml(fallback)}</b>
     </span>
   `;
+}
+
+function walletLogoElement(asset, extraClass = "") {
+  const template = document.createElement("template");
+  template.innerHTML = walletLogoMarkup(asset, extraClass).trim();
+  return template.content.firstElementChild;
 }
 
 function groupRow(group) {
@@ -256,6 +300,14 @@ function formatBalance(asset) {
   return `${formatNumber(amount)} ${asset.symbol}`;
 }
 
+function assetMarketUrl(symbol) {
+  return `demo-asset.html?symbol=${encodeURIComponent(symbol)}`;
+}
+
+function tradeUrl(side, symbol) {
+  return `demo-orders.html?side=${encodeURIComponent(side)}&symbol=${encodeURIComponent(symbol)}`;
+}
+
 function detailRow(label, value, tone = "") {
   return `
     <div>
@@ -281,8 +333,9 @@ function walletActions(asset) {
   }
   if (asset.symbol === "AU") {
     return [
-      ["Open AU", "demo-asset.html?symbol=AU"],
-      ["Swap", "demo-orders.html?side=swap&symbol=AU"]
+      ["Buy", tradeUrl("buy", asset.symbol)],
+      ["Sell", tradeUrl("sell", asset.symbol)],
+      ["Swap", tradeUrl("swap", asset.symbol)]
     ];
   }
   if (asset.isGroup) {
@@ -292,17 +345,48 @@ function walletActions(asset) {
       ["Orders", "demo-orders.html"]
     ];
   }
-  return [
-    ["Open asset", asset.url || `demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}`],
-    ["Trade", `demo-orders.html?side=buy&symbol=${encodeURIComponent(asset.symbol)}`]
+  const type = String(asset.assetType || asset.category || "").toLowerCase();
+  const canSwap = type === "crypto" || type === "currency";
+  const actions = [
+    ["Buy", tradeUrl("buy", asset.symbol)],
+    ["Sell", tradeUrl("sell", asset.symbol)]
   ];
+  if (canSwap) actions.push(["Swap", tradeUrl("swap", asset.symbol)]);
+  return actions;
 }
 
 function renderAssetName(asset, smallChange = false) {
   const change = smallChange && hasNumber(asset.changePct)
     ? `<small class="${moveClass(asset.changePct)}">${formatMove(asset.changePct)}</small>`
     : "";
-  return `<span><i class="asset-dot ${dotClass(asset)}"></i><b>${escapeHtml(asset.name)}</b>${change}</span>`;
+  return `
+    <span class="wallet-asset-name">
+      <i class="asset-dot ${dotClass(asset)}"></i>
+      <span class="asset-copy"><b>${escapeHtml(asset.name)}</b></span>
+      ${change}
+    </span>
+  `;
+}
+
+function walletAssetMenu(asset) {
+  if (asset.symbol === "USD" || asset.isGroup) return "";
+  const symbol = escapeHtml(asset.symbol);
+  return `
+    <button class="asset-row-menu-button wallet-row-menu-button" type="button" data-wallet-menu-symbol="${symbol}" aria-label="More ${symbol} actions" aria-expanded="false">...</button>
+    <div class="asset-row-menu wallet-asset-menu" data-wallet-menu="${symbol}" hidden>
+      <button type="button" data-wallet-watch-symbol="${symbol}">Add to watchlist</button>
+      <a href="${escapeHtml(asset.url || assetMarketUrl(asset.symbol))}">View market details</a>
+    </div>
+  `;
+}
+
+function renderStatusCell(asset, status, tone = "") {
+  return `
+    <span class="wallet-menu-cell">
+      <span class="wallet-row-status ${escapeHtml(tone)}">${escapeHtml(status)}</span>
+      ${walletAssetMenu(asset)}
+    </span>
+  `;
 }
 
 function renderNestedRows(group) {
@@ -317,12 +401,15 @@ function renderNestedRows(group) {
         ? `Price ${formatPrice(asset.price, asset.currency || "USD")}`
         : "Waiting";
     return `
-      <a class="asset-table-row wallet-subasset-row" href="${escapeHtml(asset.url)}">
-        <span>${walletLogoMarkup(asset, "asset-logo-small")}<b>${escapeHtml(asset.symbol)}</b><small>${escapeHtml(asset.name || asset.symbol)}</small></span>
+      <div class="asset-table-row wallet-holding-row wallet-subasset-row ${asset.symbol === selectedSymbol ? "active" : ""}" role="button" tabindex="0" data-wallet-symbol="${escapeHtml(asset.symbol)}">
+        <span class="wallet-asset-name">
+          ${walletLogoMarkup(asset, "asset-logo-small")}
+          <span class="asset-copy"><b>${escapeHtml(asset.symbol)}</b><small>${escapeHtml(asset.name || asset.symbol)}</small></span>
+        </span>
         <span>${escapeHtml(`${formatNumber(asset.balance)} ${asset.symbol}`)}</span>
         <span>${escapeHtml(formatMoney(asset.valueUsd))}</span>
-        <span class="${escapeHtml(held ? "gain" : moveClass(asset.changePct))}">${escapeHtml(status)}</span>
-      </a>
+        ${renderStatusCell(asset, status, held ? "gain" : moveClass(asset.changePct))}
+      </div>
     `;
   }).join("");
 }
@@ -335,12 +422,12 @@ function renderHoldings(rows) {
   const renderedRows = rows.map((asset) => {
     const isActive = asset.symbol === selectedSymbol || (asset.isGroup && expandedKey === asset.key);
     const mainRow = `
-      <button class="asset-table-row wallet-holding-row wallet-group-row ${isActive ? "active" : ""}" type="button" data-wallet-symbol="${escapeHtml(asset.symbol)}">
+      <div class="asset-table-row wallet-holding-row wallet-group-row ${isActive ? "active" : ""}" role="button" tabindex="0" data-wallet-symbol="${escapeHtml(asset.symbol)}">
         ${renderAssetName(asset, true)}
         <span>${escapeHtml(formatBalance(asset))}</span>
         <span>${escapeHtml(formatMoney(asset.valueUsd))}</span>
-        <span>${escapeHtml(asset.status || "Ready")}</span>
-      </button>
+        ${renderStatusCell(asset, asset.status || "Ready")}
+      </div>
     `;
     return `${mainRow}${asset.isGroup && expandedKey === asset.key ? renderNestedRows(asset) : ""}`;
   }).join("");
@@ -359,6 +446,14 @@ function renderHoldings(rows) {
 function renderDetail(asset) {
   if (!asset) return;
   const moveTone = moveClass(asset.changePct);
+  const balance = Number(asset.balance || 0);
+  const valueUsd = Number(asset.valueUsd || 0);
+  const heroValue = !asset.isGroup && asset.symbol !== "USD" && valueUsd <= 0 && hasNumber(asset.price)
+    ? formatPrice(asset.price, asset.currency || "USD")
+    : formatMoney(valueUsd);
+  const heroSubtitle = !asset.isGroup && balance <= 0 && hasNumber(asset.price)
+    ? "Live price before you buy"
+    : asset.detail || asset.market || asset.status || "Wallet balance";
   const rows = asset.isGroup
     ? [
       detailRow("Default assets", String(asset.defaults.length)),
@@ -390,8 +485,14 @@ function renderDetail(asset) {
 
   setText("wallet-detail-label", categoryLabel(asset));
   setText("wallet-detail-title", asset.name);
-  setText("wallet-detail-value", formatMoney(asset.valueUsd));
-  setText("wallet-detail-subtitle", asset.detail || asset.market || asset.status || "Wallet balance");
+  setText("wallet-detail-value", heroValue);
+  setText("wallet-detail-subtitle", heroSubtitle);
+  const icon = document.getElementById("wallet-detail-icon");
+  if (icon) {
+    const nextIcon = walletLogoElement(asset, "asset-logo-large");
+    icon.replaceWith(nextIcon);
+    nextIcon.id = "wallet-detail-icon";
+  }
   document.getElementById("wallet-detail-list").innerHTML = rows.join("");
   document.getElementById("wallet-detail-actions").innerHTML = walletActions(asset)
     .map(([label, href]) => `<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`)
@@ -415,13 +516,45 @@ function renderRecords(records = []) {
 
 function selectedAsset(rows) {
   return rows.find((asset) => asset.symbol === selectedSymbol)
-    || walletHolding(selectedSymbol)
+    || walletAssetForSymbol(selectedSymbol)
     || rows[0];
+}
+
+function walletAssetForSymbol(symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  const holding = walletHolding(lookup);
+  const market = catalogAsset(lookup);
+  if (!holding && !market) return null;
+  const groupKey = groupKeyForSymbol(lookup);
+  const group = groupByKey(groupKey);
+  return {
+    ...market,
+    ...holding,
+    symbol: lookup,
+    name: holding?.name || market?.name || lookup,
+    category: holding?.category || market?.assetType || group.category,
+    assetType: holding?.assetType || market?.assetType || group.category,
+    price: market?.price ?? holding?.price ?? holding?.lastPrice ?? null,
+    changePct: market?.changePct ?? holding?.changePct ?? null,
+    logoUrl: market?.logoUrl || holding?.logoUrl || null,
+    valueUsd: Number(holding?.valueUsd || 0),
+    balance: Number(holding?.balance || 0),
+    currency: market?.currency || "USD",
+    status: Number(holding?.balance || 0) > 0 ? "Held" : "Not held",
+    detail: Number(holding?.balance || 0) > 0 ? "Wallet position" : "Available to trade",
+    url: assetMarketUrl(lookup)
+  };
 }
 
 function renderWallet(wallet) {
   walletState = wallet;
   const rows = tableRows();
+  if (!expandedGroupKey) {
+    const key = groupKeyForSymbol(selectedSymbol);
+    if (key && !["usd", "au"].includes(key) && !groupBySymbol(selectedSymbol)) {
+      expandedGroupKey = key;
+    }
+  }
   const selected = selectedAsset(rows);
   selectedSymbol = selected?.symbol || "USD";
 
@@ -444,12 +577,10 @@ async function loadWallet(options = {}) {
         if (!response.ok) throw new Error(`/api/demo/wallet returned ${response.status}`);
         return response.json();
       }),
-      walletCatalog.length
-        ? Promise.resolve({ assets: walletCatalog })
-        : fetch("/api/markets/catalog?type=all", { cache: "no-store" }).then((response) => {
-          if (!response.ok) throw new Error(`/api/markets/catalog returned ${response.status}`);
-          return response.json();
-        }).catch(() => ({ assets: walletCatalog }))
+      fetch("/api/markets/catalog?type=all", { cache: "no-store" }).then((response) => {
+        if (!response.ok) throw new Error(`/api/markets/catalog returned ${response.status}`);
+        return response.json();
+      }).catch(() => ({ assets: walletCatalog }))
     ]);
     if (!data.success) throw new Error(data.error || "Demo wallet failed");
 
@@ -469,11 +600,77 @@ function refreshWalletWhenVisible() {
 }
 
 document.addEventListener("click", (event) => {
+  const menuButton = event.target.closest("[data-wallet-menu-symbol]");
+  if (menuButton) {
+    const symbol = menuButton.dataset.walletMenuSymbol;
+    document.querySelectorAll("[data-wallet-menu]").forEach((menu) => {
+      const isTarget = menu.dataset.walletMenu === symbol;
+      menu.hidden = !isTarget || !menu.hidden;
+    });
+    document.querySelectorAll("[data-wallet-menu-symbol]").forEach((button) => {
+      const expanded = button === menuButton && !document.querySelector(`[data-wallet-menu="${cssWalletValue(symbol)}"]`)?.hidden;
+      button.setAttribute("aria-expanded", String(expanded));
+    });
+    return;
+  }
+
+  const watchButton = event.target.closest("[data-wallet-watch-symbol]");
+  if (watchButton) {
+    const symbol = watchButton.dataset.walletWatchSymbol;
+    watchButton.disabled = true;
+    postWalletJson("/api/demo/watchlist", { symbol })
+      .then(() => {
+        document.querySelector(`[data-wallet-menu="${cssWalletValue(symbol)}"]`)?.setAttribute("hidden", "");
+        document.querySelector(`[data-wallet-menu-symbol="${cssWalletValue(symbol)}"]`)?.setAttribute("aria-expanded", "false");
+        showWalletToast(`${symbol} added to your watchlist.`, "gain");
+      })
+      .catch((err) => showWalletToast(err.message || "Watchlist could not be updated.", "loss"))
+      .finally(() => {
+        watchButton.disabled = false;
+      });
+    return;
+  }
+
   const row = event.target.closest("[data-wallet-symbol]");
-  if (!row || !walletState) return;
-  selectedSymbol = row.dataset.walletSymbol;
-  history.replaceState(null, "", `demo-wallet.html?asset=${encodeURIComponent(selectedSymbol)}`);
-  renderWallet(walletState);
+  if (row && walletState) {
+    const nextSymbol = row.dataset.walletSymbol;
+    const group = groupBySymbol(nextSymbol);
+    if (group?.defaults?.length) {
+      expandedGroupKey = expandedGroupKey === group.key ? null : group.key;
+      selectedSymbol = nextSymbol;
+    } else {
+      selectedSymbol = nextSymbol;
+      const key = groupKeyForSymbol(nextSymbol);
+      if (key && !["usd", "au"].includes(key)) expandedGroupKey = key;
+    }
+    document.querySelectorAll("[data-wallet-menu]").forEach((menu) => {
+      menu.hidden = true;
+    });
+    document.querySelectorAll("[data-wallet-menu-symbol]").forEach((button) => {
+      button.setAttribute("aria-expanded", "false");
+    });
+    history.replaceState(null, "", `demo-wallet.html?asset=${encodeURIComponent(selectedSymbol)}`);
+    renderWallet(walletState);
+    return;
+  }
+
+  if (!event.target.closest(".wallet-subasset-row")) {
+    document.querySelectorAll("[data-wallet-menu]").forEach((menu) => {
+      menu.hidden = true;
+    });
+    document.querySelectorAll("[data-wallet-menu-symbol]").forEach((button) => {
+      button.setAttribute("aria-expanded", "false");
+    });
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!["Enter", " "].includes(event.key)) return;
+  if (event.target.closest("button, a")) return;
+  const row = event.target.closest("[data-wallet-symbol]");
+  if (!row) return;
+  event.preventDefault();
+  row.click();
 });
 
 loadWallet();

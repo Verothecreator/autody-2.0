@@ -117,8 +117,10 @@ function watchAssetRow(asset) {
       <span>
         ${watchLogoMarkup(asset)}
         <a href="demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}">
-          <b>${escapeWatchHtml(asset.symbol)}</b>
-          <small>${escapeWatchHtml(asset.name || asset.symbol)}</small>
+          <span class="asset-copy">
+            <b>${escapeWatchHtml(asset.symbol)}</b>
+            <small>${escapeWatchHtml(asset.name || asset.symbol)}</small>
+          </span>
         </a>
       </span>
       <span>${escapeWatchHtml(formatWatchPrice(asset.price, asset.currency || "USD"))}</span>
