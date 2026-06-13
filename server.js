@@ -2129,8 +2129,197 @@ const TRADE_CRYPTO_ASSETS = [
   { rank: 50, id: "decentraland", symbol: "MANA", name: "Decentraland", product: "MANA-USD", assetType: "crypto", market: "Crypto", tags: ["Gaming"], depositNetworks: ["Ethereum ERC-20", "Polygon PoS"] }
 ];
 
+const SUPPLEMENTAL_CRYPTO_FALLBACK_DATA = `
+WETH|Wrapped Ether|Crypto
+WBTC|Wrapped Bitcoin|Crypto
+LEO|UNUS SED LEO|Crypto
+OKB|OKB|Crypto
+CRO|Cronos|Crypto
+KAS|Kaspa|Crypto
+TAO|Bittensor|Crypto
+XDC|XDC Network|Crypto
+ONDO|Ondo|Crypto
+JUP|Jupiter|Crypto
+SEI|Sei|Crypto
+ENA|Ethena|Crypto
+WLD|Worldcoin|Crypto
+STX|Stacks|Crypto
+RUNE|THORChain|Crypto
+SAND|The Sandbox|Gaming
+AXS|Axie Infinity|Gaming
+THETA|Theta Network|Crypto
+GALA|Gala|Gaming
+FLOW|Flow|Crypto
+EOS|EOS|Crypto
+KAVA|Kava|Crypto
+NEO|Neo|Crypto
+IOTA|IOTA|Crypto
+JASMY|JasmyCoin|Crypto
+HNT|Helium|Crypto
+PYTH|Pyth Network|Crypto
+MNT|Mantle|Crypto
+METH|Mantle Staked Ether|Crypto
+WEETH|Wrapped eETH|Crypto
+BGB|Bitget Token|Crypto
+GT|GateToken|Crypto
+FTT|FTX Token|Crypto
+RAY|Raydium|DeFi
+FLOKI|FLOKI|Popular
+FLR|Flare|Crypto
+VIRTUAL|Virtuals Protocol|AI
+SPX|SPX6900|Popular
+KCS|KuCoin Token|Crypto
+NEXO|Nexo|Crypto
+XTZ|Tezos|Crypto
+EGLD|MultiversX|Crypto
+MINA|Mina|Crypto
+ROSE|Oasis Network|Crypto
+CFX|Conflux|Crypto
+CHZ|Chiliz|Crypto
+ZEC|Zcash|Crypto
+DASH|Dash|Crypto
+COMP|Compound|DeFi
+SNX|Synthetix|DeFi
+YFI|yearn.finance|DeFi
+BAL|Balancer|DeFi
+SUSHI|SushiSwap|DeFi
+1INCH|1inch Network|DeFi
+BAT|Basic Attention Token|Crypto
+ZRX|0x Protocol|DeFi
+ENJ|Enjin Coin|Gaming
+GMT|STEPN|Gaming
+IMX|Immutable|Gaming
+LRC|Loopring|DeFi
+MASK|Mask Network|Crypto
+ENS|Ethereum Name Service|Crypto
+LPT|Livepeer|Crypto
+BLUR|Blur|NFT
+DYDX|dYdX|DeFi
+GMX|GMX|DeFi
+PENDLE|Pendle|DeFi
+JTO|Jito|DeFi
+STRK|Starknet|Scaling
+TIA|Celestia|Crypto
+W|Wormhole|Crypto
+ZK|ZKsync|Scaling
+ZRO|LayerZero|Crypto
+NOT|Notcoin|Popular
+PEOPLE|ConstitutionDAO|Popular
+ORDI|ORDI|Bitcoin ecosystem
+SATS|SATS|Bitcoin ecosystem
+BSV|Bitcoin SV|Crypto
+RON|Ronin|Gaming
+BEAM|Beam|Gaming
+AKT|Akash Network|Crypto
+OSMO|Osmosis|DeFi
+DYM|Dymension|Crypto
+CELO|Celo|Crypto
+ONE|Harmony|Crypto
+QTUM|Qtum|Crypto
+ZIL|Zilliqa|Crypto
+RVN|Ravencoin|Crypto
+SC|Siacoin|Storage
+ANKR|Ankr|Crypto
+COTI|COTI|Payments
+SKL|SKALE|Scaling
+STORJ|Storj|Storage
+AUDIO|Audius|Crypto
+API3|API3|Data oracles
+BAND|Band Protocol|Data oracles
+UMA|UMA|DeFi
+MAGIC|Treasure|Gaming
+ILV|Illuvium|Gaming
+YGG|Yield Guild Games|Gaming
+RSR|Reserve Rights|Payments
+ACH|Alchemy Pay|Payments
+AMP|Amp|Payments
+GLM|Golem|Crypto
+SFP|SafePal|Wallets
+TWT|Trust Wallet Token|Wallets
+CSPR|Casper|Crypto
+KSM|Kusama|Crypto
+GLMR|Moonbeam|Crypto
+ASTR|Astar|Crypto
+KDA|Kadena|Crypto
+LUNA|Terra|Crypto
+LUNC|Terra Classic|Crypto
+USTC|TerraClassicUSD|Stablecoin
+FXS|Frax Share|DeFi
+FRAX|Frax|Stablecoin
+USDD|USDD|Stablecoin
+USDE|Ethena USDe|Stablecoin
+USD1|USD1|Stablecoin
+USDP|Pax Dollar|Stablecoin
+GUSD|Gemini Dollar|Stablecoin
+LUSD|Liquity USD|Stablecoin
+T|Threshold|Crypto
+CVX|Convex Finance|DeFi
+SPELL|Spell Token|DeFi
+ONG|Ontology Gas|Crypto
+ONT|Ontology|Crypto
+ICX|ICON|Crypto
+XEC|eCash|Crypto
+KAIA|Kaia|Crypto
+XCH|Chia|Crypto
+ZEN|Horizen|Crypto
+DCR|Decred|Crypto
+AR|Arweave|Storage
+TFUEL|Theta Fuel|Crypto
+XNO|Nano|Payments
+HOT|Holo|Crypto
+CELR|Celer Network|Scaling
+CKB|Nervos Network|Crypto
+METIS|Metis|Scaling
+KNC|Kyber Network Crystal|DeFi
+APE|ApeCoin|Popular
+MEME|Memecoin|Popular
+MEW|cat in a dogs world|Popular
+BOME|Book of Meme|Popular
+TURBO|Turbo|Popular
+PNUT|Peanut the Squirrel|Popular
+POPCAT|Popcat|Popular
+MOG|Mog Coin|Popular
+BRETT|Brett|Popular
+AERO|Aerodrome Finance|DeFi
+AIOZ|AIOZ Network|Crypto
+WAVES|Waves|Crypto
+NMR|Numeraire|AI
+RLC|iExec RLC|AI
+POWR|Powerledger|Crypto
+TRB|Tellor|Data oracles
+EDU|Open Campus|Crypto
+ID|SPACE ID|Crypto
+SSV|SSV Network|Staking
+SAFE|Safe|Wallets
+COW|CoW Protocol|DeFi
+EIGEN|EigenLayer|Staking
+MORPHO|Morpho|DeFi
+GRASS|Grass|AI
+`.trim();
+
+const SUPPLEMENTAL_CRYPTO_FALLBACKS = SUPPLEMENTAL_CRYPTO_FALLBACK_DATA
+  .split(/\r?\n/)
+  .map((line, index) => {
+    const [symbol, name, market = "Crypto"] = line.split("|").map((part) => part.trim());
+    return {
+      rank: TRADE_CRYPTO_ASSETS.length + index + 1,
+      id: String(name || symbol).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+      symbol,
+      name: name || symbol,
+      assetType: "crypto",
+      market,
+      tags: ["Market fallback"],
+      depositNetworks: []
+    };
+  });
+
 function staticCryptoFallbackCatalog() {
-  return [AUTODY_MARKET_ASSET, ...TRADE_CRYPTO_ASSETS].map(assetCatalogEntry);
+  const supplementalCount = Math.max(0, CRYPTO_MARKET_LIMIT - TRADE_CRYPTO_ASSETS.length);
+  return [
+    AUTODY_MARKET_ASSET,
+    ...TRADE_CRYPTO_ASSETS,
+    ...SUPPLEMENTAL_CRYPTO_FALLBACKS.slice(0, supplementalCount)
+  ].map(assetCatalogEntry);
 }
 
 function existingCryptoMetadata() {
