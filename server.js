@@ -108,7 +108,7 @@ async function withDbTimeout(promise, label = "Database query") {
 function temporaryDatabaseError(err) {
     const message = String(err?.message || err || "");
     const code = String(err?.code || "");
-    return /timeout|timed out|terminated|connection|ECONN|ETIMEDOUT|ECONNRESET|server closed|too many clients|remaining connection slots/i.test(`${code} ${message}`);
+    return /timeout|timed out|terminated|connection|ECONN|ETIMEDOUT|ECONNRESET|server closed|too many clients|remaining connection slots|read-only transaction|read only transaction/i.test(`${code} ${message}`);
 }
 
 async function withDemoWriteFallback(label, databaseWrite, jsonWrite) {
