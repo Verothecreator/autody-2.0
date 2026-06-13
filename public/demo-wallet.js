@@ -27,6 +27,25 @@ const WALLET_GROUPS = [
 ];
 
 const GROUP_SYMBOLS = new Set(WALLET_GROUPS.map((group) => group.symbol));
+const CRYPTO_ICON_SYMBOLS = {
+  BTC: "btc",
+  ETH: "eth",
+  USDT: "usdt",
+  USDC: "usdc",
+  SOL: "sol",
+  XRP: "xrp",
+  BNB: "bnb",
+  DOGE: "doge",
+  ADA: "ada",
+  AVAX: "avax",
+  LINK: "link",
+  LTC: "ltc",
+  DOT: "dot",
+  BCH: "bch",
+  XLM: "xlm",
+  TRX: "trx",
+  POL: "pol"
+};
 
 function escapeHtml(value = "") {
   return String(value)
@@ -196,7 +215,10 @@ function logoFallbackText(asset) {
 function walletLogoSrc(asset) {
   if (asset.logoUrl) return asset.logoUrl;
   if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
-  if (asset.assetType === "crypto" || asset.category === "crypto") return `https://assets.coincap.io/assets/icons/${encodeURIComponent(logoFallbackText(asset).toLowerCase())}@2x.png`;
+  if (asset.assetType === "crypto" || asset.category === "crypto") {
+    const symbol = CRYPTO_ICON_SYMBOLS[String(asset.symbol || "").toUpperCase()] || logoFallbackText(asset).toLowerCase();
+    return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(symbol)}.png`;
+  }
   return "";
 }
 

@@ -105,6 +105,26 @@ async function withDbTimeout(promise, label = "Database query") {
     }
 }
 
+function temporaryDatabaseError(err) {
+    const message = String(err?.message || err || "");
+    const code = String(err?.code || "");
+    return /timeout|timed out|terminated|connection|ECONN|ETIMEDOUT|ECONNRESET|server closed|too many clients|remaining connection slots/i.test(`${code} ${message}`);
+}
+
+async function withDemoWriteFallback(label, databaseWrite, jsonWrite) {
+    if (databaseConfigured() && !dbCircuitOpen()) {
+        try {
+            return await databaseWrite();
+        } catch (err) {
+            if (!temporaryDatabaseError(err)) throw err;
+            markDatabaseSlow(err);
+            console.error(`${label} fell back to JSON demo storage:`, err.message || err);
+        }
+    }
+
+    return jsonWrite();
+}
+
 function loadOrders() {
     return JSON.parse(fs.readFileSync(ORDER_STORE));
 }
@@ -353,6 +373,86 @@ const FINANCIAL_LOGO_SYMBOLS = {
     "CT=F": "BAL"
 };
 
+const CRYPTO_ICON_SYMBOLS = {
+    BTC: "btc",
+    ETH: "eth",
+    USDT: "usdt",
+    USDC: "usdc",
+    SOL: "sol",
+    XRP: "xrp",
+    BNB: "bnb",
+    DOGE: "doge",
+    ADA: "ada",
+    AVAX: "avax",
+    LINK: "link",
+    LTC: "ltc",
+    DOT: "dot",
+    BCH: "bch",
+    XLM: "xlm",
+    TRX: "trx",
+    TON: "ton",
+    SUI: "sui",
+    HBAR: "hbar",
+    SHIB: "shib",
+    POL: "pol",
+    UNI: "uni",
+    AAVE: "aave",
+    ATOM: "atom",
+    NEAR: "near",
+    APT: "apt",
+    ARB: "arb",
+    OP: "op",
+    INJ: "inj",
+    ICP: "icp",
+    FIL: "fil",
+    ETC: "etc",
+    VET: "vet",
+    ALGO: "algo",
+    XMR: "xmr",
+    FET: "fet",
+    RENDER: "render",
+    PEPE: "pepe",
+    BONK: "bonk",
+    WIF: "wif",
+    DAI: "dai",
+    PYUSD: "pyusd",
+    FDUSD: "fdusd",
+    TUSD: "tusd",
+    MKR: "mkr",
+    LDO: "ldo",
+    QNT: "qnt",
+    GRT: "grt",
+    CRV: "crv",
+    MANA: "mana"
+};
+
+const STATIC_MARKET_QUOTES = {
+    BTC: { price: 64150.38, changePct: 0.52 },
+    ETH: { price: 1688.42, changePct: 0.44 },
+    USDT: { price: 0.9995, changePct: 0.01 },
+    USDC: { price: 1.0001, changePct: 0 },
+    SOL: { price: 68.12, changePct: 1.08 },
+    XRP: { price: 1.14, changePct: -0.27 },
+    BNB: { price: 607.4, changePct: 0.34 },
+    DOGE: { price: 0.1412, changePct: 0.66 },
+    BCH: { price: 478.2, changePct: 0.42 },
+    AAPL: { price: 291.13, changePct: 0.31 },
+    NVDA: { price: 205.19, changePct: 1.12 },
+    TSLA: { price: 406.43, changePct: -0.84 },
+    MSFT: { price: 390.74, changePct: 0.26 },
+    AMZN: { price: 188.41, changePct: 0.18 },
+    SPY: { price: 741.75, changePct: 0.24 },
+    QQQ: { price: 721.34, changePct: 0.38 },
+    VOO: { price: 680.12, changePct: 0.23 },
+    GLD: { price: 304.2, changePct: 0.19 },
+    VT: { price: 120.3, changePct: 0.16 },
+    "GC=F": { price: 3340.2, changePct: 0.22 },
+    "SI=F": { price: 36.25, changePct: -0.13 },
+    "CL=F": { price: 68.31, changePct: 0.41 },
+    "BZ=F": { price: 72.8, changePct: 0.35 },
+    "NG=F": { price: 3.42, changePct: -0.74 }
+};
+
 function financialLogoSymbol(asset) {
     const provider = marketDataSymbol(asset);
     const symbol = String(provider || asset.symbol || "").toUpperCase();
@@ -360,7 +460,8 @@ function financialLogoSymbol(asset) {
 }
 
 function cryptoLogoSymbol(asset) {
-    return String(asset.symbol || "")
+    const symbol = String(asset.symbol || "").toUpperCase();
+    return (CRYPTO_ICON_SYMBOLS[symbol] || symbol)
         .replace(/[^a-z0-9]/gi, "")
         .toLowerCase();
 }
@@ -370,13 +471,17 @@ function assetLogoUrl(asset) {
     if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
     if (asset.assetType === "crypto") {
         const symbol = cryptoLogoSymbol(asset);
-        return symbol ? `https://assets.coincap.io/assets/icons/${encodeURIComponent(symbol)}@2x.png` : null;
+        return symbol ? `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(symbol)}.png` : null;
     }
     if (asset.assetType && asset.assetType !== "crypto") {
         const symbol = financialLogoSymbol(asset);
         return symbol ? `https://financialmodelingprep.com/image-stock/${encodeURIComponent(symbol)}.png` : null;
     }
     return null;
+}
+
+function fallbackMarketQuote(symbol) {
+    return STATIC_MARKET_QUOTES[String(symbol || "").toUpperCase()] || {};
 }
 
 function assetCatalogEntry(asset) {
@@ -837,6 +942,17 @@ async function getPracticeDbContext(client = dbPool) {
     return result.rows[0];
 }
 
+async function getPracticeAccountAfterDatabaseWrite(label) {
+    try {
+        return { ...await getPracticeAccountFromDatabase(), source: "supabase" };
+    } catch (err) {
+        if (!temporaryDatabaseError(err)) throw err;
+        markDatabaseSlow(err);
+        console.error(`${label} committed, but account reload used JSON fallback:`, err.message || err);
+        return { ...getPracticeAccount(), source: "json" };
+    }
+}
+
 async function adjustDbCash(client, walletId, deltaUsd) {
     const walletResult = await client.query(`
         select cash_balance
@@ -1087,10 +1203,10 @@ async function placeDatabaseDemoOrder(body) {
 
         await refreshDbPerformance(client, context, realizedDelta);
         await client.query("commit");
-        const account = await getPracticeAccountFromDatabase();
+        const account = await getPracticeAccountAfterDatabaseWrite("Supabase demo order");
         return {
             order,
-            account: { ...account, source: "supabase" },
+            account,
             source: "supabase"
         };
     } catch (err) {
@@ -1237,10 +1353,11 @@ async function placeJsonDemoOrder(body) {
 }
 
 async function placeDemoOrder(body) {
-    if (databaseConfigured()) {
-        return placeDatabaseDemoOrder(body);
-    }
-    return placeJsonDemoOrder(body);
+    return withDemoWriteFallback(
+        "Supabase demo order",
+        () => placeDatabaseDemoOrder(body),
+        () => placeJsonDemoOrder(body)
+    );
 }
 
 async function addDatabaseWatchlistSymbol(symbol) {
@@ -1252,7 +1369,7 @@ async function addDatabaseWatchlistSymbol(symbol) {
         on conflict (profile_id, symbol) do nothing
     `, [context.profile_id, asset.symbol, tradeAssetType(asset)]);
 
-    return { asset, account: await getPracticeAccountFromDatabase(), source: "supabase" };
+    return { asset, account: await getPracticeAccountAfterDatabaseWrite("Supabase watchlist add"), source: "supabase" };
 }
 
 async function addJsonWatchlistSymbol(symbol) {
@@ -1267,10 +1384,11 @@ async function addJsonWatchlistSymbol(symbol) {
 }
 
 async function addDemoWatchlistSymbol(symbol) {
-    if (databaseConfigured()) {
-        return addDatabaseWatchlistSymbol(symbol);
-    }
-    return addJsonWatchlistSymbol(symbol);
+    return withDemoWriteFallback(
+        "Supabase watchlist add",
+        () => addDatabaseWatchlistSymbol(symbol),
+        () => addJsonWatchlistSymbol(symbol)
+    );
 }
 
 async function removeDatabaseWatchlistSymbol(symbol) {
@@ -1283,7 +1401,7 @@ async function removeDatabaseWatchlistSymbol(symbol) {
         where profile_id = $1 and upper(symbol) = upper($2)
     `, [context.profile_id, lookup]);
 
-    return { account: await getPracticeAccountFromDatabase(), source: "supabase" };
+    return { account: await getPracticeAccountAfterDatabaseWrite("Supabase watchlist remove"), source: "supabase" };
 }
 
 async function removeJsonWatchlistSymbol(symbol) {
@@ -1300,10 +1418,11 @@ async function removeJsonWatchlistSymbol(symbol) {
 }
 
 async function removeDemoWatchlistSymbol(symbol) {
-    if (databaseConfigured()) {
-        return removeDatabaseWatchlistSymbol(symbol);
-    }
-    return removeJsonWatchlistSymbol(symbol);
+    return withDemoWriteFallback(
+        "Supabase watchlist remove",
+        () => removeDatabaseWatchlistSymbol(symbol),
+        () => removeJsonWatchlistSymbol(symbol)
+    );
 }
 
 async function createDatabaseSession(profileId) {
@@ -1755,10 +1874,12 @@ async function buildMarketCatalog(type = "all") {
 
     const assets = catalog.map((asset) => {
         const snapshot = snapshotMap.get(asset.symbol);
+        const fallbackQuote = fallbackMarketQuote(asset.symbol);
+        const fallbackStatus = fallbackQuote.price != null ? "Backup quote" : "Waiting for first refresh";
         return {
             ...asset,
-            price: asset.price ?? snapshot?.price ?? null,
-            changePct: asset.changePct ?? snapshot?.changePct ?? null,
+            price: snapshot?.price ?? asset.price ?? fallbackQuote.price ?? null,
+            changePct: snapshot?.changePct ?? asset.changePct ?? fallbackQuote.changePct ?? null,
             marketCap: asset.marketCap ?? snapshot?.marketCap ?? null,
             fdv: asset.fdv ?? snapshot?.fdv ?? null,
             liquidityUsd: asset.liquidityUsd ?? snapshot?.liquidityUsd ?? null,
@@ -1777,7 +1898,7 @@ async function buildMarketCatalog(type = "all") {
             logoUrl: asset.logoUrl || snapshot?.logoUrl || assetLogoUrl(asset),
             dataProvider: asset.dataProvider || snapshot?.provider || null,
             capturedAt: asset.capturedAt || snapshot?.capturedAt || null,
-            status: asset.status || (snapshot ? "Live" : "Waiting for first refresh")
+            status: asset.status || (snapshot ? "Live" : fallbackStatus)
         };
     });
 
@@ -3938,7 +4059,15 @@ app.get("/config", (req, res) => {
 
 
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    if (/\.(html|css|js)$/i.test(filePath)) {
+      res.setHeader("Cache-Control", "no-store");
+    } else {
+      res.setHeader("Cache-Control", "public, max-age=86400");
+    }
+  }
+}));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/index.html'));
 });
