@@ -1773,6 +1773,32 @@ a.asset-table-row {
   color: var(--text);
 }
 
+.ticket-form select {
+  color-scheme: dark;
+}
+
+.ticket-form select option {
+  background: #111620;
+  color: #f7f8ff;
+}
+
+.ticket-form input:focus,
+.ticket-form select:focus {
+  border-color: rgba(93, 95, 239, 0.8);
+  box-shadow: 0 0 0 3px rgba(93, 95, 239, 0.16);
+}
+
+.order-side-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(93, 95, 239, 0.34);
+  border-radius: 8px;
+  background: rgba(93, 95, 239, 0.1);
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .order-side-toggle {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1796,7 +1822,7 @@ a.asset-table-row {
 }
 
 .order-preview {
-  min-height: 74px;
+  min-height: 96px;
   display: grid;
   gap: 6px;
   padding: 14px;
@@ -1806,12 +1832,27 @@ a.asset-table-row {
 }
 
 .order-preview span,
+.order-preview small,
 .order-status {
   color: var(--muted);
 }
 
 .order-preview strong {
   font-size: 1.15rem;
+}
+
+.order-preview.gain {
+  border-color: rgba(50, 213, 131, 0.32);
+  background: rgba(50, 213, 131, 0.06);
+}
+
+.order-preview.loss {
+  border-color: rgba(255, 92, 122, 0.42);
+  background: rgba(255, 92, 122, 0.08);
+}
+
+.order-preview.loss small {
+  color: var(--red);
 }
 
 .order-submit {
@@ -1852,6 +1893,10 @@ a.asset-table-row {
   border-color: rgba(93, 95, 239, 0.65);
   background: rgba(93, 95, 239, 0.12);
   transform: translateY(-1px);
+}
+
+.order-rules-card {
+  min-height: auto;
 }
 
 .market-topbar {

@@ -24,7 +24,7 @@
       </nav>
       <div class="sidebar-profile">
         <span>Demo mode</span>
-        <strong>$50,000 USD</strong>
+        <strong id="overview-sidebar-balance">$50,000 USD</strong>
       </div>
       <div class="sidebar-actions">
         <a href="account.html" class="btn sidebar-return">Live Account</a>
@@ -41,7 +41,7 @@
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Demo trading</span>
-          <strong>$50,000 USD</strong>
+          <strong id="overview-top-balance">$50,000 USD</strong>
         </div>
       </header>
 
@@ -50,12 +50,12 @@
           <div class="balance-card-top">
             <div>
               <span class="muted-label">Demo portfolio value</span>
-              <strong>$50,000.00</strong>
+              <strong id="overview-portfolio-value">$50,000.00</strong>
             </div>
-            <span class="status-pill">Fresh account</span>
+            <span class="status-pill" id="overview-status-pill">Loading</span>
           </div>
-          <p><span class="gain">&uarr; +0.00%</span> no trades placed yet</p>
-          <div class="account-line-chart flat-chart" aria-hidden="true">
+          <p id="overview-move-line"><span class="gain">&uarr; +0.00%</span> loading demo performance</p>
+          <div class="account-line-chart flat-chart" id="overview-chart" aria-hidden="true">
             <span style="height: 52%"></span>
             <span style="height: 52%"></span>
             <span style="height: 52%"></span>
@@ -78,23 +78,23 @@
       <section class="account-kpi-grid">
         <div class="app-card mini-metric">
           <span class="muted-label">Buying power</span>
-          <strong>$50,000</strong>
-          <small>Demo funds only</small>
+          <strong id="overview-buying-power">$50,000</strong>
+          <small>Available USD</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Open positions</span>
-          <strong>0</strong>
-          <small>Choose assets in Markets</small>
+          <strong id="overview-position-count">0</strong>
+          <small id="overview-position-label">Choose assets in Markets</small>
         </div>
         <div class="app-card mini-metric">
-          <span class="muted-label">Account goal</span>
-          <strong>Practice</strong>
-          <small>Learn before real trading</small>
+          <span class="muted-label">Watchlist</span>
+          <strong id="overview-watchlist-count">0</strong>
+          <small>Saved assets</small>
         </div>
         <div class="app-card mini-metric profit-metric">
           <span class="muted-label">Demo profit/loss</span>
-          <strong class="gain">$0.00</strong>
-          <small>+0.00% total return</small>
+          <strong class="gain" id="overview-profit-loss">$0.00</strong>
+          <small id="overview-return-label">+0.00% total return</small>
         </div>
       </section>
 
@@ -102,14 +102,31 @@
         <div class="app-card wide-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">How demo works</span>
-              <h2>Trade without risking real money</h2>
+              <span class="muted-label">Recent activity</span>
+              <h2>Latest demo orders</h2>
+            </div>
+            <a href="demo-orders.html" class="text-link">Open Orders</a>
+          </div>
+          <div class="asset-table overview-activity-table" id="overview-activity-list">
+            <div class="asset-table-row">
+              <span>Loading</span>
+              <span>-</span>
+              <span>$0.00</span>
+              <span>Waiting</span>
             </div>
           </div>
-          <div class="demo-step-grid">
-            <div><strong>1</strong><span>Start with $50,000 USD.</span></div>
-            <div><strong>2</strong><span>Pick crypto or stocks from the market page.</span></div>
-            <div><strong>3</strong><span>Place practice orders and track performance.</span></div>
+        </div>
+
+        <div class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Holdings</span>
+              <h2>Top positions</h2>
+            </div>
+            <a href="demo-wallet.html" class="text-link">Open Wallet</a>
+          </div>
+          <div class="compact-market-list" id="overview-holdings-list">
+            <article class="wallet-empty-state">Loading holdings...</article>
           </div>
         </div>
 
@@ -137,5 +154,6 @@
     </main>
   </div>
   <script src="demo-auth.js"></script>
+  <script src="demo-account.js"></script>
 </body>
 </html>

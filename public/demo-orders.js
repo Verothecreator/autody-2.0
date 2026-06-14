@@ -15,6 +15,8 @@ let orderSide = ["buy", "sell", "swap"].includes(orderParams.get("side")) ? orde
 let orderAssets = [];
 let orderWallet = null;
 let orderHistory = [];
+const ORDER_REFRESH_MS = 30000;
+const ORDER_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
 function escapeOrderHtml(value = "") {
   return String(value)
@@ -126,9 +128,49 @@ function bySymbol(symbol) {
   return orderAssets.find((asset) => String(asset.symbol).toUpperCase() === lookup);
 }
 
+function orderAssetType(asset = {}) {
+  const type = String(asset.assetType || asset.category || "market").toLowerCase();
+  if (type === "stocks") return "stock";
+  return type;
+}
+
+function isSwapAsset(asset = {}) {
+  const type = orderAssetType(asset);
+  return ["crypto", "currency"].includes(type);
+}
+
+function holdingForSymbol(symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  return currentHoldings().find((holding) => String(holding.symbol || "").toUpperCase() === lookup);
+}
+
+function assetForHolding(holding = {}) {
+  const marketAsset = bySymbol(holding.symbol);
+  return {
+    ...marketAsset,
+    ...holding,
+    symbol: String(holding.symbol || marketAsset?.symbol || "").toUpperCase(),
+    name: holding.name || marketAsset?.name || holding.symbol,
+    assetType: marketAsset?.assetType || holding.assetType || holding.category,
+    category: holding.category || marketAsset?.assetType,
+    price: marketAsset?.price ?? holding.price ?? holding.lastPrice ?? null,
+    changePct: marketAsset?.changePct ?? holding.changePct ?? null,
+    logoUrl: marketAsset?.logoUrl || holding.logoUrl || null
+  };
+}
+
+function holdingValueUsd(holding = {}) {
+  const direct = Number(holding.valueUsd);
+  if (Number.isFinite(direct)) return direct;
+  const asset = assetForHolding(holding);
+  const balance = Number(holding.balance || 0);
+  const price = Number(asset.price);
+  return Number.isFinite(balance) && Number.isFinite(price) ? balance * price : 0;
+}
+
 function currentHoldings() {
   return (orderWallet?.holdings || []).filter((holding) => (
-    !["USD", "AU", "CRYPTO", "STOCKS"].includes(holding.symbol) && Number(holding.balance) > 0
+    !ORDER_GROUP_SYMBOLS.has(String(holding.symbol || "").toUpperCase()) && Number(holding.balance) > 0
   ));
 }
 
@@ -152,29 +194,49 @@ function assetOption(asset) {
   return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(price)}</option>`;
 }
 
+function swapSources() {
+  const cash = {
+    symbol: "USD",
+    name: "USD Funds",
+    assetType: "cash",
+    price: 1,
+    valueUsd: Number(orderWallet?.cashBalance || 0),
+    currency: "USD"
+  };
+  const heldCrypto = currentHoldings()
+    .map(assetForHolding)
+    .filter((asset) => isSwapAsset(asset) && Number(asset.price) > 0);
+  return [cash, ...heldCrypto];
+}
+
 function renderAssetSelect() {
   const symbolSelect = document.getElementById("order-symbol");
   const fromSelect = document.getElementById("order-from");
   const requestedSymbol = symbolSelect.value || orderParams.get("symbol") || "BTC";
+  const requestedFrom = String(fromSelect.value || orderParams.get("from") || "USD").toUpperCase();
   const holdings = currentHoldings();
   const sellSymbols = new Set(holdings.map((holding) => holding.symbol));
+
+  const sources = swapSources();
+  fromSelect.innerHTML = sources.map((asset) => {
+    const suffix = asset.symbol === "USD" ? ` - ${formatOrderMoney(asset.valueUsd)}` : ` - ${formatOrderMoney(holdingValueUsd(holdingForSymbol(asset.symbol)))}`;
+    return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(suffix)}</option>`;
+  }).join("");
+  fromSelect.value = sources.some((asset) => asset.symbol === requestedFrom) ? requestedFrom : "USD";
+
+  const tradableAssets = orderAssets.filter((asset) => Number(asset.price) > 0);
   const assetsForSide = orderSide === "sell"
-    ? orderAssets.filter((asset) => sellSymbols.has(asset.symbol))
-    : orderAssets.filter((asset) => asset.price != null && asset.symbol !== "AU");
+    ? tradableAssets.filter((asset) => sellSymbols.has(asset.symbol))
+    : orderSide === "swap"
+      ? tradableAssets.filter((asset) => isSwapAsset(asset) && asset.symbol !== fromSelect.value)
+      : tradableAssets;
 
   symbolSelect.innerHTML = assetsForSide.length
     ? assetsForSide.map(assetOption).join("")
-    : `<option value="">No held assets yet</option>`;
+    : `<option value="">${orderSide === "sell" ? "No held assets to sell" : orderSide === "swap" ? "No crypto assets available" : "Market data loading"}</option>`;
 
   const preferred = assetsForSide.find((asset) => asset.symbol === requestedSymbol) || assetsForSide[0];
   if (preferred) symbolSelect.value = preferred.symbol;
-
-  const swappable = [
-    { symbol: "USD", name: "USD Cash", price: 1, currency: "USD" },
-    ...holdings
-  ];
-  fromSelect.innerHTML = swappable.map((asset) => `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}</option>`).join("");
-  fromSelect.value = orderParams.get("from") || "USD";
 }
 
 function renderSideState() {
@@ -182,6 +244,13 @@ function renderSideState() {
     button.classList.toggle("active", button.dataset.orderSide === orderSide);
   });
   document.getElementById("order-from-wrap").hidden = orderSide !== "swap";
+  document.getElementById("order-asset-label").textContent = orderSide === "sell" ? "Asset to sell" : orderSide === "swap" ? "Receive" : "Asset to buy";
+  document.getElementById("order-amount-label").textContent = orderSide === "sell" ? "Sell amount (USD)" : orderSide === "swap" ? "Swap amount (USD)" : "Buy amount (USD)";
+  document.getElementById("order-side-note").textContent = orderSide === "buy"
+    ? "Buying uses available USD funds and adds the selected asset to your wallet."
+    : orderSide === "sell"
+      ? "Selling uses assets you already hold and returns USD funds to your wallet."
+      : "Swap converts USD or held crypto into another crypto or digital currency asset. Stocks, ETFs, and commodities use Sell then Buy.";
   const submit = document.getElementById("order-submit");
   submit.textContent = orderSide === "swap"
     ? "Place Demo Swap"
@@ -190,23 +259,90 @@ function renderSideState() {
   renderPreview();
 }
 
+function tradeValidation(asset, amount) {
+  if (!asset) return { blocked: true, message: "Choose an asset first.", availableUsd: 0 };
+  if (!Number.isFinite(amount) || amount <= 0) return { blocked: true, message: "Enter a demo amount greater than zero.", availableUsd: 0 };
+
+  if (orderSide === "buy") {
+    const availableUsd = Number(orderWallet?.cashBalance || 0);
+    return {
+      blocked: amount > availableUsd + 0.005,
+      message: amount > availableUsd + 0.005 ? "Not enough USD funds for this buy." : "",
+      availableUsd,
+      availableLabel: "Available funds"
+    };
+  }
+
+  if (orderSide === "sell") {
+    const holding = holdingForSymbol(asset.symbol);
+    const availableUsd = holdingValueUsd(holding);
+    return {
+      blocked: !holding || amount > availableUsd + 0.005,
+      message: !holding ? `No ${asset.symbol} available to sell.` : amount > availableUsd + 0.005 ? `You only have ${formatOrderMoney(availableUsd)} of ${asset.symbol} available.` : "",
+      availableUsd,
+      availableLabel: "Available to sell"
+    };
+  }
+
+  const fromSymbol = document.getElementById("order-from")?.value || "USD";
+  if (!isSwapAsset(asset)) {
+    return { blocked: true, message: "Swap is only for crypto and digital currency assets.", availableUsd: 0 };
+  }
+  if (fromSymbol === asset.symbol) {
+    return { blocked: true, message: "Choose a different asset to receive.", availableUsd: 0 };
+  }
+  if (fromSymbol === "USD") {
+    const availableUsd = Number(orderWallet?.cashBalance || 0);
+    return {
+      blocked: amount > availableUsd + 0.005,
+      message: amount > availableUsd + 0.005 ? "Not enough USD funds for this swap." : "",
+      availableUsd,
+      availableLabel: "Available funds"
+    };
+  }
+
+  const sourceHolding = holdingForSymbol(fromSymbol);
+  const sourceAsset = assetForHolding(sourceHolding);
+  const availableUsd = holdingValueUsd(sourceHolding);
+  if (!sourceHolding || !isSwapAsset(sourceAsset)) {
+    return { blocked: true, message: "Choose USD or a held crypto asset to swap from.", availableUsd: 0 };
+  }
+  return {
+    blocked: amount > availableUsd + 0.005,
+    message: amount > availableUsd + 0.005 ? `You only have ${formatOrderMoney(availableUsd)} of ${fromSymbol} available.` : "",
+    availableUsd,
+    availableLabel: `${fromSymbol} value available`
+  };
+}
+
 function renderPreview() {
   const preview = document.getElementById("order-preview");
   const asset = selectedAsset();
   const amount = selectedAmount();
-  if (!preview || !asset) return;
+  const submit = document.getElementById("order-submit");
+  if (!preview || !asset) {
+    if (submit) submit.disabled = true;
+    return;
+  }
 
   const price = Number(asset.price);
   const quantity = Number.isFinite(price) && price > 0 && amount > 0 ? amount / price : 0;
   const fromSymbol = document.getElementById("order-from")?.value || "USD";
+  const validation = tradeValidation(asset, amount);
   const actionText = orderSide === "swap"
     ? `Swap ${formatOrderMoney(amount)} from ${fromSymbol} into ${asset.symbol}`
     : `${orderSide === "sell" ? "Sell about" : "Buy about"} ${formatOrderNumber(quantity)} ${asset.symbol}`;
+  const detail = validation.availableLabel
+    ? `${validation.availableLabel}: ${formatOrderMoney(validation.availableUsd)}`
+    : "Live demo market order";
 
+  preview.className = `order-preview ${validation.blocked ? "loss" : "gain"}`;
   preview.innerHTML = `
     <span>${escapeOrderHtml(actionText)}</span>
     <strong>${escapeOrderHtml(formatAssetPrice(price, asset.currency || "USD"))} live demo price</strong>
+    <small>${escapeOrderHtml(validation.message || detail)}</small>
   `;
+  if (submit) submit.disabled = validation.blocked;
 }
 
 function renderWalletSummary() {
@@ -259,11 +395,11 @@ function renderHoldingList() {
     ? holdings.slice(0, 8).map((holding) => {
       const asset = bySymbol(holding.symbol) || holding;
       return `
-        <a href="demo-asset.html?symbol=${encodeURIComponent(holding.symbol)}">
+        <a href="demo-orders.html?side=sell&symbol=${encodeURIComponent(holding.symbol)}">
           ${orderLogoMarkup(asset, "asset-logo-small")}
           <span><b>${escapeOrderHtml(holding.symbol)}</b><em>${escapeOrderHtml(holding.name)}</em></span>
           <strong>${escapeOrderHtml(formatOrderMoney(holding.valueUsd))}</strong>
-          <small class="${moveClass(holding.changePct)}">${escapeOrderHtml(moveLabel(holding.changePct))}</small>
+          <small>Sell</small>
         </a>
       `;
     }).join("")
@@ -277,7 +413,7 @@ function renderOrdersPage() {
   renderHoldingList();
 }
 
-async function loadOrdersPage() {
+async function loadOrdersPage(options = {}) {
   try {
     const [catalog, wallet, orders] = await Promise.all([
       getOrderJson("/api/markets/catalog?type=all"),
@@ -292,7 +428,7 @@ async function loadOrdersPage() {
     renderOrdersPage();
   } catch (err) {
     console.warn("Demo orders page failed:", err);
-    setStatus("Orders are warming up. Try again in a moment.", "loss");
+    if (!options.silent) setStatus("Orders are warming up. Try again in a moment.", "loss");
   }
 }
 
@@ -306,6 +442,12 @@ async function submitOrder(event) {
   }
   if (!Number.isFinite(amount) || amount <= 0) {
     setStatus("Enter a demo amount greater than zero.", "loss");
+    return;
+  }
+  const validation = tradeValidation(asset, amount);
+  if (validation.blocked) {
+    setStatus(validation.message || "This order cannot be placed yet.", "loss");
+    renderPreview();
     return;
   }
 
@@ -327,7 +469,7 @@ async function submitOrder(event) {
     const data = await postOrderJson("/api/demo/orders", payload);
     orderWallet = data.wallet;
     setStatus(`${orderSide.toUpperCase()} filled for ${asset.symbol}. Wallet updated.`, "gain");
-    await loadOrdersPage();
+    await loadOrdersPage({ silent: true });
   } catch (err) {
     setStatus(err.message || "Demo order failed.", "loss");
   } finally {
@@ -349,12 +491,28 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  if (event.target.id === "order-symbol" || event.target.id === "order-from") {
+  if (event.target.id === "order-from") {
+    const symbol = document.getElementById("order-symbol")?.value || "BTC";
+    const from = document.getElementById("order-from")?.value || "USD";
+    history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}&from=${encodeURIComponent(from)}`);
+    renderSideState();
+    return;
+  }
+
+  if (event.target.id === "order-symbol") {
     const symbol = document.getElementById("order-symbol")?.value || "BTC";
     history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
     renderPreview();
   }
 });
 
+function refreshOrdersWhenVisible() {
+  if (document.hidden) return;
+  loadOrdersPage({ silent: true });
+}
+
 document.getElementById("order-form").addEventListener("submit", submitOrder);
 loadOrdersPage();
+setInterval(refreshOrdersWhenVisible, ORDER_REFRESH_MS);
+window.addEventListener("focus", refreshOrdersWhenVisible);
+document.addEventListener("visibilitychange", refreshOrdersWhenVisible);

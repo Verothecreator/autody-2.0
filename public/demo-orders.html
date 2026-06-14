@@ -37,7 +37,7 @@
         <div>
           <p class="eyebrow">Demo orders</p>
           <h1>Orders</h1>
-          <p class="app-subtitle">Place demo buys, sells, and swaps. Each fill updates the practice wallet, holdings, and history.</p>
+          <p class="app-subtitle">Buy and sell any supported market asset. Use Swap for USD-to-crypto or crypto-to-crypto conversion.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Buying power</span>
@@ -84,19 +84,20 @@
               <button type="button" data-order-side="sell">Sell</button>
               <button type="button" data-order-side="swap">Swap</button>
             </div>
+            <p class="order-side-note" id="order-side-note">Buying uses available USD funds and adds the selected asset to your wallet.</p>
 
             <label id="order-from-wrap" hidden>
-              From
+              <span id="order-from-label">From</span>
               <select id="order-from"></select>
             </label>
 
             <label>
-              Asset
+              <span id="order-asset-label">Asset</span>
               <select id="order-symbol"></select>
             </label>
 
             <label>
-              Demo amount
+              <span id="order-amount-label">Demo amount (USD)</span>
               <input id="order-amount" type="number" min="1" step="1" value="1000" inputmode="decimal" />
             </label>
 
@@ -142,6 +143,20 @@
             </div>
           </div>
           <div class="compact-market-list" id="order-holdings-list"></div>
+        </article>
+
+        <article class="app-card order-rules-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Swap rules</span>
+              <h2>Convert with care</h2>
+            </div>
+          </div>
+          <div class="settings-list">
+            <div><span>Crypto swaps</span><strong>Allowed</strong></div>
+            <div><span>USD to crypto</span><strong>Allowed</strong></div>
+            <div><span>Stocks and ETFs</span><strong>Sell then buy</strong></div>
+          </div>
         </article>
       </section>
     </main>
