@@ -339,6 +339,15 @@ function persistentDemoUnavailable(err) {
     return wrapped;
 }
 
+function sendDemoError(res, err, fallbackMessage) {
+    const status = err?.status || 500;
+    return res.status(status).json({
+        success: false,
+        error: err?.message || fallbackMessage,
+        retryable: status === 503 || temporaryDatabaseError(err)
+    });
+}
+
 async function initializeDatabase() {
     if (!databaseConfigured()) {
         console.log("Supabase DATABASE_URL is not set; using JSON fallback data.");
@@ -3856,7 +3865,7 @@ app.get("/api/db/status", async (req, res) => {
       configured: true,
       provider: "supabase-postgres",
       connected: false,
-      error: "Database connection is slow right now. Demo routes will use the local fallback."
+      error: "Database connection is slow right now. Demo account routes will wait for persistent Supabase storage."
     });
   }
 
@@ -3878,7 +3887,7 @@ app.get("/api/db/status", async (req, res) => {
       configured: true,
       provider: "supabase-postgres",
       connected: false,
-      error: "Database connection is slow right now. Demo routes will use the local fallback."
+      error: "Database connection is slow right now. Demo account routes will wait for persistent Supabase storage."
     });
   }
 });
@@ -4156,7 +4165,7 @@ app.get("/api/demo/practice-user", async (req, res) => {
     });
   } catch (err) {
     console.error("Practice user API error:", err);
-    return res.status(500).json({ success: false, error: "Practice account unavailable" });
+    return sendDemoError(res, err, "Practice account unavailable");
   }
 });
 
@@ -4173,7 +4182,7 @@ app.get("/api/demo/wallet", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo wallet API error:", err);
-    return res.status(500).json({ success: false, error: "Demo wallet unavailable" });
+    return sendDemoError(res, err, "Demo wallet unavailable");
   }
 });
 
@@ -4188,7 +4197,7 @@ app.get("/api/demo/orders", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo orders API error:", err);
-    return res.status(500).json({ success: false, error: "Demo orders unavailable" });
+    return sendDemoError(res, err, "Demo orders unavailable");
   }
 });
 
@@ -4206,10 +4215,7 @@ app.post("/api/demo/orders", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo order placement error:", err);
-    return res.status(err.status || 500).json({
-      success: false,
-      error: err.message || "Demo order could not be placed"
-    });
+    return sendDemoError(res, err, "Demo order could not be placed");
   }
 });
 
@@ -4224,7 +4230,7 @@ app.get("/api/demo/watchlist", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo watchlist API error:", err);
-    return res.status(500).json({ success: false, error: "Demo watchlist unavailable" });
+    return sendDemoError(res, err, "Demo watchlist unavailable");
   }
 });
 
@@ -4240,10 +4246,7 @@ app.post("/api/demo/watchlist", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo watchlist add error:", err);
-    return res.status(err.status || 500).json({
-      success: false,
-      error: err.message || "Watchlist could not be updated"
-    });
+    return sendDemoError(res, err, "Watchlist could not be updated");
   }
 });
 
@@ -4258,10 +4261,7 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo watchlist remove error:", err);
-    return res.status(err.status || 500).json({
-      success: false,
-      error: err.message || "Watchlist could not be updated"
-    });
+    return sendDemoError(res, err, "Watchlist could not be updated");
   }
 });
 
@@ -4276,7 +4276,7 @@ app.get("/api/demo/performance", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo performance API error:", err);
-    return res.status(500).json({ success: false, error: "Demo performance unavailable" });
+    return sendDemoError(res, err, "Demo performance unavailable");
   }
 });
 
@@ -4291,7 +4291,7 @@ app.get("/api/demo/settings", async (req, res) => {
     });
   } catch (err) {
     console.error("Demo settings API error:", err);
-    return res.status(500).json({ success: false, error: "Demo settings unavailable" });
+    return sendDemoError(res, err, "Demo settings unavailable");
   }
 });
 
