@@ -39,12 +39,16 @@ const DATABASE_SCHEMA_STORE = path.join(__dirname, "database", "schema.sql");
 const PRACTICE_USER_ID = "practice-user";
 const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
-const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 5000);
+const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 15000);
 const DB_SLOW_RETRY_MS = Number(process.env.DB_SLOW_RETRY_MS || 30 * 1000);
 const DB_STARTUP_FALLBACK_MS = Number(process.env.DB_STARTUP_FALLBACK_MS || 10 * 1000);
+const DB_POOL_MAX = Number(process.env.DB_POOL_MAX || 3);
+const DEMO_ACCOUNT_CACHE_MS = Number(process.env.DEMO_ACCOUNT_CACHE_MS || 8000);
 const dbPool = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
     ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
+    max: DB_POOL_MAX,
+    idleTimeoutMillis: 10000,
     connectionTimeoutMillis: DB_QUERY_TIMEOUT_MS,
     query_timeout: DB_QUERY_TIMEOUT_MS,
     statement_timeout: DB_QUERY_TIMEOUT_MS
@@ -75,6 +79,7 @@ let liveMarketAssetCache = { assets: [], bySymbol: new Map(), updatedAt: 0 };
 const marketCatalogCache = new Map();
 const SERVER_STARTED_AT = Date.now();
 let dbSlowUntil = SERVER_STARTED_AT + DB_STARTUP_FALLBACK_MS;
+let practiceAccountCache = null;
 
 function withTimeout(promise, ms, label = "Operation") {
     let timeout;
@@ -118,13 +123,14 @@ function readOnlyTransactionError(err) {
 }
 
 async function withDemoWriteFallback(label, databaseWrite, jsonWrite) {
-    if (databaseConfigured() && !dbCircuitOpen()) {
+    if (databaseConfigured()) {
         try {
             return await databaseWrite();
         } catch (err) {
             if (!temporaryDatabaseError(err)) throw err;
             if (!readOnlyTransactionError(err)) markDatabaseSlow(err);
-            console.error(`${label} fell back to JSON demo storage:`, err.message || err);
+            console.error(`${label} could not reach Supabase persistent storage:`, err.message || err);
+            throw persistentDemoUnavailable(err);
         }
     }
 
@@ -300,6 +306,37 @@ function getPracticeAccount() {
 
 function databaseConfigured() {
     return Boolean(dbPool);
+}
+
+function cloneDemoAccount(account) {
+    return account ? JSON.parse(JSON.stringify(account)) : null;
+}
+
+function cachePracticeAccount(account, source = "supabase") {
+    if (!account || !databaseConfigured()) return account;
+    practiceAccountCache = {
+        account: cloneDemoAccount({ ...account, source }),
+        cachedAt: Date.now()
+    };
+    return account;
+}
+
+function cachedPracticeAccount({ allowStale = false } = {}) {
+    if (!practiceAccountCache?.account) return null;
+    const age = Date.now() - practiceAccountCache.cachedAt;
+    if (!allowStale && age > DEMO_ACCOUNT_CACHE_MS) return null;
+    return cloneDemoAccount(practiceAccountCache.account);
+}
+
+function clearPracticeAccountCache() {
+    practiceAccountCache = null;
+}
+
+function persistentDemoUnavailable(err) {
+    const message = err?.message || "The demo account database is not responding.";
+    const wrapped = demoTradeError(503, "Demo account storage is temporarily unavailable. Please try again in a moment.");
+    wrapped.details = message;
+    return wrapped;
 }
 
 async function initializeDatabase() {
@@ -669,15 +706,27 @@ async function getPracticeAccountFromDatabase() {
 }
 
 async function getPracticeAccountAny() {
-    if (databaseConfigured() && !dbCircuitOpen()) {
+    if (databaseConfigured()) {
+        const cached = cachedPracticeAccount();
+        if (cached) return cached;
+
         try {
             const account = await withDbTimeout(
                 getPracticeAccountFromDatabase(),
                 "Supabase practice account read"
             );
-            if (account) return { ...account, source: "supabase" };
+            if (account) {
+                cachePracticeAccount(account);
+                return { ...account, source: "supabase" };
+            }
         } catch (err) {
-            console.error("Supabase practice account read failed, using JSON fallback:", err);
+            const stale = cachedPracticeAccount({ allowStale: true });
+            if (stale) {
+                console.error("Supabase practice account read failed, serving cached persistent account:", err.message || err);
+                return { ...stale, source: "supabase-cache" };
+            }
+            console.error("Supabase practice account read failed:", err.message || err);
+            throw persistentDemoUnavailable(err);
         }
     }
 
@@ -957,13 +1006,24 @@ async function getPracticeDbContext(client = dbPool) {
 }
 
 async function getPracticeAccountAfterDatabaseWrite(label) {
+    const stale = cachedPracticeAccount({ allowStale: true });
+    clearPracticeAccountCache();
     try {
-        return { ...await getPracticeAccountFromDatabase(), source: "supabase" };
+        const account = await withDbTimeout(getPracticeAccountFromDatabase(), `${label} account reload`);
+        cachePracticeAccount(account);
+        return { ...account, source: "supabase" };
     } catch (err) {
         if (!temporaryDatabaseError(err)) throw err;
         markDatabaseSlow(err);
-        console.error(`${label} committed, but account reload used JSON fallback:`, err.message || err);
-        return { ...getPracticeAccount(), source: "json" };
+        console.error(`${label} committed, but Supabase account reload failed:`, err.message || err);
+        if (stale) {
+            return {
+                ...stale,
+                source: "supabase-cache",
+                refreshWarning: "The order was saved, but the wallet reload is waiting on Supabase."
+            };
+        }
+        throw persistentDemoUnavailable(err);
     }
 }
 

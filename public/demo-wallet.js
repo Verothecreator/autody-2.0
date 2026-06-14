@@ -10,7 +10,7 @@ const wholeMoneyFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0
 });
 
-const WALLET_REFRESH_MS = 15000;
+const WALLET_REFRESH_MS = 60000;
 
 let walletState = null;
 let walletCatalog = [];
