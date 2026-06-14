@@ -211,7 +211,7 @@ function renderPreview() {
 
 function renderWalletSummary() {
   if (!orderWallet) return;
-  document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.startingBalance, true)} paper USD`;
+  document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.startingBalance, true)} USD`;
   document.getElementById("orders-buying-power").textContent = `${formatOrderMoney(orderWallet.cashBalance)} USD`;
   document.getElementById("orders-cash").textContent = formatOrderMoney(orderWallet.cashBalance, true);
   document.getElementById("orders-total").textContent = formatOrderMoney(orderWallet.totalValue, true);
@@ -321,7 +321,7 @@ async function submitOrder(event) {
 
   const submit = document.getElementById("order-submit");
   submit.disabled = true;
-  setStatus("Placing paper order...");
+  setStatus("Placing demo order...");
 
   try {
     const data = await postOrderJson("/api/demo/orders", payload);

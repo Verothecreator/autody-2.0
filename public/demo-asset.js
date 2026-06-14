@@ -360,7 +360,7 @@ function renderAsset(data) {
   change.textContent = formatMove(asset.changePct);
   change.className = moveClass(asset.changePct);
   document.getElementById("asset-chart-title").textContent = `${asset.name} movement`;
-  document.getElementById("asset-sidebar-balance").textContent = `${formatPrice(data.demo?.buyingPower || 50000, "USD")} paper USD`;
+  document.getElementById("asset-sidebar-balance").textContent = `${formatPrice(data.demo?.buyingPower || 50000, "USD")} USD`;
   document.getElementById("asset-buying-power").textContent = `Buying power ${formatPrice(data.demo?.buyingPower || 50000, "USD")}`;
   document.getElementById("asset-owned").textContent = data.demo?.holding
     ? `${formatNumber(data.demo.holding.balance, false)} ${asset.symbol}`
@@ -439,7 +439,7 @@ document.addEventListener("click", async (event) => {
   const blocked = event.target.closest("[data-demo-blocked-action]");
   if (blocked) {
     const action = blocked.dataset.demoBlockedAction || "Transfer";
-    setAssetMessage(`${action} is disabled in the demo account. Use Buy, Sell, or Swap for paper trading.`, "loss");
+    setAssetMessage(`${action} is disabled in the demo account. Use Buy, Sell, or Swap for demo trading.`, "loss");
     return;
   }
 
@@ -447,8 +447,11 @@ document.addEventListener("click", async (event) => {
   if (addWatchlist && currentAsset) {
     setAssetMessage("Saving to watchlist...");
     try {
-      await postJson("/api/demo/watchlist", { symbol: currentAsset.symbol });
-      setAssetMessage(`${currentAsset.symbol} is in your watchlist.`, "gain");
+      const data = await postJson("/api/demo/watchlist", { symbol: currentAsset.symbol });
+      setAssetMessage(
+        data.alreadySaved ? `${currentAsset.symbol} is already in your watchlist.` : `${currentAsset.symbol} added to your watchlist.`,
+        data.alreadySaved ? "flat" : "gain"
+      );
       if (moreMenu) moreMenu.hidden = true;
       document.getElementById("asset-more-button")?.setAttribute("aria-expanded", "false");
     } catch (err) {

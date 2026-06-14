@@ -1875,16 +1875,38 @@ a.asset-table-row {
   background: linear-gradient(135deg, rgba(93, 95, 239, 0.16), rgba(50, 213, 131, 0.07));
 }
 
-.market-search-box span {
+.market-search-box .search-icon {
   width: 34px;
   height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 34px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--green);
-  font-weight: 900;
+  position: relative;
+}
+
+.market-search-box .search-icon::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.market-search-box .search-icon::after {
+  content: "";
+  width: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  transform: rotate(45deg);
+  transform-origin: center;
 }
 
 .market-search-box input {

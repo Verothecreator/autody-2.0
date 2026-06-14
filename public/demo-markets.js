@@ -364,10 +364,13 @@ document.addEventListener("click", (event) => {
     const symbol = watchButton.dataset.marketWatchSymbol;
     watchButton.disabled = true;
     postJson("/api/demo/watchlist", { symbol })
-      .then(() => {
+      .then((data) => {
         document.querySelector(`[data-market-menu="${cssValue(symbol)}"]`)?.setAttribute("hidden", "");
         document.querySelector(`[data-market-menu-symbol="${cssValue(symbol)}"]`)?.setAttribute("aria-expanded", "false");
-        showMarketToast(`${symbol} added to your watchlist.`, "gain");
+        showMarketToast(
+          data.alreadySaved ? `${symbol} is already in your watchlist.` : `${symbol} added to your watchlist.`,
+          data.alreadySaved ? "flat" : "gain"
+        );
       })
       .catch((err) => showMarketToast(err.message || "Watchlist could not be updated.", "loss"))
       .finally(() => {
