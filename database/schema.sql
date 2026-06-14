@@ -84,58 +84,7 @@ create table if not exists research_preferences (
   unique (profile_id, topic)
 );
 
-create table if not exists market_snapshots (
-  id uuid primary key default gen_random_uuid(),
-  provider text not null,
-  symbol text not null,
-  asset_name text not null,
-  asset_type text not null,
-  provider_symbol text,
-  market text,
-  price_usd numeric(24, 10),
-  change_pct numeric(12, 6),
-  market_cap_usd numeric(24, 2),
-  fdv_usd numeric(24, 2),
-  liquidity_usd numeric(24, 2),
-  total_volume_usd numeric(24, 2),
-  high_24h numeric(24, 10),
-  low_24h numeric(24, 10),
-  ath numeric(24, 10),
-  atl numeric(24, 10),
-  circulating_supply numeric(32, 8),
-  total_supply numeric(32, 8),
-  max_supply numeric(32, 8),
-  currency text not null default 'USD',
-  logo_url text,
-  deposit_networks jsonb,
-  captured_at timestamptz not null default now()
-);
-
-alter table if exists market_snapshots
-  add column if not exists currency text not null default 'USD';
-
-alter table if exists market_snapshots
-  add column if not exists provider_symbol text,
-  add column if not exists market text,
-  add column if not exists fdv_usd numeric(24, 2),
-  add column if not exists liquidity_usd numeric(24, 2),
-  add column if not exists total_volume_usd numeric(24, 2),
-  add column if not exists high_24h numeric(24, 10),
-  add column if not exists low_24h numeric(24, 10),
-  add column if not exists ath numeric(24, 10),
-  add column if not exists atl numeric(24, 10),
-  add column if not exists circulating_supply numeric(32, 8),
-  add column if not exists total_supply numeric(32, 8),
-  add column if not exists max_supply numeric(32, 8),
-  add column if not exists logo_url text,
-  add column if not exists deposit_networks jsonb;
-
-alter table if exists market_snapshots
-  alter column price_usd type numeric(24, 10),
-  alter column change_pct type numeric(12, 6);
-
-create index if not exists market_snapshots_symbol_time_idx
-  on market_snapshots (symbol, captured_at desc);
+drop table if exists market_snapshots;
 
 create table if not exists market_latest_snapshots (
   symbol text primary key,
@@ -166,21 +115,7 @@ create table if not exists market_latest_snapshots (
 create index if not exists market_latest_snapshots_type_time_idx
   on market_latest_snapshots (asset_type, captured_at desc);
 
-create table if not exists market_chart_snapshots (
-  id uuid primary key default gen_random_uuid(),
-  provider text not null,
-  symbol text not null,
-  asset_type text not null,
-  range_key text not null check (range_key in ('1d', '1w', '1m', '3m', '1y', 'all')),
-  provider_symbol text,
-  currency text not null default 'USD',
-  points jsonb not null default '[]'::jsonb,
-  stats jsonb not null default '{}'::jsonb,
-  captured_at timestamptz not null default now()
-);
-
-create index if not exists market_chart_snapshots_symbol_range_time_idx
-  on market_chart_snapshots (symbol, range_key, captured_at desc);
+drop table if exists market_chart_snapshots;
 
 create table if not exists market_latest_chart_snapshots (
   symbol text not null,

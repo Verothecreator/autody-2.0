@@ -59,8 +59,6 @@ const LIVE_MARKET_STALE_MS = Number(process.env.LIVE_MARKET_STALE_MS || Math.max
 const LIVE_CHART_REFRESH_MS = Number(process.env.LIVE_CHART_REFRESH_MS || 0);
 const LIVE_NEWS_REFRESH_MS = Number(process.env.LIVE_NEWS_REFRESH_MS || 30 * 60 * 1000);
 const MARKET_CATALOG_CACHE_MS = Number(process.env.MARKET_CATALOG_CACHE_MS || 15 * 1000);
-const MARKET_HISTORY_SAVE_ENABLED = process.env.MARKET_HISTORY_SAVE_ENABLED === "true";
-const MARKET_CHART_HISTORY_SAVE_ENABLED = process.env.MARKET_CHART_HISTORY_SAVE_ENABLED === "true";
 const REQUEST_TRIGGERED_REFRESH_ENABLED = process.env.REQUEST_TRIGGERED_REFRESH_ENABLED !== "false";
 const STARTUP_MARKET_REFRESH_DELAY_MS = Number(process.env.STARTUP_MARKET_REFRESH_DELAY_MS || 8 * 1000);
 const STARTUP_CHART_REFRESH_DELAY_MS = Number(process.env.STARTUP_CHART_REFRESH_DELAY_MS || 0);
@@ -1670,35 +1668,6 @@ async function saveMarketSnapshots(provider, assetType, assets = []) {
                     captured_at = now()
             `, values);
 
-            if (MARKET_HISTORY_SAVE_ENABLED) {
-                await dbPool.query(`
-                    insert into market_snapshots (
-                        provider,
-                        symbol,
-                        asset_name,
-                        asset_type,
-                        provider_symbol,
-                        market,
-                        price_usd,
-                        change_pct,
-                        market_cap_usd,
-                        fdv_usd,
-                        liquidity_usd,
-                        total_volume_usd,
-                        high_24h,
-                        low_24h,
-                        ath,
-                        atl,
-                        circulating_supply,
-                        total_supply,
-                        max_supply,
-                        currency,
-                        logo_url,
-                        deposit_networks
-                    )
-                    values ${placeholders.join(", ")}
-                `, values);
-            }
             savedCount += placeholders.length;
         }
 
@@ -1740,21 +1709,6 @@ async function saveMarketChartSnapshot(provider, asset, chart) {
             JSON.stringify(chart.stats || {})
         ]);
 
-        if (MARKET_CHART_HISTORY_SAVE_ENABLED) {
-            await dbPool.query(`
-                insert into market_chart_snapshots (provider, symbol, asset_type, range_key, provider_symbol, currency, points, stats)
-                values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
-            `, [
-                provider || chart.provider || "market-provider",
-                asset.symbol,
-                asset.assetType || "market",
-                normalizeChartRange(chart.range),
-                chart.providerSymbol || asset.providerSymbol || marketDataSymbol(asset),
-                chart.currency || asset.currency || "USD",
-                JSON.stringify(chart.points || []),
-                JSON.stringify(chart.stats || {})
-            ]);
-        }
     } catch (err) {
         console.error("Market chart snapshot save failed:", err);
     }
@@ -1771,17 +1725,7 @@ async function readLatestMarketChartSnapshot(symbol, range = "1d") {
             limit 1
         `, [symbol, normalizeChartRange(range)]);
 
-        let row = result.rows[0];
-        if (!row) {
-            const fallbackResult = await dbPool.query(`
-                select provider, symbol, asset_type, range_key, provider_symbol, currency, points, stats, captured_at
-                from market_chart_snapshots
-                where upper(symbol) = upper($1) and range_key = $2
-                order by captured_at desc
-                limit 1
-            `, [symbol, normalizeChartRange(range)]);
-            row = fallbackResult.rows[0];
-        }
+        const row = result.rows[0];
         if (!row) return null;
 
         return {
@@ -3988,24 +3932,15 @@ app.get("/api/markets/snapshots", async (req, res) => {
   try {
     const symbol = String(req.query.symbol || "").trim().toUpperCase();
     const limit = Math.min(Number(req.query.limit || 30), 100);
-    const history = String(req.query.history || "").toLowerCase() === "true";
-    const snapshotTable = history ? "market_snapshots" : "market_latest_snapshots";
     let result;
     if (symbol) {
       result = await dbPool.query(`
           select provider, symbol, asset_name, asset_type, provider_symbol, market, price_usd, change_pct, market_cap_usd, fdv_usd, liquidity_usd, total_volume_usd, high_24h, low_24h, ath, atl, circulating_supply, total_supply, max_supply, currency, logo_url, deposit_networks, captured_at
-          from ${snapshotTable}
+          from market_latest_snapshots
           where upper(symbol) = $1
           order by captured_at desc
           limit $2
         `, [symbol, limit]);
-    } else if (history) {
-      result = await dbPool.query(`
-          select distinct on (symbol) provider, symbol, asset_name, asset_type, provider_symbol, market, price_usd, change_pct, market_cap_usd, fdv_usd, liquidity_usd, total_volume_usd, high_24h, low_24h, ath, atl, circulating_supply, total_supply, max_supply, currency, logo_url, deposit_networks, captured_at
-          from ${snapshotTable}
-          order by symbol, captured_at desc
-          limit $1
-        `, [limit]);
     } else {
       result = await dbPool.query(`
           select provider, symbol, asset_name, asset_type, provider_symbol, market, price_usd, change_pct, market_cap_usd, fdv_usd, liquidity_usd, total_volume_usd, high_24h, low_24h, ath, atl, circulating_supply, total_supply, max_supply, currency, logo_url, deposit_networks, captured_at
@@ -4015,7 +3950,7 @@ app.get("/api/markets/snapshots", async (req, res) => {
         `, [limit]);
     }
 
-    return res.json({ success: true, configured: true, history, snapshots: result.rows });
+    return res.json({ success: true, configured: true, snapshots: result.rows });
   } catch (err) {
     console.error("Market snapshot read failed:", err);
     return res.status(500).json({
