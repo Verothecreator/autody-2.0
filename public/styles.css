@@ -1771,6 +1771,10 @@ a.asset-table-row {
   font-weight: 800;
 }
 
+.ticket-form label[hidden] {
+  display: none !important;
+}
+
 .ticket-form input,
 .ticket-form select {
   min-height: 44px;

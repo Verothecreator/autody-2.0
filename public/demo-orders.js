@@ -364,11 +364,14 @@ function renderPreview() {
 
 function renderWalletSummary() {
   if (!orderWallet) return;
+  const usdBalanceLabel = `USD Funds - ${formatOrderMoney(orderWallet.cashBalance)} available`;
   document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.cashBalance, true)} USD`;
   document.getElementById("orders-buying-power").textContent = `${formatOrderMoney(orderWallet.cashBalance)} USD`;
   document.getElementById("orders-cash").textContent = formatOrderMoney(orderWallet.cashBalance, true);
   document.getElementById("orders-total").textContent = formatOrderMoney(orderWallet.totalValue, true);
   document.getElementById("orders-positions").textContent = String(orderWallet.positionsCount || 0);
+  document.getElementById("order-buy-from-usd").value = usdBalanceLabel;
+  document.getElementById("order-to-usd").value = usdBalanceLabel;
 }
 
 function renderOrderHistory() {
