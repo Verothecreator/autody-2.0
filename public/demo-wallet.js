@@ -438,7 +438,7 @@ function walletAssetMenu(asset) {
     <button class="asset-row-menu-button wallet-row-menu-button" type="button" data-wallet-menu-symbol="${symbol}" aria-label="More ${symbol} actions" aria-expanded="false">...</button>
     <div class="asset-row-menu wallet-asset-menu" data-wallet-menu="${symbol}" hidden>
       <button type="button" data-wallet-watch-symbol="${symbol}">Add to watchlist</button>
-      <a href="${escapeHtml(asset.url || assetMarketUrl(asset.symbol))}">View market details</a>
+      <a href="${escapeHtml(asset.url || assetMarketUrl(asset.symbol))}" data-wallet-market-link="${symbol}">View in market</a>
     </div>
   `;
 }
@@ -664,18 +664,33 @@ function refreshWalletWhenVisible() {
   loadWallet({ silent: true });
 }
 
+function closeWalletMenus() {
+  document.querySelectorAll("[data-wallet-menu]").forEach((menu) => {
+    menu.hidden = true;
+  });
+  document.querySelectorAll("[data-wallet-menu-symbol]").forEach((button) => {
+    button.setAttribute("aria-expanded", "false");
+  });
+  document.querySelectorAll(".wallet-holding-row.menu-open").forEach((row) => {
+    row.classList.remove("menu-open");
+  });
+}
+
+function openWalletMenu(symbol, menuButton) {
+  const escapedSymbol = cssWalletValue(symbol);
+  const targetMenu = document.querySelector(`[data-wallet-menu="${escapedSymbol}"]`);
+  const shouldOpen = Boolean(targetMenu?.hidden);
+  closeWalletMenus();
+  if (!targetMenu || !shouldOpen) return;
+  targetMenu.hidden = false;
+  menuButton.setAttribute("aria-expanded", "true");
+  menuButton.closest(".wallet-holding-row")?.classList.add("menu-open");
+}
+
 document.addEventListener("click", (event) => {
   const menuButton = event.target.closest("[data-wallet-menu-symbol]");
   if (menuButton) {
-    const symbol = menuButton.dataset.walletMenuSymbol;
-    document.querySelectorAll("[data-wallet-menu]").forEach((menu) => {
-      const isTarget = menu.dataset.walletMenu === symbol;
-      menu.hidden = !isTarget || !menu.hidden;
-    });
-    document.querySelectorAll("[data-wallet-menu-symbol]").forEach((button) => {
-      const expanded = button === menuButton && !document.querySelector(`[data-wallet-menu="${cssWalletValue(symbol)}"]`)?.hidden;
-      button.setAttribute("aria-expanded", String(expanded));
-    });
+    openWalletMenu(menuButton.dataset.walletMenuSymbol, menuButton);
     return;
   }
 
@@ -684,10 +699,12 @@ document.addEventListener("click", (event) => {
     const symbol = watchButton.dataset.walletWatchSymbol;
     watchButton.disabled = true;
     postWalletJson("/api/demo/watchlist", { symbol })
-      .then(() => {
-        document.querySelector(`[data-wallet-menu="${cssWalletValue(symbol)}"]`)?.setAttribute("hidden", "");
-        document.querySelector(`[data-wallet-menu-symbol="${cssWalletValue(symbol)}"]`)?.setAttribute("aria-expanded", "false");
-        showWalletToast(`${symbol} added to your watchlist.`, "gain");
+      .then((data) => {
+        closeWalletMenus();
+        showWalletToast(
+          data.alreadySaved ? `${symbol} is already in your watchlist.` : `${symbol} added to your watchlist.`,
+          data.alreadySaved ? "flat" : "gain"
+        );
       })
       .catch((err) => showWalletToast(err.message || "Watchlist could not be updated.", "loss"))
       .finally(() => {
@@ -695,6 +712,8 @@ document.addEventListener("click", (event) => {
       });
     return;
   }
+
+  if (event.target.closest(".asset-row-menu")) return;
 
   const row = event.target.closest("[data-wallet-symbol]");
   if (row && walletState) {
@@ -708,25 +727,13 @@ document.addEventListener("click", (event) => {
       const key = groupKeyForSymbol(nextSymbol);
       if (key && !["usd", "au"].includes(key)) expandedGroupKey = key;
     }
-    document.querySelectorAll("[data-wallet-menu]").forEach((menu) => {
-      menu.hidden = true;
-    });
-    document.querySelectorAll("[data-wallet-menu-symbol]").forEach((button) => {
-      button.setAttribute("aria-expanded", "false");
-    });
+    closeWalletMenus();
     history.replaceState(null, "", `demo-wallet.html?asset=${encodeURIComponent(selectedSymbol)}`);
     renderWallet(walletState);
     return;
   }
 
-  if (!event.target.closest(".wallet-subasset-row")) {
-    document.querySelectorAll("[data-wallet-menu]").forEach((menu) => {
-      menu.hidden = true;
-    });
-    document.querySelectorAll("[data-wallet-menu-symbol]").forEach((button) => {
-      button.setAttribute("aria-expanded", "false");
-    });
-  }
+  closeWalletMenus();
 });
 
 document.addEventListener("keydown", (event) => {

@@ -1446,13 +1446,19 @@ async function placeDemoOrder(body) {
 async function addDatabaseWatchlistSymbol(symbol) {
     const asset = await resolveWatchlistAsset(symbol);
     const context = await getPracticeDbContext();
-    await dbPool.query(`
+    const result = await dbPool.query(`
         insert into watchlists (profile_id, symbol, asset_type)
         values ($1, $2, $3)
         on conflict (profile_id, symbol) do nothing
+        returning symbol
     `, [context.profile_id, asset.symbol, tradeAssetType(asset)]);
 
-    return { asset, account: await getPracticeAccountAfterDatabaseWrite("Supabase watchlist add"), source: "supabase" };
+    return {
+        asset,
+        account: await getPracticeAccountAfterDatabaseWrite("Supabase watchlist add"),
+        alreadySaved: !result.rows.length,
+        source: "supabase"
+    };
 }
 
 async function addJsonWatchlistSymbol(symbol) {
@@ -1460,10 +1466,11 @@ async function addJsonWatchlistSymbol(symbol) {
     const db = loadDemoDb();
     const watchlist = db.watchlists[PRACTICE_USER_ID] || { crypto: [], stocks: [] };
     const key = ["stock", "etf", "commodity"].includes(tradeAssetType(asset)) ? "stocks" : "crypto";
+    const alreadySaved = (watchlist[key] || []).some((item) => normalizeTradeSymbol(item) === asset.symbol);
     watchlist[key] = Array.from(new Set([...(watchlist[key] || []), asset.symbol]));
     db.watchlists[PRACTICE_USER_ID] = watchlist;
     saveDemoDb(db);
-    return { asset, account: getPracticeAccount(), source: "json" };
+    return { asset, account: getPracticeAccount(), alreadySaved, source: "json" };
 }
 
 async function addDemoWatchlistSymbol(symbol) {
@@ -4277,6 +4284,7 @@ app.post("/api/demo/watchlist", async (req, res) => {
       success: true,
       asset: result.asset,
       watchlist: result.account.watchlist,
+      alreadySaved: Boolean(result.alreadySaved),
       source: result.source
     });
   } catch (err) {
