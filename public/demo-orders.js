@@ -15,7 +15,8 @@ let orderSide = ["buy", "sell", "swap"].includes(orderParams.get("side")) ? orde
 let orderAssets = [];
 let orderWallet = null;
 let orderHistory = [];
-const ORDER_REFRESH_MS = 30000;
+let orderAssetSearch = "";
+const ORDER_REFRESH_MS = 10000;
 const ORDER_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
 function escapeOrderHtml(value = "") {
@@ -136,7 +137,8 @@ function orderAssetType(asset = {}) {
 
 function isSwapAsset(asset = {}) {
   const type = orderAssetType(asset);
-  return ["crypto", "currency"].includes(type);
+  const symbol = String(asset.symbol || "").toUpperCase();
+  return type === "crypto" || symbol === "AU";
 }
 
 function holdingForSymbol(symbol) {
@@ -195,40 +197,38 @@ function assetOption(asset) {
 }
 
 function swapSources() {
-  const cash = {
-    symbol: "USD",
-    name: "USD Funds",
-    assetType: "cash",
-    price: 1,
-    valueUsd: Number(orderWallet?.cashBalance || 0),
-    currency: "USD"
-  };
-  const heldCrypto = currentHoldings()
+  return currentHoldings()
     .map(assetForHolding)
-    .filter((asset) => isSwapAsset(asset) && Number(asset.price) > 0);
-  return [cash, ...heldCrypto];
+    .filter((asset) => isSwapAsset(asset) && Number(asset.price) > 0 && Number(asset.balance || 0) > 0)
+    .sort((a, b) => String(a.symbol).localeCompare(String(b.symbol)));
 }
 
 function renderAssetSelect() {
   const symbolSelect = document.getElementById("order-symbol");
   const fromSelect = document.getElementById("order-from");
   const requestedSymbol = symbolSelect.value || orderParams.get("symbol") || "BTC";
-  const requestedFrom = String(fromSelect.value || orderParams.get("from") || "USD").toUpperCase();
+  const requestedFrom = String(fromSelect.value || orderParams.get("from") || "").toUpperCase();
   const holdings = currentHoldings();
   const sellSymbols = new Set(holdings.map((holding) => holding.symbol));
 
   const sources = swapSources();
-  fromSelect.innerHTML = sources.map((asset) => {
-    const suffix = asset.symbol === "USD" ? ` - ${formatOrderMoney(asset.valueUsd)}` : ` - ${formatOrderMoney(holdingValueUsd(holdingForSymbol(asset.symbol)))}`;
+  fromSelect.innerHTML = sources.length ? sources.map((asset) => {
+    const suffix = ` - ${formatOrderMoney(holdingValueUsd(holdingForSymbol(asset.symbol)))}`;
     return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(suffix)}</option>`;
-  }).join("");
-  fromSelect.value = sources.some((asset) => asset.symbol === requestedFrom) ? requestedFrom : "USD";
+  }).join("") : `<option value="">Buy crypto first</option>`;
+  if (sources.length) {
+    fromSelect.value = sources.some((asset) => asset.symbol === requestedFrom) ? requestedFrom : sources[0].symbol;
+  }
 
   const tradableAssets = orderAssets.filter((asset) => Number(asset.price) > 0);
+  const search = orderAssetSearch.trim().toLowerCase();
   const assetsForSide = orderSide === "sell"
     ? tradableAssets.filter((asset) => sellSymbols.has(asset.symbol))
     : orderSide === "swap"
-      ? tradableAssets.filter((asset) => isSwapAsset(asset) && asset.symbol !== fromSelect.value)
+      ? tradableAssets
+        .filter((asset) => sources.length && isSwapAsset(asset) && asset.symbol !== fromSelect.value)
+        .filter((asset) => !search || [asset.symbol, asset.name, asset.market].join(" ").toLowerCase().includes(search))
+        .sort((a, b) => String(a.symbol).localeCompare(String(b.symbol)))
       : tradableAssets;
 
   symbolSelect.innerHTML = assetsForSide.length
@@ -239,51 +239,31 @@ function renderAssetSelect() {
   if (preferred) symbolSelect.value = preferred.symbol;
 }
 
-function clampOrderAmountToAvailable() {
-  const input = document.getElementById("order-amount");
-  const asset = selectedAsset();
-  if (!input || !asset || orderSide === "buy") return;
-
-  let availableUsd = null;
-  if (orderSide === "sell") {
-    availableUsd = holdingValueUsd(holdingForSymbol(asset.symbol));
-  } else if (orderSide === "swap") {
-    const fromSymbol = document.getElementById("order-from")?.value || "USD";
-    availableUsd = fromSymbol === "USD"
-      ? Number(orderWallet?.cashBalance || 0)
-      : holdingValueUsd(holdingForSymbol(fromSymbol));
-  }
-
-  const currentAmount = selectedAmount();
-  if (availableUsd != null && availableUsd > 0 && (!Number.isFinite(currentAmount) || currentAmount > availableUsd)) {
-    input.value = Math.max(0.01, Math.floor(availableUsd * 100) / 100).toFixed(2);
-  }
-}
-
 function renderSideState() {
   document.querySelectorAll("[data-order-side]").forEach((button) => {
     button.classList.toggle("active", button.dataset.orderSide === orderSide);
   });
   document.getElementById("order-from-wrap").hidden = orderSide !== "swap";
+  document.getElementById("order-to-wrap").hidden = orderSide !== "sell";
+  document.getElementById("order-search-wrap").hidden = orderSide !== "swap";
   document.getElementById("order-asset-label").textContent = orderSide === "sell" ? "Asset to sell" : orderSide === "swap" ? "Receive" : "Asset to buy";
   document.getElementById("order-amount-label").textContent = orderSide === "sell" ? "Sell amount (USD)" : orderSide === "swap" ? "Swap amount (USD)" : "Buy amount (USD)";
   document.getElementById("order-side-note").textContent = orderSide === "buy"
-    ? "Buying uses available USD funds and adds the selected asset to your wallet."
+    ? "Buying uses USD funds only and adds the selected asset to your wallet."
     : orderSide === "sell"
-      ? "Selling uses assets you already hold and returns USD funds to your wallet."
-      : "Swap converts USD or held crypto into another crypto or digital currency asset. Stocks, ETFs, and commodities use Sell then Buy.";
+      ? "Selling uses assets you already hold and returns the value to USD funds."
+      : "Swap converts one held crypto asset into another crypto asset. Use Buy for USD purchases and Sell then Buy for stocks, ETFs, oil, and metals.";
   const submit = document.getElementById("order-submit");
   submit.textContent = orderSide === "swap"
     ? "Place Demo Swap"
     : `Place Demo ${orderSide.charAt(0).toUpperCase()}${orderSide.slice(1)}`;
   renderAssetSelect();
-  clampOrderAmountToAvailable();
   renderPreview();
 }
 
 function tradeValidation(asset, amount) {
   if (!asset) return { blocked: true, message: "Choose an asset first.", availableUsd: 0 };
-  if (!Number.isFinite(amount) || amount <= 0) return { blocked: true, message: "Enter a demo amount greater than zero.", availableUsd: 0 };
+  if (!Number.isFinite(amount) || amount <= 0) return { blocked: true, message: `Enter a ${orderSide} amount greater than zero.`, availableUsd: 0 };
 
   if (orderSide === "buy") {
     const availableUsd = Number(orderWallet?.cashBalance || 0);
@@ -306,28 +286,25 @@ function tradeValidation(asset, amount) {
     };
   }
 
-  const fromSymbol = document.getElementById("order-from")?.value || "USD";
+  const fromSymbol = document.getElementById("order-from")?.value || "";
   if (!isSwapAsset(asset)) {
-    return { blocked: true, message: "Swap is only for crypto and digital currency assets.", availableUsd: 0 };
+    return { blocked: true, message: "Swap is only for crypto assets.", availableUsd: 0 };
+  }
+  if (!fromSymbol) {
+    return { blocked: true, message: "Buy a crypto asset first before using Swap.", availableUsd: 0 };
+  }
+  if (fromSymbol === "USD") {
+    return { blocked: true, message: "Use Buy when spending USD funds. Swap is crypto-to-crypto only.", availableUsd: 0 };
   }
   if (fromSymbol === asset.symbol) {
     return { blocked: true, message: "Choose a different asset to receive.", availableUsd: 0 };
-  }
-  if (fromSymbol === "USD") {
-    const availableUsd = Number(orderWallet?.cashBalance || 0);
-    return {
-      blocked: amount > availableUsd + 0.005,
-      message: amount > availableUsd + 0.005 ? "Not enough USD funds for this swap." : "",
-      availableUsd,
-      availableLabel: "Available funds"
-    };
   }
 
   const sourceHolding = holdingForSymbol(fromSymbol);
   const sourceAsset = assetForHolding(sourceHolding);
   const availableUsd = holdingValueUsd(sourceHolding);
   if (!sourceHolding || !isSwapAsset(sourceAsset)) {
-    return { blocked: true, message: "Choose USD or a held crypto asset to swap from.", availableUsd: 0 };
+    return { blocked: true, message: "Choose a held crypto asset to swap from.", availableUsd: 0 };
   }
   return {
     blocked: amount > availableUsd + 0.005,
@@ -344,12 +321,30 @@ function renderPreview() {
   const submit = document.getElementById("order-submit");
   if (!preview || !asset) {
     if (submit) submit.disabled = true;
+    if (preview) {
+      preview.className = "order-preview flat";
+      preview.innerHTML = `
+        <span>Estimated fill</span>
+        <strong>${orderSide === "sell" ? "No held asset selected" : orderSide === "swap" ? "Buy crypto first to swap" : "Choose an asset"}</strong>
+      `;
+    }
+    return;
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    if (submit) submit.disabled = true;
+    preview.className = "order-preview flat";
+    preview.innerHTML = `
+      <span>${orderSide === "buy" ? "Buy with USD funds" : orderSide === "sell" ? "Sell to USD funds" : "Swap crypto to crypto"}</span>
+      <strong>Enter an amount to preview</strong>
+      <small>${orderSide === "swap" ? "Only held crypto assets can be used as the swap source." : "USD value is used for the demo order."}</small>
+    `;
     return;
   }
 
   const price = Number(asset.price);
   const quantity = Number.isFinite(price) && price > 0 && amount > 0 ? amount / price : 0;
-  const fromSymbol = document.getElementById("order-from")?.value || "USD";
+  const fromSymbol = document.getElementById("order-from")?.value || "";
   const validation = tradeValidation(asset, amount);
   const actionText = orderSide === "swap"
     ? `Swap ${formatOrderMoney(amount)} from ${fromSymbol} into ${asset.symbol}`
@@ -369,7 +364,7 @@ function renderPreview() {
 
 function renderWalletSummary() {
   if (!orderWallet) return;
-  document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.startingBalance, true)} USD`;
+  document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.cashBalance, true)} USD`;
   document.getElementById("orders-buying-power").textContent = `${formatOrderMoney(orderWallet.cashBalance)} USD`;
   document.getElementById("orders-cash").textContent = formatOrderMoney(orderWallet.cashBalance, true);
   document.getElementById("orders-total").textContent = formatOrderMoney(orderWallet.totalValue, true);
@@ -479,7 +474,7 @@ async function submitOrder(event) {
     notionalUsd: amount
   };
   if (orderSide === "swap") {
-    payload.fromSymbol = document.getElementById("order-from").value || "USD";
+    payload.fromSymbol = document.getElementById("order-from").value || "";
     payload.toSymbol = asset.symbol;
   }
 
@@ -495,7 +490,7 @@ async function submitOrder(event) {
   } catch (err) {
     setStatus(err.message || "Demo order failed.", "loss");
   } finally {
-    submit.disabled = false;
+    renderPreview();
   }
 }
 
@@ -510,6 +505,11 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("input", (event) => {
   if (event.target.id === "order-amount") renderPreview();
+  if (event.target.id === "order-asset-search") {
+    orderAssetSearch = event.target.value;
+    renderAssetSelect();
+    renderPreview();
+  }
 });
 
 document.addEventListener("change", (event) => {
@@ -524,7 +524,6 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "order-symbol") {
     const symbol = document.getElementById("order-symbol")?.value || "BTC";
     history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
-    clampOrderAmountToAvailable();
     renderPreview();
   }
 });

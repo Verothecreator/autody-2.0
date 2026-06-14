@@ -213,7 +213,7 @@ async function loadWatchlist() {
     watchCatalog = catalog.assets || [];
     watchSymbols = flattenWatchlist(watchlist.watchlist);
     if (wallet?.wallet) {
-      document.getElementById("watchlist-sidebar-balance").textContent = `${formatWatchPrice(wallet.wallet.startingBalance, "USD")} USD`;
+      document.getElementById("watchlist-sidebar-balance").textContent = `${formatWatchPrice(wallet.wallet.cashBalance, "USD")} USD`;
     }
     renderWatchlist();
   } catch (err) {

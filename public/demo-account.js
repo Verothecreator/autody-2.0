@@ -10,7 +10,7 @@ const overviewWholeMoney = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0
 });
 
-const OVERVIEW_REFRESH_MS = 30000;
+const OVERVIEW_REFRESH_MS = 10000;
 const OVERVIEW_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
 function escapeOverviewHtml(value = "") {
@@ -161,7 +161,7 @@ function renderOverview({ wallet, orders, watchlist }) {
   const watchCount = flattenWatchlist(watchlist).length;
   const orderCount = orders.length;
 
-  setOverviewText("overview-sidebar-balance", `${formatOverviewMoney(wallet.startingBalance, true)} USD`);
+  setOverviewText("overview-sidebar-balance", `${formatOverviewMoney(wallet.cashBalance, true)} USD`);
   setOverviewText("overview-top-balance", `${formatOverviewMoney(wallet.cashBalance, true)} USD`);
   setOverviewText("overview-portfolio-value", formatOverviewMoney(totalValue));
   setOverviewText("overview-buying-power", formatOverviewMoney(wallet.cashBalance, true));

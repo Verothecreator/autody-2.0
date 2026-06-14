@@ -4,7 +4,7 @@ let currentAsset = null;
 let assetLoading = false;
 let assetRequestToken = 0;
 
-const ASSET_REFRESH_MS = 30000;
+const ASSET_REFRESH_MS = 10000;
 
 function priceDigits(number, compact = false) {
   if (compact) return 2;

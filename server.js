@@ -929,12 +929,13 @@ function tradeAssetType(asset) {
 }
 
 function swapEligibleAsset(asset) {
-    return ["crypto", "currency"].includes(tradeAssetType(asset));
+    const symbol = normalizeTradeSymbol(asset?.symbol);
+    return tradeAssetType(asset) === "crypto" || symbol === "AU";
 }
 
 function assertSwapEligibleAsset(asset, role = "asset") {
     if (swapEligibleAsset(asset)) return;
-    throw demoTradeError(400, `Swap is only available for crypto and digital currency assets. Use Sell, then Buy, for ${role}.`);
+    throw demoTradeError(400, `Swap is only available for crypto assets. Use Sell, then Buy, for ${role}.`);
 }
 
 function tradeAssetPrice(asset) {
@@ -1265,24 +1266,23 @@ async function placeDatabaseDemoOrder(body) {
                 filledPrice: asset.price
             });
         } else if (side === "swap") {
-            const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol || "USD");
+            const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol);
             const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
             const tradeInput = calculateTradeSize(body, 1);
             const notionalUsd = tradeInput.notionalUsd;
             assertSwapEligibleAsset(toAsset, toAsset.symbol);
+            if (!fromSymbol || fromSymbol === "USD") {
+                throw demoTradeError(400, "Use Buy when spending USD funds. Swap is crypto-to-crypto only.");
+            }
             if (fromSymbol === toAsset.symbol) {
                 throw demoTradeError(400, "Choose a different asset to receive.");
             }
 
-            if (fromSymbol === "USD") {
-                await adjustDbCash(client, context.wallet_id, -notionalUsd);
-            } else {
-                const fromAsset = await resolveTradeAsset(fromSymbol);
-                assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
-                const fromQuantity = notionalUsd / fromAsset.price;
-                const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
-                realizedDelta += sellResult.realizedProfitLoss;
-            }
+            const fromAsset = await resolveTradeAsset(fromSymbol);
+            assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
+            const fromQuantity = notionalUsd / fromAsset.price;
+            const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
+            realizedDelta += sellResult.realizedProfitLoss;
 
             const toQuantity = notionalUsd / toAsset.price;
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, notionalUsd);
@@ -1397,21 +1397,20 @@ async function placeJsonDemoOrder(body) {
         adjustCash(trade.notionalUsd);
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
     } else if (side === "swap") {
-        const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol || "USD");
+        const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol);
         const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
         const tradeInput = calculateTradeSize(body, 1);
         const notionalUsd = tradeInput.notionalUsd;
         assertSwapEligibleAsset(toAsset, toAsset.symbol);
+        if (!fromSymbol || fromSymbol === "USD") {
+            throw demoTradeError(400, "Use Buy when spending USD funds. Swap is crypto-to-crypto only.");
+        }
         if (fromSymbol === toAsset.symbol) {
             throw demoTradeError(400, "Choose a different asset to receive.");
         }
-        if (fromSymbol === "USD") {
-            adjustCash(-notionalUsd);
-        } else {
-            const fromAsset = await resolveTradeAsset(fromSymbol);
-            assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
-            realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price);
-        }
+        const fromAsset = await resolveTradeAsset(fromSymbol);
+        assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
+        realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price);
         const toQuantity = notionalUsd / toAsset.price;
         buyHolding(toAsset, toQuantity, notionalUsd);
         order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };

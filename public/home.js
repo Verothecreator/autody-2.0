@@ -219,6 +219,6 @@ document.addEventListener("click", (event) => {
 document.addEventListener("DOMContentLoaded", () => {
   loadMarketData();
   loadNewsData();
-  setInterval(loadMarketData, 60000);
+  setInterval(loadMarketData, 10000);
   setInterval(loadNewsData, 1800000);
 });

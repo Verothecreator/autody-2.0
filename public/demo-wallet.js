@@ -10,7 +10,7 @@ const wholeMoneyFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0
 });
 
-const WALLET_REFRESH_MS = 60000;
+const WALLET_REFRESH_MS = 10000;
 
 let walletState = null;
 let walletCatalog = [];
@@ -621,7 +621,7 @@ function renderWallet(wallet) {
   const selected = selectedAsset(rows);
   selectedSymbol = selected?.symbol || "USD";
 
-  setText("sidebar-balance", `${wholeMoneyFormat.format(wallet.startingBalance)} USD`);
+  setText("sidebar-balance", `${wholeMoneyFormat.format(wallet.cashBalance)} USD`);
   setText("topbar-balance", `${wholeMoneyFormat.format(wallet.cashBalance)} USD`);
   setText("wallet-cash", formatMoney(wallet.cashBalance, true));
   setText("wallet-total", formatMoney(wallet.totalValue, true));

@@ -37,51 +37,91 @@
         <div>
           <p class="eyebrow">Demo research</p>
           <h1>Research</h1>
-          <p class="app-subtitle">A logged-in research page can connect market stories, watchlists, and portfolio decisions.</p>
+          <p class="app-subtitle">Track account context, live stories, and assets worth watching before placing a demo order.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Personal feed</span>
-          <strong>Demo view</strong>
+          <strong id="research-status">Loading</strong>
         </div>
       </header>
 
+      <section class="account-kpi-grid">
+        <div class="app-card mini-metric">
+          <span class="muted-label">Buying power</span>
+          <strong id="research-cash">$50,000</strong>
+          <small>Available USD</small>
+        </div>
+        <div class="app-card mini-metric profit-metric">
+          <span class="muted-label">Demo P/L</span>
+          <strong id="research-profit-loss" class="flat">$0.00</strong>
+          <small id="research-return-label">+0.00% total return</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Positions</span>
+          <strong id="research-positions">0</strong>
+          <small>Held assets</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Watchlist</span>
+          <strong id="research-watchlist-count">0</strong>
+          <small>Saved assets</small>
+        </div>
+      </section>
+
       <section class="research-page-grid">
         <article class="app-card research-feature">
-          <span class="muted-label">Market brief</span>
-          <h2>Rates, inflation, and earnings can shift both stocks and crypto.</h2>
-          <p>Autody can turn broad financial news into account-level context: what changed, what assets are affected, and what a user may want to watch next.</p>
+          <span class="muted-label">Account lens</span>
+          <h2 id="research-brief-title">What matters to this wallet right now.</h2>
+          <p id="research-brief-copy">Autody is connecting holdings, watchlist assets, and finance headlines into a cleaner research flow.</p>
+          <div class="wallet-action-grid">
+            <a href="demo-markets.html?filter=crypto">Trade Crypto</a>
+            <a href="demo-markets.html?filter=stocks">Trade Stocks</a>
+            <a href="demo-watchlist.html">Open Watchlist</a>
+          </div>
         </article>
 
         <div class="app-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Saved topics</span>
+              <span class="muted-label">Watchlist focus</span>
               <h2>Following</h2>
             </div>
           </div>
-          <div class="research-list">
-            <article><span>Crypto</span><h3>BTC, ETH, AU utility, wallet flows</h3></article>
-            <article><span>Stocks</span><h3>SPY, QQQ, AAPL, NVDA, TSLA</h3></article>
-            <article><span>Macro</span><h3>Gold, rates, inflation, jobs data</h3></article>
+          <div class="research-list" id="research-watchlist">
+            <article><span>Loading</span><h3>Fetching saved assets...</h3></article>
           </div>
         </div>
 
         <div class="app-card wide-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Research feed</span>
-              <h2>Important signals</h2>
+              <span class="muted-label">Live feed</span>
+              <h2>Important stories</h2>
             </div>
           </div>
-          <div class="research-list research-columns">
-            <article><span>Economy</span><h3>Inflation data and rate expectations are driving risk appetite.</h3></article>
-            <article><span>Crypto</span><h3>Liquidity and exchange flows remain key for digital assets.</h3></article>
-            <article><span>Stocks</span><h3>AI spending and earnings guidance are shaping large-cap momentum.</h3></article>
+          <div class="research-list research-columns" id="research-news">
+            <article><span>Loading</span><h3>Checking market stories...</h3></article>
+          </div>
+        </div>
+
+        <div class="app-card wide-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Research queue</span>
+              <h2>Next checks</h2>
+            </div>
+          </div>
+          <div class="research-list research-columns" id="research-queue">
+            <article><span>Crypto</span><h3>Review BTC and ETH movement before swapping.</h3></article>
+            <article><span>Stocks</span><h3>Compare holdings with large-cap momentum.</h3></article>
+            <article><span>Macro</span><h3>Watch gold, rates, and inflation signals.</h3></article>
           </div>
         </div>
       </section>
     </main>
   </div>
   <script src="demo-auth.js"></script>
+  <script src="demo-sidebar.js"></script>
+  <script src="demo-research.js"></script>
 </body>
 </html>

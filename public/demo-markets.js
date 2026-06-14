@@ -7,7 +7,7 @@ let activeSearch = "";
 let demoWallet = null;
 let marketsLoading = false;
 
-const MARKET_REFRESH_MS = 30000;
+const MARKET_REFRESH_MS = 10000;
 const MIN_STABLE_MARKET_ASSETS = 390;
 
 function marketPriceDigits(number, compact = false) {
@@ -269,9 +269,17 @@ function renderMarketCards() {
     const bLive = b.status === "Live" ? 0 : 1;
     return aLive - bLive || a.rank - b.rank;
   });
+  const filterTitles = {
+    all: "All markets",
+    crypto: "Crypto markets",
+    stablecoin: "Stablecoins",
+    stocks: "Stocks",
+    etf: "ETFs",
+    commodity: "Oil and metals"
+  };
 
   document.getElementById("market-result-count").textContent = `${ordered.length} assets`;
-  document.getElementById("market-list-title").textContent = activeSearch ? "Search results" : "All markets";
+  document.getElementById("market-list-title").textContent = activeSearch ? "Search results" : filterTitles[activeFilter] || "All markets";
   document.getElementById("market-card-grid").innerHTML = ordered.length
     ? ordered.map(marketCard).join("")
     : `<article class="market-empty-state">No assets match that search.</article>`;
@@ -295,6 +303,9 @@ function updateDashboard() {
   document.getElementById("market-open-positions").textContent = `${openPositions} positions`;
 
   if (demoWallet) {
+    document.querySelectorAll(".sidebar-profile strong").forEach((node) => {
+      node.textContent = `${marketPrice(demoWallet.cashBalance, demoWallet.currency || "USD")} USD`;
+    });
     document.getElementById("market-buying-power").textContent = marketPrice(demoWallet.cashBalance, demoWallet.currency || "USD");
   }
 

@@ -1145,8 +1145,16 @@ h3 {
   color: var(--muted);
 }
 
-.profit-metric strong {
+.profit-metric strong.gain {
   color: var(--positive);
+}
+
+.profit-metric strong.loss {
+  color: var(--red);
+}
+
+.profit-metric strong.flat {
+  color: var(--muted);
 }
 
 .account-grid {
@@ -1788,6 +1796,12 @@ a.asset-table-row {
   box-shadow: 0 0 0 3px rgba(93, 95, 239, 0.16);
 }
 
+.ticket-form input[readonly] {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.035);
+  cursor: default;
+}
+
 .order-side-note {
   margin: 0;
   padding: 12px 14px;
@@ -1844,6 +1858,11 @@ a.asset-table-row {
 .order-preview.gain {
   border-color: rgba(50, 213, 131, 0.32);
   background: rgba(50, 213, 131, 0.06);
+}
+
+.order-preview.flat {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .order-preview.loss {
@@ -2298,14 +2317,14 @@ a.asset-table-row {
 .market-card-popover,
 .asset-row-menu {
   position: absolute;
-  z-index: 90;
+  z-index: 120;
   min-width: 170px;
   padding: 8px;
   display: grid;
   gap: 6px;
   border: 1px solid rgba(145, 155, 180, 0.34);
   border-radius: 8px;
-  background: rgb(7, 10, 16);
+  background: #070a10;
   opacity: 1;
   isolation: isolate;
   backdrop-filter: none;
@@ -2347,8 +2366,8 @@ a.asset-table-row {
   transform: translateY(-2px);
 }
 
-.market-asset-card.crypto .asset-token,
-.market-asset-card.stable .asset-token {
+.market-asset-card.crypto .asset-token:not(.has-image),
+.market-asset-card.stable .asset-token:not(.has-image) {
   background: linear-gradient(135deg, #5d5fef, #32d583);
 }
 
