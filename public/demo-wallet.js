@@ -226,11 +226,13 @@ function walletLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallbackText(asset);
   const src = walletLogoSrc(asset);
   const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const typeClass = `logo-type-${String(asset.assetType || asset.category || "market").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const symbolClass = `logo-symbol-${fallback.toLowerCase()}`;
   const img = src
     ? `<span class="asset-logo-fit"><img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${typeClass} ${symbolClass} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
       ${img}
       <b>${escapeHtml(fallback)}</b>
     </span>

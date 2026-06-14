@@ -101,11 +101,13 @@ function watchLogoMarkup(asset, extraClass = "") {
   const fallback = watchLogoFallback(asset);
   const src = watchLogoSrc(asset);
   const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const typeClass = `logo-type-${String(asset.assetType || asset.category || "market").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const symbolClass = `logo-symbol-${fallback.toLowerCase()}`;
   const img = src
     ? `<span class="asset-logo-fit"><img src="${escapeWatchHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeWatchHtml(extraClass)}" data-symbol="${escapeWatchHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${typeClass} ${symbolClass} ${escapeWatchHtml(extraClass)}" data-symbol="${escapeWatchHtml(fallback)}">
       ${img}
       <b>${escapeWatchHtml(fallback)}</b>
     </span>

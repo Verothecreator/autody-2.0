@@ -1317,6 +1317,7 @@ a.asset-table-row {
   column-gap: 12px;
   min-height: 44px;
   align-items: center;
+  align-self: center;
 }
 
 .wallet-subasset-row .asset-copy,
@@ -2308,18 +2309,40 @@ a.asset-table-row {
 
 .asset-logo-fit {
   position: absolute;
-  inset: 0;
+  inset: 4px;
   display: grid;
   place-items: center;
   overflow: hidden;
 }
 
 .asset-logo img {
-  width: 78%;
-  height: 78%;
+  width: 100%;
+  height: 100%;
   display: block;
   object-fit: contain;
   object-position: center;
+}
+
+.asset-logo.logo-type-stock .asset-logo-fit,
+.asset-logo.logo-type-etf .asset-logo-fit,
+.asset-logo.logo-type-commodity .asset-logo-fit {
+  inset: 3px;
+}
+
+.asset-logo.logo-type-stock img,
+.asset-logo.logo-type-etf img,
+.asset-logo.logo-type-commodity img {
+  transform: translateY(0);
+}
+
+.asset-logo.logo-symbol-tsla img,
+.asset-logo.logo-symbol-amzn img {
+  transform: translateY(2px);
+}
+
+.asset-logo.logo-symbol-aapl img {
+  width: 88%;
+  height: 88%;
 }
 
 .asset-logo.autody-logo {
