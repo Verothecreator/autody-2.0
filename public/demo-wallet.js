@@ -227,7 +227,7 @@ function walletLogoMarkup(asset, extraClass = "") {
   const src = walletLogoSrc(asset);
   const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
   const img = src
-    ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    ? `<span class="asset-logo-fit"><img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
     <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">

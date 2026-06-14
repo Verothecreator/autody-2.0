@@ -102,7 +102,7 @@ function watchLogoMarkup(asset, extraClass = "") {
   const src = watchLogoSrc(asset);
   const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
   const img = src
-    ? `<img src="${escapeWatchHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    ? `<span class="asset-logo-fit"><img src="${escapeWatchHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
     <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeWatchHtml(extraClass)}" data-symbol="${escapeWatchHtml(fallback)}">
