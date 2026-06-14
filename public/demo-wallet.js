@@ -159,6 +159,31 @@ function positionHoldings() {
   return (walletState?.holdings || []).filter((holding) => !GROUP_SYMBOLS.has(String(holding.symbol || "").toUpperCase()));
 }
 
+function assetPurchaseOrderTime(symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  const matchingRecords = (walletState?.records || [])
+    .filter((record) => {
+      const recordSymbol = String(record.symbol || "").toUpperCase();
+      const type = String(record.type || "").toLowerCase();
+      return recordSymbol === lookup && ["buy", "swap"].includes(type);
+    })
+    .map((record) => Date.parse(record.createdAt || record.created_at || ""))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+
+  return matchingRecords[0] ?? null;
+}
+
+function holdingSortTime(holding) {
+  return Date.parse(holding?.updatedAt || holding?.updated_at || "") || null;
+}
+
+function holdingPurchaseOrderTime(holding) {
+  const direct = Date.parse(holding?.firstPurchasedAt || holding?.first_purchased_at || "");
+  if (Number.isFinite(direct)) return direct;
+  return assetPurchaseOrderTime(holding?.symbol);
+}
+
 function groupKeyForAsset(asset = {}) {
   const symbol = String(asset.symbol || "").toUpperCase();
   const category = String(asset.category || asset.assetType || "").toLowerCase();
@@ -289,10 +314,24 @@ function tableRows() {
 function groupAssets(group) {
   if (!group.defaults.length) return [];
 
-  const heldSymbols = positionHoldings()
+  const defaultSymbols = group.defaults.map((symbol) => String(symbol).toUpperCase());
+  const defaultRank = new Map(defaultSymbols.map((symbol, index) => [symbol, index]));
+  const heldPositions = positionHoldings()
+    .filter((holding) => Number(holding.balance || 0) > 0)
     .filter((holding) => groupKeyForAsset(holding) === group.key)
-    .map((holding) => holding.symbol);
-  const symbols = Array.from(new Set([...group.defaults, ...heldSymbols]));
+    .sort((a, b) => {
+      const aSymbol = String(a.symbol || "").toUpperCase();
+      const bSymbol = String(b.symbol || "").toUpperCase();
+      const aPurchase = holdingPurchaseOrderTime(a);
+      const bPurchase = holdingPurchaseOrderTime(b);
+      if (aPurchase !== null || bPurchase !== null) return (aPurchase ?? Number.MAX_SAFE_INTEGER) - (bPurchase ?? Number.MAX_SAFE_INTEGER);
+      const aUpdated = holdingSortTime(a);
+      const bUpdated = holdingSortTime(b);
+      if (aUpdated !== null || bUpdated !== null) return (aUpdated ?? Number.MAX_SAFE_INTEGER) - (bUpdated ?? Number.MAX_SAFE_INTEGER);
+      return (defaultRank.get(aSymbol) ?? 999) - (defaultRank.get(bSymbol) ?? 999);
+    });
+  const heldSymbols = heldPositions.map((holding) => String(holding.symbol || "").toUpperCase());
+  const symbols = [...heldSymbols, ...defaultSymbols.filter((symbol) => !heldSymbols.includes(symbol))];
 
   return symbols.map((symbol) => {
     const holding = walletHolding(symbol);

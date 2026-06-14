@@ -765,6 +765,12 @@ async function buildDemoWalletSnapshot(account) {
     const enrichHolding = (holding) => {
         const symbol = String(holding.symbol || "").toUpperCase();
         const marketAsset = marketMap.get(symbol);
+        const symbolOrders = (account.orders || [])
+            .filter((order) => String(order.symbol || "").toUpperCase() === symbol)
+            .filter((order) => ["buy", "swap"].includes(String(order.side || "").toLowerCase()))
+            .map((order) => safeIsoDate(order.created_at || order.createdAt || order.filled_at || order.filledAt))
+            .filter(Boolean)
+            .sort();
         const category = holding.category || marketAsset?.assetType || "market";
         const balance = numberValue(holding.balance, 0);
         const price = firstPositive(marketAsset?.price, holding.lastPrice);
@@ -792,6 +798,8 @@ async function buildDemoWalletSnapshot(account) {
             averageCost,
             costBasis,
             unrealizedProfitLoss,
+            firstPurchasedAt: symbolOrders[0] || null,
+            lastPurchasedAt: symbolOrders[symbolOrders.length - 1] || holding.updatedAt || marketAsset?.capturedAt || null,
             url: walletHoldingUrl({ symbol }),
             status: balance > 0 ? "Held" : symbol === "AU" ? "Not held" : "Ready",
             updatedAt: holding.updatedAt || marketAsset?.capturedAt || null
