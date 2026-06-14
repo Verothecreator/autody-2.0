@@ -14,10 +14,10 @@
         <span>Autody</span>
       </a>
       <nav class="app-nav" aria-label="Account navigation">
+        <a href="demo-account.html">Overview</a>
         <a href="demo-wallet.html">Wallet</a>
         <a href="demo-markets.html">Markets</a>
         <a href="demo-orders.html" class="active">Orders</a>
-        <a href="demo-account.html">Overview</a>
         <a href="demo-watchlist.html">Watchlist</a>
         <a href="demo-research.html">Research</a>
         <a href="demo-settings.html">Settings</a>
@@ -84,26 +84,25 @@
               <button type="button" data-order-side="sell">Sell</button>
               <button type="button" data-order-side="swap">Swap</button>
             </div>
-            <p class="order-side-note" id="order-side-note">Buying uses available USD funds and adds the selected asset to your wallet.</p>
+
+            <label id="order-buy-from-wrap">
+              <span>From</span>
+              <input id="order-buy-from-usd" type="text" value="USD / USD Funds" readonly />
+            </label>
 
             <label id="order-from-wrap" hidden>
               <span id="order-from-label">From</span>
               <select id="order-from"></select>
             </label>
 
-            <label id="order-to-wrap" hidden>
-              <span>To</span>
-              <input id="order-to-usd" type="text" value="USD / USD Funds" readonly />
-            </label>
-
-            <label id="order-search-wrap" hidden>
-              <span>Search receive asset</span>
-              <input id="order-asset-search" type="search" placeholder="Search crypto..." autocomplete="off" />
-            </label>
-
             <label>
               <span id="order-asset-label">Asset</span>
               <select id="order-symbol"></select>
+            </label>
+
+            <label id="order-to-wrap" hidden>
+              <span>To</span>
+              <input id="order-to-usd" type="text" value="USD / USD Funds" readonly />
             </label>
 
             <label>
@@ -155,19 +154,6 @@
           <div class="compact-market-list" id="order-holdings-list"></div>
         </article>
 
-        <article class="app-card order-rules-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Swap rules</span>
-              <h2>Convert with care</h2>
-            </div>
-          </div>
-          <div class="settings-list">
-            <div><span>Crypto swaps</span><strong>Crypto only</strong></div>
-            <div><span>USD to assets</span><strong>Use Buy</strong></div>
-            <div><span>Stocks and ETFs</span><strong>Sell then buy</strong></div>
-          </div>
-        </article>
       </section>
     </main>
   </div>

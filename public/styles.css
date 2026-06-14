@@ -1802,17 +1802,6 @@ a.asset-table-row {
   cursor: default;
 }
 
-.order-side-note {
-  margin: 0;
-  padding: 12px 14px;
-  border: 1px solid rgba(93, 95, 239, 0.34);
-  border-radius: 8px;
-  background: rgba(93, 95, 239, 0.1);
-  color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.45;
-}
-
 .order-side-toggle {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1912,10 +1901,6 @@ a.asset-table-row {
   border-color: rgba(93, 95, 239, 0.65);
   background: rgba(93, 95, 239, 0.12);
   transform: translateY(-1px);
-}
-
-.order-rules-card {
-  min-height: auto;
 }
 
 .market-topbar {

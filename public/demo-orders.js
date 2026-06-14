@@ -15,7 +15,6 @@ let orderSide = ["buy", "sell", "swap"].includes(orderParams.get("side")) ? orde
 let orderAssets = [];
 let orderWallet = null;
 let orderHistory = [];
-let orderAssetSearch = "";
 const ORDER_REFRESH_MS = 10000;
 const ORDER_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
@@ -196,6 +195,14 @@ function assetOption(asset) {
   return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(price)}</option>`;
 }
 
+function sortAssetsAlphabetically(assets = []) {
+  return [...assets].sort((a, b) => {
+    const aSymbol = String(a.symbol || "");
+    const bSymbol = String(b.symbol || "");
+    return aSymbol.localeCompare(bSymbol);
+  });
+}
+
 function swapSources() {
   return currentHoldings()
     .map(assetForHolding)
@@ -221,15 +228,13 @@ function renderAssetSelect() {
   }
 
   const tradableAssets = orderAssets.filter((asset) => Number(asset.price) > 0);
-  const search = orderAssetSearch.trim().toLowerCase();
   const assetsForSide = orderSide === "sell"
-    ? tradableAssets.filter((asset) => sellSymbols.has(asset.symbol))
+    ? sortAssetsAlphabetically(tradableAssets.filter((asset) => sellSymbols.has(asset.symbol)))
     : orderSide === "swap"
-      ? tradableAssets
+      ? sortAssetsAlphabetically(tradableAssets
         .filter((asset) => sources.length && isSwapAsset(asset) && asset.symbol !== fromSelect.value)
-        .filter((asset) => !search || [asset.symbol, asset.name, asset.market].join(" ").toLowerCase().includes(search))
-        .sort((a, b) => String(a.symbol).localeCompare(String(b.symbol)))
-      : tradableAssets;
+      )
+      : sortAssetsAlphabetically(tradableAssets);
 
   symbolSelect.innerHTML = assetsForSide.length
     ? assetsForSide.map(assetOption).join("")
@@ -243,16 +248,11 @@ function renderSideState() {
   document.querySelectorAll("[data-order-side]").forEach((button) => {
     button.classList.toggle("active", button.dataset.orderSide === orderSide);
   });
+  document.getElementById("order-buy-from-wrap").hidden = orderSide !== "buy";
   document.getElementById("order-from-wrap").hidden = orderSide !== "swap";
   document.getElementById("order-to-wrap").hidden = orderSide !== "sell";
-  document.getElementById("order-search-wrap").hidden = orderSide !== "swap";
   document.getElementById("order-asset-label").textContent = orderSide === "sell" ? "Asset to sell" : orderSide === "swap" ? "Receive" : "Asset to buy";
   document.getElementById("order-amount-label").textContent = orderSide === "sell" ? "Sell amount (USD)" : orderSide === "swap" ? "Swap amount (USD)" : "Buy amount (USD)";
-  document.getElementById("order-side-note").textContent = orderSide === "buy"
-    ? "Buying uses USD funds only and adds the selected asset to your wallet."
-    : orderSide === "sell"
-      ? "Selling uses assets you already hold and returns the value to USD funds."
-      : "Swap converts one held crypto asset into another crypto asset. Use Buy for USD purchases and Sell then Buy for stocks, ETFs, oil, and metals.";
   const submit = document.getElementById("order-submit");
   submit.textContent = orderSide === "swap"
     ? "Place Demo Swap"
@@ -505,17 +505,12 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("input", (event) => {
   if (event.target.id === "order-amount") renderPreview();
-  if (event.target.id === "order-asset-search") {
-    orderAssetSearch = event.target.value;
-    renderAssetSelect();
-    renderPreview();
-  }
 });
 
 document.addEventListener("change", (event) => {
   if (event.target.id === "order-from") {
     const symbol = document.getElementById("order-symbol")?.value || "BTC";
-    const from = document.getElementById("order-from")?.value || "USD";
+    const from = document.getElementById("order-from")?.value || "";
     history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}&from=${encodeURIComponent(from)}`);
     renderSideState();
     return;
