@@ -239,6 +239,27 @@ function renderAssetSelect() {
   if (preferred) symbolSelect.value = preferred.symbol;
 }
 
+function clampOrderAmountToAvailable() {
+  const input = document.getElementById("order-amount");
+  const asset = selectedAsset();
+  if (!input || !asset || orderSide === "buy") return;
+
+  let availableUsd = null;
+  if (orderSide === "sell") {
+    availableUsd = holdingValueUsd(holdingForSymbol(asset.symbol));
+  } else if (orderSide === "swap") {
+    const fromSymbol = document.getElementById("order-from")?.value || "USD";
+    availableUsd = fromSymbol === "USD"
+      ? Number(orderWallet?.cashBalance || 0)
+      : holdingValueUsd(holdingForSymbol(fromSymbol));
+  }
+
+  const currentAmount = selectedAmount();
+  if (availableUsd != null && availableUsd > 0 && (!Number.isFinite(currentAmount) || currentAmount > availableUsd)) {
+    input.value = Math.max(0.01, Math.floor(availableUsd * 100) / 100).toFixed(2);
+  }
+}
+
 function renderSideState() {
   document.querySelectorAll("[data-order-side]").forEach((button) => {
     button.classList.toggle("active", button.dataset.orderSide === orderSide);
@@ -256,6 +277,7 @@ function renderSideState() {
     ? "Place Demo Swap"
     : `Place Demo ${orderSide.charAt(0).toUpperCase()}${orderSide.slice(1)}`;
   renderAssetSelect();
+  clampOrderAmountToAvailable();
   renderPreview();
 }
 
@@ -502,6 +524,7 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "order-symbol") {
     const symbol = document.getElementById("order-symbol")?.value || "BTC";
     history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
+    clampOrderAmountToAvailable();
     renderPreview();
   }
 });
