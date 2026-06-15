@@ -266,34 +266,48 @@ function renderResearchPlan(wallet = {}, watchSymbols = []) {
   const items = [
     {
       label: "Wallet",
+      title: positions ? "Start with your biggest exposure" : "Choose the first asset with context",
       text: positions
         ? `${holding?.symbol || "Top holding"} is the biggest current exposure. Check its story, chart, and recent movement before adding more.`
-        : "Pick a first demo asset after checking the market board and current news."
+        : "Pick a first demo asset after checking the market board and current news.",
+      action: positions ? "Open wallet" : "Explore markets",
+      href: positions ? "demo-wallet.html" : "demo-markets.html"
     },
     {
       label: "Risk",
+      title: cash < 10000 ? "Protect buying power" : "Use available USD with intention",
       text: cash < 10000
         ? "USD funds are lower, so compare sell or swap choices before opening new buys."
-        : "USD funds are healthy, so research can focus on timing and asset quality."
+        : "USD funds are healthy, so research can focus on timing and asset quality.",
+      action: "Open orders",
+      href: "demo-orders.html"
     },
     {
       label: "Watchlist",
+      title: watchSymbols.length ? "Follow saved assets first" : "Build your research list",
       text: watchSymbols.length
         ? `${watchSymbols.slice(0, 3).join(", ")} ${watchSymbols.length > 3 ? "and more are" : "are"} saved for follow-up.`
-        : "Add assets to the watchlist so this page can become more personal."
+        : "Add assets to the watchlist so this page can become more personal.",
+      action: "Open watchlist",
+      href: "demo-watchlist.html"
     },
     {
       label: "News",
+      title: researchArticles.length ? "Connect the headline to the account" : "Let the live brief warm up",
       text: researchArticles.length
         ? "Read the current story brief, then compare it with holdings and watchlist assets."
-        : "News is warming up; use the market and watchlist sections while stories load."
+        : "News is warming up; use the market and watchlist sections while stories load.",
+      action: "View story brief",
+      href: "#research-news"
     }
   ];
 
   document.getElementById("research-queue").innerHTML = items.map((item) => `
-    <article>
+    <article class="research-plan-card">
       <span>${escapeResearchHtml(item.label)}</span>
-      <h3>${escapeResearchHtml(item.text)}</h3>
+      <h3>${escapeResearchHtml(item.title)}</h3>
+      <p>${escapeResearchHtml(item.text)}</p>
+      <a href="${escapeResearchHtml(item.href)}">${escapeResearchHtml(item.action)}</a>
     </article>
   `).join("");
 }

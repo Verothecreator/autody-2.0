@@ -41,7 +41,7 @@
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Practice mode</span>
-          <strong>Demo active</strong>
+          <strong id="settings-status">Loading</strong>
         </div>
       </header>
 
@@ -56,7 +56,7 @@
           <div class="settings-list">
             <div>
               <span>Current mode</span>
-              <strong>Demo trading</strong>
+              <strong id="settings-current-mode">Demo trading</strong>
             </div>
             <div>
               <span>Normal account</span>
@@ -64,7 +64,7 @@
             </div>
             <div>
               <span>Demo buying power</span>
-              <strong>$50,000 USD</strong>
+              <strong id="settings-buying-power">$50,000 USD</strong>
             </div>
           </div>
         </div>
@@ -79,11 +79,11 @@
           <div class="settings-list">
             <div>
               <span>Order confirmations</span>
-              <strong>On</strong>
+              <strong id="settings-order-confirmation">On</strong>
             </div>
             <div>
               <span>Risk level</span>
-              <strong>Practice</strong>
+              <strong id="settings-risk-level">Practice</strong>
             </div>
             <div>
               <span>Reset demo account</span>
@@ -102,15 +102,15 @@
           <div class="settings-list">
             <div>
               <span>Market alerts</span>
-              <strong>On</strong>
+              <strong id="settings-market-alerts">On</strong>
             </div>
             <div>
               <span>News alerts</span>
-              <strong>On</strong>
+              <strong id="settings-news-alerts">On</strong>
             </div>
             <div>
               <span>Currency</span>
-              <strong>USD</strong>
+              <strong id="settings-currency">USD</strong>
             </div>
           </div>
         </div>
@@ -125,15 +125,15 @@
           <div class="settings-list">
             <div>
               <span>Email</span>
-              <strong>ontold7@gmail.com</strong>
+              <strong id="settings-email">ontold7@gmail.com</strong>
             </div>
             <div>
               <span>Account type</span>
-              <strong>Seeded practice account</strong>
+              <strong>Practice account</strong>
             </div>
             <div>
               <span>Database status</span>
-              <strong>JSON now, Supabase next</strong>
+              <strong id="settings-database">Checking</strong>
             </div>
           </div>
         </div>
@@ -142,5 +142,6 @@
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>
+  <script src="demo-settings.js"></script>
 </body>
 </html>
