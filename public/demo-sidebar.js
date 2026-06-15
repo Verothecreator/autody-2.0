@@ -1,4 +1,5 @@
 const DEMO_SIDEBAR_REFRESH_MS = 10000;
+const DEMO_SIDEBAR_COLLAPSED_KEY = "autodyDemoSidebarCollapsed";
 
 const demoSidebarMoney = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -14,24 +15,82 @@ function sidebarIconMarkup(href, label, icon, active = false) {
   `;
 }
 
+function getSidebarCollapsedPreference() {
+  try {
+    return localStorage.getItem(DEMO_SIDEBAR_COLLAPSED_KEY) === "true";
+  } catch (err) {
+    return false;
+  }
+}
+
+function saveSidebarCollapsedPreference(collapsed) {
+  try {
+    localStorage.setItem(DEMO_SIDEBAR_COLLAPSED_KEY, collapsed ? "true" : "false");
+  } catch (err) {
+    // Storage can be blocked in private browsing; the control still works for the current page.
+  }
+}
+
+function setSidebarCollapsed(collapsed) {
+  const layout = document.querySelector(".app-layout");
+  if (!layout) return;
+
+  layout.classList.toggle("sidebar-collapsed", collapsed);
+  const toggle = document.querySelector("[data-sidebar-toggle]");
+  if (!toggle) return;
+
+  toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+  toggle.setAttribute("title", collapsed ? "Expand sidebar" : "Collapse sidebar");
+  toggle.innerHTML = `<span aria-hidden="true">${collapsed ? "&rsaquo;&rsaquo;" : "&lsaquo;&lsaquo;"}</span>`;
+}
+
+function prepareDemoNavLabels(sidebar) {
+  sidebar.querySelectorAll(".app-nav a").forEach((link) => {
+    const label = link.textContent.trim();
+    if (!label) return;
+    link.dataset.short = label.slice(0, 1).toUpperCase();
+    link.setAttribute("title", label);
+  });
+}
+
 function ensureDemoSidebarTools() {
   const sidebar = document.querySelector(".app-sidebar");
-  const profileCard = sidebar?.querySelector(".sidebar-profile");
-  if (!sidebar || !profileCard || sidebar.querySelector(".sidebar-icon-row")) return;
+  if (!sidebar) return;
 
   sidebar.querySelector('.app-nav a[href="demo-settings.html"]')?.remove();
+  prepareDemoNavLabels(sidebar);
+
+  if (sidebar.querySelector(".sidebar-header")) {
+    setSidebarCollapsed(getSidebarCollapsedPreference());
+    return;
+  }
 
   const page = location.pathname.split("/").pop() || "";
   const profileIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>`;
   const settingsIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.36 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.36H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .36-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.36H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>`;
+  const brand = sidebar.querySelector(".app-brand");
+  if (!brand) return;
+
+  const header = document.createElement("div");
+  header.className = "sidebar-header";
+
   const tools = document.createElement("div");
-  tools.className = "sidebar-icon-row";
+  tools.className = "sidebar-top-actions";
   tools.setAttribute("aria-label", "Account tools");
-  tools.innerHTML = [
-    sidebarIconMarkup("demo-profile.html", "Profile", profileIcon, page === "demo-profile.html"),
-    sidebarIconMarkup("demo-settings.html", "Settings", settingsIcon, page === "demo-settings.html")
-  ].join("");
-  profileCard.insertAdjacentElement("afterend", tools);
+  tools.innerHTML = `
+    <div class="sidebar-icon-row">
+      ${sidebarIconMarkup("demo-profile.html", "Profile", profileIcon, page === "demo-profile.html")}
+      ${sidebarIconMarkup("demo-settings.html", "Settings", settingsIcon, page === "demo-settings.html")}
+    </div>
+    <button type="button" class="sidebar-collapse-toggle" data-sidebar-toggle aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+      <span aria-hidden="true">&lsaquo;&lsaquo;</span>
+    </button>
+  `;
+
+  brand.insertAdjacentElement("beforebegin", header);
+  header.append(brand, tools);
+  setSidebarCollapsed(getSidebarCollapsedPreference());
 }
 
 function updateDemoSidebarBalance(wallet = {}) {
@@ -60,6 +119,15 @@ function refreshDemoSidebarWhenVisible() {
 }
 
 document.addEventListener("click", (event) => {
+  const sidebarToggle = event.target.closest("[data-sidebar-toggle]");
+  if (sidebarToggle) {
+    event.preventDefault();
+    const collapsed = !document.querySelector(".app-layout")?.classList.contains("sidebar-collapsed");
+    saveSidebarCollapsedPreference(collapsed);
+    setSidebarCollapsed(collapsed);
+    return;
+  }
+
   const signOut = event.target.closest("[data-demo-sign-out]");
   if (!signOut) return;
   event.preventDefault();
