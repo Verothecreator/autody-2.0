@@ -79,6 +79,7 @@ function prepareDemoActionLabels(sidebar) {
     const label = link.textContent.trim();
     if (!label) return;
     link.setAttribute("title", label);
+    link.setAttribute("aria-label", label);
     if (link.dataset.sidebarActionDecorated === "true") return;
     link.dataset.sidebarActionDecorated = "true";
     link.innerHTML = `
