@@ -31,6 +31,14 @@ function refreshDemoSidebarWhenVisible() {
   loadDemoSidebarBalance();
 }
 
+document.addEventListener("click", (event) => {
+  const signOut = event.target.closest("[data-demo-sign-out]");
+  if (!signOut) return;
+  event.preventDefault();
+  localStorage.removeItem("autodyDemoSession");
+  window.location.href = signOut.getAttribute("href") || "sign-in.html";
+});
+
 loadDemoSidebarBalance();
 setInterval(refreshDemoSidebarWhenVisible, DEMO_SIDEBAR_REFRESH_MS);
 window.addEventListener("focus", refreshDemoSidebarWhenVisible);

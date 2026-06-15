@@ -15,6 +15,7 @@ let orderSide = ["buy", "sell", "swap"].includes(orderParams.get("side")) ? orde
 let orderAssets = [];
 let orderWallet = null;
 let orderHistory = [];
+let orderStatusTimer = null;
 const ORDER_REFRESH_MS = 10000;
 const ORDER_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
@@ -119,7 +120,12 @@ async function postOrderJson(url, body) {
     body: JSON.stringify(body)
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
+  if (!response.ok || !data.success) {
+    const fallback = response.status === 502
+      ? "Demo order server timed out. Please wait a moment and try again."
+      : `${url} returned ${response.status}`;
+    throw new Error(data.error || fallback);
+  }
   return data;
 }
 
@@ -183,11 +189,23 @@ function selectedAmount() {
   return Number(document.getElementById("order-amount")?.value || 0);
 }
 
-function setStatus(message, tone = "") {
+function setStatus(message, tone = "", options = {}) {
   const node = document.getElementById("order-status");
   if (!node) return;
+  if (orderStatusTimer) {
+    clearTimeout(orderStatusTimer);
+    orderStatusTimer = null;
+  }
   node.textContent = message;
   node.className = `order-status ${tone}`;
+
+  if (message && !options.sticky) {
+    orderStatusTimer = setTimeout(() => {
+      node.textContent = "";
+      node.className = "order-status";
+      orderStatusTimer = null;
+    }, options.delay || 5000);
+  }
 }
 
 function assetOption(asset) {
@@ -483,7 +501,7 @@ async function submitOrder(event) {
 
   const submit = document.getElementById("order-submit");
   submit.disabled = true;
-  setStatus("Placing demo order...");
+  setStatus("Placing demo order...", "", { sticky: true });
 
   try {
     const data = await postOrderJson("/api/demo/orders", payload);

@@ -803,7 +803,9 @@ async function buildDemoWalletSnapshot(account) {
     const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
     const symbolsForMarket = [...holdingsBySymbol.keys()]
         .filter((symbol) => symbol !== "AU" && !WALLET_GROUP_SYMBOLS.has(symbol));
-    const marketAssets = symbolsForMarket.length ? await buildMarketCatalog("all").catch(() => []) : [];
+    const marketAssets = symbolsForMarket.length
+        ? (await Promise.all(symbolsForMarket.map((symbol) => findMarketAssetBySymbol(symbol).catch(() => null)))).filter(Boolean)
+        : [];
     const marketMap = new Map(marketAssets.map((asset) => [String(asset.symbol || "").toUpperCase(), asset]));
 
     const cash = {
@@ -1931,6 +1933,111 @@ async function readLatestMarketSnapshots(assetType, limit = 6) {
         console.error("Market snapshot fallback read failed:", err);
         return [];
     }
+}
+
+function marketSnapshotRowToAsset(row = {}) {
+    return {
+        symbol: row.symbol,
+        name: row.asset_name,
+        assetType: row.asset_type,
+        providerSymbol: row.provider_symbol || row.symbol,
+        market: row.market || null,
+        price: nullableNumber(row.price_usd),
+        changePct: nullableNumber(row.change_pct),
+        marketCap: firstPositive(row.market_cap_usd),
+        fdv: firstPositive(row.fdv_usd),
+        liquidityUsd: firstPositive(row.liquidity_usd),
+        totalVolume: firstPositive(row.total_volume_usd),
+        high24h: firstPositive(row.high_24h),
+        low24h: firstPositive(row.low_24h),
+        ath: firstPositive(row.ath),
+        atl: firstPositive(row.atl),
+        circulatingSupply: firstPositive(row.circulating_supply),
+        totalSupply: firstPositive(row.total_supply),
+        maxSupply: firstPositive(row.max_supply),
+        currency: row.currency || "USD",
+        logoUrl: row.logo_url || null,
+        depositNetworks: Array.isArray(row.deposit_networks) ? row.deposit_networks : [],
+        capturedAt: row.captured_at,
+        provider: row.provider
+    };
+}
+
+async function readLatestMarketSnapshotByLookup(lookup) {
+    if (!databaseConfigured() || !lookup) return null;
+
+    try {
+        const result = await withDbTimeout(dbPool.query(`
+            select provider, symbol, asset_name, asset_type, provider_symbol, market, price_usd, change_pct, market_cap_usd, fdv_usd, liquidity_usd, total_volume_usd, high_24h, low_24h, ath, atl, circulating_supply, total_supply, max_supply, currency, logo_url, deposit_networks, captured_at
+            from market_latest_snapshots
+            where upper(symbol) = upper($1)
+               or upper(provider_symbol) = upper($1)
+            order by captured_at desc
+            limit 1
+        `, [lookup]), "Market symbol snapshot read");
+
+        return result.rows[0] ? marketSnapshotRowToAsset(result.rows[0]) : null;
+    } catch (err) {
+        console.error(`Market snapshot lookup failed for ${lookup}:`, err.message || err);
+        return null;
+    }
+}
+
+function marketAssetMatchesLookup(asset = {}, lookup = "") {
+    const candidates = [asset.symbol, asset.id, asset.providerSymbol]
+        .filter(Boolean)
+        .map((value) => String(value).toUpperCase());
+    return candidates.includes(String(lookup || "").toUpperCase());
+}
+
+function findStaticMarketAssetByLookup(lookup) {
+    const cryptoCatalog = cryptoCatalogCache.assets.length
+        ? cryptoCatalogCache.assets
+        : staticCryptoFallbackCatalog();
+    const stockCatalog = TRADE_STOCK_ASSETS.map(assetCatalogEntry);
+    return [...cryptoCatalog, ...stockCatalog].find((asset) => marketAssetMatchesLookup(asset, lookup)) || null;
+}
+
+function mergeResolvedMarketAsset(lookup, baseAsset = null, snapshot = null) {
+    const symbol = String(snapshot?.symbol || baseAsset?.symbol || lookup || "").toUpperCase();
+    const memorySnapshot = liveMarketAssetCache.bySymbol.get(symbol) || liveMarketAssetCache.bySymbol.get(String(lookup || "").toUpperCase());
+    const fallbackQuote = fallbackMarketQuote(symbol);
+    const fallbackStatus = fallbackQuote.price != null ? "Backup quote" : "Waiting for first refresh";
+    const seed = baseAsset || assetCatalogEntry({
+        symbol,
+        name: snapshot?.name || symbol,
+        assetType: snapshot?.assetType || "crypto",
+        market: snapshot?.market || "Global",
+        currency: snapshot?.currency || "USD"
+    });
+
+    return {
+        ...seed,
+        symbol,
+        name: memorySnapshot?.name || snapshot?.name || seed.name || symbol,
+        assetType: memorySnapshot?.assetType || snapshot?.assetType || seed.assetType || "crypto",
+        price: memorySnapshot?.price ?? snapshot?.price ?? seed.price ?? fallbackQuote.price ?? null,
+        changePct: memorySnapshot?.changePct ?? snapshot?.changePct ?? seed.changePct ?? fallbackQuote.changePct ?? null,
+        marketCap: memorySnapshot?.marketCap ?? seed.marketCap ?? snapshot?.marketCap ?? null,
+        fdv: memorySnapshot?.fdv ?? seed.fdv ?? snapshot?.fdv ?? null,
+        liquidityUsd: memorySnapshot?.liquidityUsd ?? seed.liquidityUsd ?? snapshot?.liquidityUsd ?? null,
+        totalVolume: memorySnapshot?.totalVolume ?? seed.totalVolume ?? snapshot?.totalVolume ?? null,
+        high24h: memorySnapshot?.high24h ?? seed.high24h ?? snapshot?.high24h ?? null,
+        low24h: memorySnapshot?.low24h ?? seed.low24h ?? snapshot?.low24h ?? null,
+        ath: memorySnapshot?.ath ?? seed.ath ?? snapshot?.ath ?? null,
+        atl: memorySnapshot?.atl ?? seed.atl ?? snapshot?.atl ?? null,
+        circulatingSupply: memorySnapshot?.circulatingSupply ?? seed.circulatingSupply ?? snapshot?.circulatingSupply ?? null,
+        totalSupply: memorySnapshot?.totalSupply ?? seed.totalSupply ?? snapshot?.totalSupply ?? null,
+        maxSupply: memorySnapshot?.maxSupply ?? seed.maxSupply ?? snapshot?.maxSupply ?? null,
+        currency: memorySnapshot?.currency || seed.currency || snapshot?.currency || "USD",
+        providerSymbol: memorySnapshot?.providerSymbol || seed.providerSymbol || snapshot?.providerSymbol || marketDataSymbol(seed),
+        market: memorySnapshot?.market || seed.market || snapshot?.market || "Global",
+        depositNetworks: seed.depositNetworks?.length ? seed.depositNetworks : memorySnapshot?.depositNetworks || snapshot?.depositNetworks || [],
+        logoUrl: memorySnapshot?.logoUrl || seed.logoUrl || snapshot?.logoUrl || assetLogoUrl(seed),
+        dataProvider: memorySnapshot?.dataProvider || seed.dataProvider || snapshot?.provider || null,
+        capturedAt: memorySnapshot?.capturedAt || seed.capturedAt || snapshot?.capturedAt || null,
+        status: memorySnapshot ? "Live" : seed.status || (snapshot ? "Live" : fallbackStatus)
+    };
 }
 
 async function readLatestNewsSnapshots(limit = 9) {
@@ -4029,11 +4136,22 @@ app.get("/api/markets/catalog", async (req, res) => {
 
 async function findMarketAssetBySymbol(symbol) {
   const lookup = String(symbol || "").trim().toUpperCase();
+  if (!lookup) return null;
+
+  const cached = marketCatalogCache.get("all");
+  if (cached && cached.expiresAt > Date.now()) {
+    const cachedAsset = cached.assets.find((item) => marketAssetMatchesLookup(item, lookup));
+    if (cachedAsset) return cachedAsset;
+  }
+
+  const baseAsset = findStaticMarketAssetByLookup(lookup);
+  const snapshot = await readLatestMarketSnapshotByLookup(lookup);
+  if (baseAsset || snapshot) {
+    return mergeResolvedMarketAsset(lookup, baseAsset, snapshot);
+  }
+
   const assets = await buildMarketCatalog("all");
-  return assets.find((item) => {
-    const candidates = [item.symbol, item.id, item.providerSymbol].filter(Boolean).map((value) => String(value).toUpperCase());
-    return candidates.includes(lookup);
-  }) || null;
+  return assets.find((item) => marketAssetMatchesLookup(item, lookup)) || null;
 }
 
 app.get("/api/markets/charts/:symbol", async (req, res) => {
