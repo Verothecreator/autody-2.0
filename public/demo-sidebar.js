@@ -26,6 +26,7 @@ const demoNavIcons = {
 
 const demoActionIcons = {
   "Live Account": `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4V5Z"/><path d="M8 20h8"/><path d="M12 16v4"/><path d="m9 11 2 2 4-5"/></svg>`,
+  "Open Demo": `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5V4Z"/><path d="M9 9h6"/><path d="M9 13h4"/><path d="m14 16 3 2-3 2v-4Z"/></svg>`,
   "Sign Out": `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4"/><path d="M14 16l4-4-4-4"/><path d="M18 12H9"/></svg>`
 };
 
@@ -142,12 +143,14 @@ function updateDemoSidebarBalance(wallet = {}) {
   const cash = Number(wallet.cashBalance);
   if (!Number.isFinite(cash)) return;
   const value = `${demoSidebarMoney.format(cash)} USD`;
-  document.querySelectorAll(".sidebar-profile strong").forEach((node) => {
+  document.querySelectorAll(".sidebar-profile strong:not([data-static-profile])").forEach((node) => {
     node.textContent = value;
   });
 }
 
 async function loadDemoSidebarBalance() {
+  if (!document.querySelector(".sidebar-profile strong:not([data-static-profile])")) return;
+
   try {
     const response = await fetch("/api/demo/wallet", { cache: "no-store" });
     if (!response.ok) return;

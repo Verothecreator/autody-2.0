@@ -346,6 +346,10 @@ h3 {
   color: var(--negative);
 }
 
+.flat {
+  color: var(--muted);
+}
+
 .balance-row {
   margin: 20px 0;
   color: var(--muted);
@@ -1295,7 +1299,7 @@ h3 {
   font-weight: 800;
 }
 
-.quick-actions button:nth-child(3) {
+.quick-actions button:first-child {
   background: linear-gradient(135deg, #5d5fef, #4345ce);
   color: #ffffff;
   font-weight: 800;

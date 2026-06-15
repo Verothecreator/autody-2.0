@@ -14,13 +14,17 @@
         <span>Autody</span>
       </a>
       <nav class="app-nav" aria-label="Account navigation">
-        <a href="account.html" class="active">Live Account</a>
-        <a href="demo-account.html">Demo Account</a>
+        <a href="account.html" class="active">Overview</a>
+        <a href="#live-wallet">Wallet</a>
+        <a href="#live-markets">Markets</a>
+        <a href="#live-orders">Orders</a>
+        <a href="#live-watchlist">Watchlist</a>
+        <a href="#live-research">Research</a>
         <a href="demo-settings.html">Settings</a>
       </nav>
       <div class="sidebar-profile">
-        <span>Signed in</span>
-        <strong>ontold7@gmail.com</strong>
+        <span>Live mode</span>
+        <strong data-static-profile>ontold7@gmail.com</strong>
       </div>
       <div class="sidebar-actions">
         <a href="demo-wallet.html" class="btn sidebar-return">Open Demo</a>
@@ -32,8 +36,8 @@
       <header class="app-topbar">
         <div>
           <p class="eyebrow">Live account</p>
-          <h1>Account</h1>
-          <p class="app-subtitle">A real account workspace for funding, receiving crypto, sending assets, and tracking verified balances when production custody is connected.</p>
+          <h1>Overview</h1>
+          <p class="app-subtitle">Manage real funding, crypto receive/send, and verified balances when production custody is connected.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Live mode</span>
@@ -41,12 +45,41 @@
         </div>
       </header>
 
-      <section class="account-kpi-grid">
-        <div class="app-card mini-metric">
-          <span class="muted-label">Live account value</span>
-          <strong>$0.00</strong>
-          <small>No verified deposits yet</small>
+      <section class="account-overview live-account-overview">
+        <div class="balance-card live-account-card">
+          <div class="balance-card-top">
+            <div>
+              <span class="muted-label">Live account value</span>
+              <strong>$0.00</strong>
+            </div>
+            <span class="status-pill">Funding pending</span>
+          </div>
+          <p><span class="flat">0.00%</span> no verified deposits yet</p>
+          <div class="account-line-chart flat-chart" aria-hidden="true">
+            <span style="height: 44%"></span>
+            <span style="height: 44%"></span>
+            <span style="height: 44%"></span>
+            <span style="height: 44%"></span>
+            <span style="height: 44%"></span>
+            <span style="height: 44%"></span>
+            <span style="height: 44%"></span>
+            <span style="height: 44%"></span>
+          </div>
+          <div class="live-account-actions">
+            <button class="btn btn-large" type="button" data-live-focus="crypto">Receive Crypto</button>
+            <button class="btn btn-large btn-ghost" type="button" data-live-focus="funding">Add USD Funds</button>
+          </div>
         </div>
+
+        <div class="quick-actions">
+          <button type="button" data-live-focus="crypto">Receive Crypto</button>
+          <button type="button" data-live-focus="funding">Add USD Funds</button>
+          <button type="button" data-live-message="Live trading will unlock after funding and custody rails are connected.">Trade Assets</button>
+          <a href="demo-account.html">Open Demo</a>
+        </div>
+      </section>
+
+      <section class="account-kpi-grid">
         <div class="app-card mini-metric">
           <span class="muted-label">Available USD</span>
           <strong>$0.00</strong>
@@ -58,44 +91,19 @@
           <small>Receive addresses ready for connection</small>
         </div>
         <div class="app-card mini-metric">
+          <span class="muted-label">Open positions</span>
+          <strong>0</strong>
+          <small>No live assets held yet</small>
+        </div>
+        <div class="app-card mini-metric">
           <span class="muted-label">Pending transfers</span>
           <strong>0</strong>
           <small>Nothing waiting on confirmations</small>
         </div>
       </section>
 
-      <section class="account-overview live-account-overview">
-        <div class="balance-card live-account-card">
-          <div class="balance-card-top">
-            <div>
-              <span class="muted-label">Production funding</span>
-              <strong>Ready to design</strong>
-            </div>
-            <span class="status-pill">Interface only</span>
-          </div>
-          <p>Users will be able to fund with USD or crypto. For now, the interface shows how the account will work while real payment providers, custody wallets, and compliance checks are still disconnected.</p>
-          <div class="live-account-actions">
-            <button class="btn btn-large" type="button" data-live-focus="crypto">Receive Crypto</button>
-            <button class="btn btn-large btn-ghost" type="button" data-live-focus="funding">Add USD Funds</button>
-          </div>
-        </div>
-
-        <div class="quick-actions live-status-card">
-          <div>
-            <span class="muted-label">Treasury path</span>
-            <strong>Wallet first</strong>
-            <small>User deposits credit their account ledger, then treasury rules decide how funds are swept and stored.</small>
-          </div>
-          <div>
-            <span class="muted-label">Fresh addresses</span>
-            <strong>Supported</strong>
-            <small>Crypto receive can generate a new address for a new deposit request.</small>
-          </div>
-        </div>
-      </section>
-
-      <section class="live-account-grid">
-        <div class="app-card live-funding-card" id="live-funding">
+      <section class="account-grid">
+        <div class="app-card live-funding-card wide-card" id="live-funding">
           <div class="card-heading">
             <div>
               <span class="muted-label">Funding</span>
@@ -176,7 +184,20 @@
           <p class="live-notice" id="live-notice" hidden></p>
         </div>
 
-        <div class="app-card live-crypto-card" id="live-crypto">
+        <div class="app-card live-status-card">
+          <div>
+            <span class="muted-label">Treasury path</span>
+            <strong>Wallet first</strong>
+            <small>User deposits credit their account ledger, then treasury rules decide how funds are swept and stored.</small>
+          </div>
+          <div>
+            <span class="muted-label">Fresh addresses</span>
+            <strong>Supported</strong>
+            <small>Crypto receive can generate a new address for a new deposit request.</small>
+          </div>
+        </div>
+
+        <div class="app-card live-crypto-card wide-card" id="live-crypto">
           <div class="card-heading">
             <div>
               <span class="muted-label">Crypto wallet</span>
@@ -246,10 +267,8 @@
             </div>
           </div>
         </div>
-      </section>
 
-      <section class="account-grid live-record-grid">
-        <div class="app-card holdings-card">
+        <div class="app-card holdings-card wide-card" id="live-wallet">
           <div class="card-heading">
             <div>
               <span class="muted-label">Assets</span>
@@ -304,7 +323,7 @@
         </div>
 
         <div class="wallet-side-stack">
-          <div class="app-card wallet-record-card">
+          <div class="app-card wallet-record-card" id="live-orders">
             <div class="card-heading">
               <div>
                 <span class="muted-label">Activity</span>
@@ -330,7 +349,7 @@
             </div>
           </div>
 
-          <div class="app-card live-security-card">
+          <div class="app-card live-security-card" id="live-research">
             <div class="card-heading">
               <div>
                 <span class="muted-label">Controls</span>
@@ -345,10 +364,33 @@
             </div>
           </div>
         </div>
+
+        <div class="app-card settings-preview-card" id="live-markets">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Markets</span>
+              <h2>Live trading access</h2>
+            </div>
+          </div>
+          <p>Crypto, stocks, ETFs, and commodity exposure will use the same market data layout once live custody and trading rails are approved.</p>
+          <button class="btn" type="button" data-live-message="Live markets are staged. Use Demo Markets while production rails are being connected.">Preview Live Markets</button>
+        </div>
+
+        <div class="app-card settings-preview-card" id="live-watchlist">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Watchlist</span>
+              <h2>Saved live assets</h2>
+            </div>
+          </div>
+          <p>Live watchlists will follow the same account-specific save/remove behavior as the demo watchlist.</p>
+          <button class="btn btn-ghost" type="button" data-live-message="Live watchlist storage will connect after live account records are separated from demo records.">Prepare Watchlist</button>
+        </div>
       </section>
     </main>
   </div>
   <script src="demo-auth.js"></script>
+  <script src="demo-sidebar.js"></script>
   <script src="live-account.js"></script>
 </body>
 </html>
