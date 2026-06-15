@@ -364,8 +364,20 @@ function renderPreview() {
   const quantity = Number.isFinite(price) && price > 0 && amount > 0 ? amount / price : 0;
   const fromSymbol = document.getElementById("order-from")?.value || "";
   const validation = tradeValidation(asset, amount);
+  let swapSourceQuantity = 0;
+  if (orderSide === "swap") {
+    const sourceHolding = holdingForSymbol(fromSymbol);
+    const sourceAsset = assetForHolding(sourceHolding);
+    const sourceBalance = Number(sourceHolding?.balance || sourceHolding?.quantity || 0);
+    const sourceValue = holdingValueUsd(sourceHolding);
+    let sourcePrice = Number(sourceAsset.price);
+    if ((!Number.isFinite(sourcePrice) || sourcePrice <= 0) && sourceBalance > 0 && sourceValue > 0) {
+      sourcePrice = sourceValue / sourceBalance;
+    }
+    swapSourceQuantity = Number.isFinite(sourcePrice) && sourcePrice > 0 ? amount / sourcePrice : 0;
+  }
   const actionText = orderSide === "swap"
-    ? `Swap ${formatOrderMoney(amount)} from ${fromSymbol} into ${asset.symbol}`
+    ? `Swap ${formatOrderMoney(amount)} from ${formatOrderNumber(swapSourceQuantity)} ${fromSymbol} into ${formatOrderNumber(quantity)} ${asset.symbol}`
     : `${orderSide === "sell" ? "Sell about" : "Buy about"} ${formatOrderNumber(quantity)} ${asset.symbol}`;
   const detail = validation.availableLabel
     ? `${validation.availableLabel}: ${formatOrderMoney(validation.availableUsd)}`
