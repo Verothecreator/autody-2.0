@@ -1888,6 +1888,244 @@ a.asset-table-row {
   margin-top: 24px;
 }
 
+.live-account-overview {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.live-status-card {
+  align-content: start;
+}
+
+.live-status-card div {
+  min-height: 112px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.live-status-card strong,
+.live-status-card small {
+  display: block;
+}
+
+.live-status-card small {
+  color: var(--muted);
+}
+
+.live-account-grid,
+.live-transfer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.live-method-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.live-method-tabs button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.live-method-tabs button.active {
+  border-color: rgba(93, 95, 239, 0.85);
+  background: rgba(93, 95, 239, 0.22);
+  color: var(--text);
+}
+
+.live-method-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.live-method-panel[hidden] {
+  display: none;
+}
+
+.live-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.live-form-grid label,
+.live-transfer-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.live-form-grid input,
+.live-form-grid select,
+.live-transfer-panel input,
+.live-transfer-panel select {
+  min-height: 48px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  padding: 0 12px;
+  outline: none;
+}
+
+.live-form-grid select,
+.live-transfer-panel select {
+  cursor: pointer;
+}
+
+.live-form-grid select option,
+.live-transfer-panel select option {
+  background: #151922;
+  color: var(--text);
+}
+
+.live-method-summary,
+.live-transfer-panel,
+.live-wire-box,
+.live-address-box,
+.live-notice {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.live-method-summary {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+}
+
+.live-method-summary span,
+.live-panel-heading span,
+.live-notice {
+  color: var(--muted);
+}
+
+.live-wire-box {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 10px 14px;
+  padding: 14px;
+}
+
+.live-wire-box span {
+  color: var(--muted);
+}
+
+.live-crypto-card {
+  background:
+    radial-gradient(circle at 90% 0%, rgba(47, 226, 139, 0.09), transparent 36%),
+    rgba(18, 21, 28, 0.86);
+}
+
+.live-transfer-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.live-transfer-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.live-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.live-panel-heading strong {
+  text-align: right;
+}
+
+.live-address-box {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+}
+
+.live-address-box span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.live-address-box button,
+.live-holdings-table button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(93, 95, 239, 0.18);
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.live-action-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.live-notice {
+  padding: 12px 14px;
+  font-weight: 800;
+}
+
+.live-notice[data-type="success"] {
+  border-color: rgba(47, 226, 139, 0.45);
+  color: var(--green);
+}
+
+.live-notice[data-type="warning"] {
+  border-color: rgba(255, 94, 119, 0.45);
+  color: var(--red);
+}
+
+.live-record-grid {
+  align-items: start;
+}
+
+.live-holdings-table .asset-table-row {
+  grid-template-columns: 1.15fr 0.9fr 0.9fr minmax(100px, 0.55fr);
+}
+
+.live-holdings-table button {
+  width: 100%;
+  padding: 0 10px;
+}
+
+.asset-dot.etf {
+  background: #4fc3ff;
+}
+
+.live-security-card .settings-list div {
+  min-height: 52px;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3777,6 +4015,9 @@ a.asset-table-row {
   .account-overview,
   .account-kpi-grid,
   .account-grid,
+  .live-account-overview,
+  .live-account-grid,
+  .live-transfer-grid,
   .markets-layout,
   .market-intel-grid,
   .market-feature-grid,
@@ -3795,6 +4036,26 @@ a.asset-table-row {
   .research-plan-grid,
   .profile-hero {
     grid-template-columns: 1fr;
+  }
+
+  .live-form-grid,
+  .live-wire-box,
+  .live-holdings-table .asset-table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .live-panel-heading,
+  .live-address-box,
+  .live-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .live-panel-heading {
+    display: grid;
+  }
+
+  .live-panel-heading strong {
+    text-align: left;
   }
 
   .profile-hero-actions {
