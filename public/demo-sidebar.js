@@ -24,6 +24,11 @@ const demoNavIcons = {
   Research: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 5 5"/><path d="M8 11h5"/><path d="M10.5 8.5v5"/></svg>`
 };
 
+const demoActionIcons = {
+  "Live Account": `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4V5Z"/><path d="M8 20h8"/><path d="M12 16v4"/><path d="m9 11 2 2 4-5"/></svg>`,
+  "Sign Out": `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4"/><path d="M14 16l4-4-4-4"/><path d="M18 12H9"/></svg>`
+};
+
 function getSidebarCollapsedPreference() {
   try {
     return localStorage.getItem(DEMO_SIDEBAR_COLLAPSED_KEY) === "true";
@@ -69,12 +74,27 @@ function prepareDemoNavLabels(sidebar) {
   });
 }
 
+function prepareDemoActionLabels(sidebar) {
+  sidebar.querySelectorAll(".sidebar-actions a").forEach((link) => {
+    const label = link.textContent.trim();
+    if (!label) return;
+    link.setAttribute("title", label);
+    if (link.dataset.sidebarActionDecorated === "true") return;
+    link.dataset.sidebarActionDecorated = "true";
+    link.innerHTML = `
+      <span class="sidebar-action-icon">${demoActionIcons[label] || demoActionIcons["Live Account"]}</span>
+      <span class="sidebar-action-label">${label}</span>
+    `;
+  });
+}
+
 function ensureDemoSidebarTools() {
   const sidebar = document.querySelector(".app-sidebar");
   if (!sidebar) return;
 
   sidebar.querySelector('.app-nav a[href="demo-settings.html"]')?.remove();
   prepareDemoNavLabels(sidebar);
+  prepareDemoActionLabels(sidebar);
 
   if (sidebar.querySelector(".sidebar-header")) {
     setSidebarCollapsed(getSidebarCollapsedPreference());
