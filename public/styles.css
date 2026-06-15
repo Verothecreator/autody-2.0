@@ -918,9 +918,12 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 26px 18px;
   border-right: 1px solid var(--line);
   background: linear-gradient(180deg, #10131b, #0b0d12);
+  scrollbar-width: thin;
 }
 
 .app-brand {
@@ -981,10 +984,10 @@ h3 {
 .sidebar-icon-row {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   width: 40px;
-  margin: -4px auto 2px;
+  margin: -4px 0 2px 12px;
 }
 
 .sidebar-icon-link {
