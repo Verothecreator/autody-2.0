@@ -1,4 +1,9 @@
-const RESEARCH_REFRESH_MS = 10000;
+const RESEARCH_REFRESH_MS = 30000;
+const RESEARCH_NEWS_SLIDE_MS = 9000;
+
+let researchArticles = [];
+let activeResearchArticleIndex = 0;
+let researchNewsTimer = null;
 
 const researchMoney = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -25,6 +30,12 @@ function formatResearchMoney(value, whole = false) {
   const number = Number(value);
   if (!Number.isFinite(number)) return whole ? "$0" : "$0.00";
   return whole ? researchWholeMoney.format(number) : researchMoney.format(number);
+}
+
+function formatResearchPrice(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "Live feed";
+  return formatResearchMoney(number);
 }
 
 function formatResearchMove(value) {
@@ -61,6 +72,48 @@ function researchAssetLabel(asset = {}) {
   return asset.market || "Market";
 }
 
+function formatResearchDate(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "Recent";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function articleSubject(article = {}) {
+  return article.subject || article.source || "Markets";
+}
+
+function articleSummary(article = {}) {
+  if (article.summary && !/open the source/i.test(article.summary)) return article.summary;
+  const subject = String(articleSubject(article)).toLowerCase();
+  if (subject.includes("crypto")) return "Digital asset traders are watching liquidity, token flows, and risk appetite before making the next move.";
+  if (subject.includes("business")) return "Business headlines can move stock sentiment, earnings expectations, and sector confidence.";
+  if (subject.includes("economy")) return "Macro data can affect rates, inflation expectations, commodities, stocks, and crypto risk appetite.";
+  return "This story is part of the broader market picture Autody is tracking for account decisions.";
+}
+
+function articleMarketAngle(article = {}) {
+  const text = `${article.title || ""} ${article.subject || ""}`.toLowerCase();
+  if (/fed|rate|inflation|jobs|consumer|gdp/.test(text)) return "Macro pressure";
+  if (/bitcoin|crypto|token|stablecoin|wallet|ethereum/.test(text)) return "Digital assets";
+  if (/earnings|stock|shares|nasdaq|s&p|ai|company/.test(text)) return "Equities";
+  if (/gold|oil|metal|commodity|energy/.test(text)) return "Commodities";
+  return "Market context";
+}
+
+function articleAccountAngle(article = {}) {
+  const angle = articleMarketAngle(article);
+  if (angle === "Digital assets") return "Compare with crypto holdings, swap plans, and watchlist coins.";
+  if (angle === "Equities") return "Check whether stock positions or watchlist names are exposed to this theme.";
+  if (angle === "Commodities") return "Watch inflation signals, gold confidence, oil pressure, and reserve-sensitive assets.";
+  if (angle === "Macro pressure") return "Review buying power, risk level, and whether markets are reacting to rates or inflation.";
+  return "Use the story as background before opening a new order.";
+}
+
 function renderResearchWallet(wallet = {}, watchSymbols = []) {
   const starting = Number(wallet.startingBalance || 50000);
   const total = Number(wallet.totalValue || starting);
@@ -89,13 +142,17 @@ function renderResearchWallet(wallet = {}, watchSymbols = []) {
 
 function renderResearchWatchlist(symbols = [], catalog = []) {
   const catalogMap = new Map(catalog.map((asset) => [String(asset.symbol).toUpperCase(), asset]));
-  const assets = symbols.map((symbol) => catalogMap.get(symbol)).filter(Boolean).slice(0, 6);
+  const assets = symbols.map((symbol) => catalogMap.get(symbol) || { symbol, name: symbol }).slice(0, 6);
   const target = document.getElementById("research-watchlist");
   target.innerHTML = assets.length
     ? assets.map((asset) => `
-      <article>
-        <span>${escapeResearchHtml(asset.symbol)} / ${escapeResearchHtml(researchAssetLabel(asset))}</span>
-        <h3>${escapeResearchHtml(asset.name || asset.symbol)}</h3>
+      <article class="research-watch-item">
+        <div>
+          <span>${escapeResearchHtml(asset.symbol)} / ${escapeResearchHtml(researchAssetLabel(asset))}</span>
+          <h3>${escapeResearchHtml(asset.name || asset.symbol)}</h3>
+        </div>
+        <strong>${escapeResearchHtml(formatResearchPrice(asset.price))}</strong>
+        <em class="${researchTone(asset.changePct)}">${escapeResearchHtml(formatResearchMove(asset.changePct))}</em>
       </article>
     `).join("")
     : `
@@ -106,39 +163,130 @@ function renderResearchWatchlist(symbols = [], catalog = []) {
     `;
 }
 
-function renderResearchNews(articles = []) {
+function renderResearchNewsSlide() {
   const target = document.getElementById("research-news");
-  const rows = articles.slice(0, 6);
-  target.innerHTML = rows.length
-    ? rows.map((article) => `
-      <article>
-        <span>${escapeResearchHtml(article.subject || article.source || "Markets")}</span>
-        <h3>${escapeResearchHtml(article.title || "Market story")}</h3>
-      </article>
-    `).join("")
-    : `
-      <article>
+  const count = document.getElementById("research-news-count");
+  if (!target) return;
+
+  if (!researchArticles.length) {
+    if (count) count.textContent = "Checking";
+    target.innerHTML = `
+      <article class="research-news-empty">
         <span>Checking</span>
         <h3>Autody is checking important finance stories throughout the day.</h3>
       </article>
     `;
+    return;
+  }
+
+  activeResearchArticleIndex = (activeResearchArticleIndex + researchArticles.length) % researchArticles.length;
+  const article = researchArticles[activeResearchArticleIndex];
+  const imageMarkup = article.image
+    ? `<img src="${escapeResearchHtml(article.image)}" alt="" loading="lazy" />`
+    : `<div class="research-news-image-fallback"><span>${escapeResearchHtml(articleMarketAngle(article))}</span></div>`;
+  const dots = researchArticles.map((_, index) => (
+    `<button type="button" class="research-news-dot ${index === activeResearchArticleIndex ? "active" : ""}" data-research-news-index="${index}" aria-label="Show story ${index + 1}"></button>`
+  )).join("");
+
+  if (count) count.textContent = `${activeResearchArticleIndex + 1} of ${researchArticles.length}`;
+
+  target.innerHTML = `
+    <article class="research-news-feature">
+      <div class="research-news-media">
+        ${imageMarkup}
+      </div>
+      <div class="research-news-copy">
+        <span>${escapeResearchHtml(articleSubject(article))}</span>
+        <h3>${escapeResearchHtml(article.title || "Market story")}</h3>
+        <p>${escapeResearchHtml(articleSummary(article))}</p>
+        <div class="research-news-facts">
+          <div>
+            <small>Source</small>
+            <strong>${escapeResearchHtml(article.source || "Finance news")}</strong>
+          </div>
+          <div>
+            <small>Market angle</small>
+            <strong>${escapeResearchHtml(articleMarketAngle(article))}</strong>
+          </div>
+          <div>
+            <small>Account angle</small>
+            <strong>${escapeResearchHtml(articleAccountAngle(article))}</strong>
+          </div>
+          <div>
+            <small>Published</small>
+            <strong>${escapeResearchHtml(formatResearchDate(article.publishedAt || article.capturedAt))}</strong>
+          </div>
+        </div>
+        <div class="research-news-controls">
+          <button type="button" class="research-news-arrow" data-research-news-action="prev" aria-label="Previous story">&lsaquo;</button>
+          <div class="research-news-dots">${dots}</div>
+          <button type="button" class="research-news-arrow" data-research-news-action="next" aria-label="Next story">&rsaquo;</button>
+        </div>
+      </div>
+    </article>
+  `;
 }
 
-function renderResearchQueue(wallet = {}, watchSymbols = []) {
+function setActiveResearchArticle(index, resetTimer = true) {
+  if (!researchArticles.length) return;
+  activeResearchArticleIndex = (index + researchArticles.length) % researchArticles.length;
+  renderResearchNewsSlide();
+  if (resetTimer && researchNewsTimer) {
+    clearInterval(researchNewsTimer);
+    researchNewsTimer = setInterval(() => setActiveResearchArticle(activeResearchArticleIndex + 1, false), RESEARCH_NEWS_SLIDE_MS);
+  }
+}
+
+function renderResearchNews(articles = []) {
+  const currentTitle = researchArticles[activeResearchArticleIndex]?.title;
+  researchArticles = articles
+    .filter((article) => article?.title)
+    .slice(0, 10);
+
+  const preservedIndex = researchArticles.findIndex((article) => article.title === currentTitle);
+  activeResearchArticleIndex = preservedIndex >= 0 ? preservedIndex : 0;
+  renderResearchNewsSlide();
+
+  if (researchNewsTimer) clearInterval(researchNewsTimer);
+  if (researchArticles.length > 1) {
+    researchNewsTimer = setInterval(() => setActiveResearchArticle(activeResearchArticleIndex + 1, false), RESEARCH_NEWS_SLIDE_MS);
+  }
+}
+
+function topHolding(wallet = {}) {
+  return [...(wallet.holdings || [])]
+    .filter((holding) => !["USD", "AU", "CRYPTO", "STOCKS"].includes(String(holding.symbol || "").toUpperCase()))
+    .sort((a, b) => Number(b.valueUsd || 0) - Number(a.valueUsd || 0))[0];
+}
+
+function renderResearchPlan(wallet = {}, watchSymbols = []) {
   const positions = Number(wallet.positionsCount || 0);
   const cash = Number(wallet.cashBalance || 0);
+  const holding = topHolding(wallet);
   const items = [
     {
-      label: "Account",
-      text: positions ? "Compare open positions with the latest market movers." : "Pick a first demo asset after checking the market board."
+      label: "Wallet",
+      text: positions
+        ? `${holding?.symbol || "Top holding"} is the biggest current exposure. Check its story, chart, and recent movement before adding more.`
+        : "Pick a first demo asset after checking the market board and current news."
     },
     {
       label: "Risk",
-      text: cash < 10000 ? "Buying power is lower, so review sell options before new buys." : "Buying power is healthy for practice orders."
+      text: cash < 10000
+        ? "USD funds are lower, so compare sell or swap choices before opening new buys."
+        : "USD funds are healthy, so research can focus on timing and asset quality."
     },
     {
       label: "Watchlist",
-      text: watchSymbols.length ? "Review saved assets before opening a new position." : "Add assets to watchlist so research becomes more personal."
+      text: watchSymbols.length
+        ? `${watchSymbols.slice(0, 3).join(", ")} ${watchSymbols.length > 3 ? "and more are" : "are"} saved for follow-up.`
+        : "Add assets to the watchlist so this page can become more personal."
+    },
+    {
+      label: "News",
+      text: researchArticles.length
+        ? "Read the current story brief, then compare it with holdings and watchlist assets."
+        : "News is warming up; use the market and watchlist sections while stories load."
     }
   ];
 
@@ -164,7 +312,7 @@ async function loadResearchPage() {
     renderResearchWallet(wallet, watchSymbols);
     renderResearchWatchlist(watchSymbols, catalogData.assets || []);
     renderResearchNews(newsData.articles || []);
-    renderResearchQueue(wallet, watchSymbols);
+    renderResearchPlan(wallet, watchSymbols);
   } catch (err) {
     console.warn("Research page failed:", err);
     document.getElementById("research-status").textContent = "Warming up";
@@ -175,6 +323,15 @@ function refreshResearchWhenVisible() {
   if (document.hidden) return;
   loadResearchPage();
 }
+
+document.addEventListener("click", (event) => {
+  const arrow = event.target.closest("[data-research-news-action]");
+  if (arrow?.dataset.researchNewsAction === "next") setActiveResearchArticle(activeResearchArticleIndex + 1);
+  if (arrow?.dataset.researchNewsAction === "prev") setActiveResearchArticle(activeResearchArticleIndex - 1);
+
+  const dot = event.target.closest("[data-research-news-index]");
+  if (dot) setActiveResearchArticle(Number(dot.dataset.researchNewsIndex));
+});
 
 loadResearchPage();
 setInterval(refreshResearchWhenVisible, RESEARCH_REFRESH_MS);
