@@ -204,78 +204,85 @@
 
           <p class="live-notice" id="live-notice" hidden></p>
         </div>
+      </section>
 
-        <div class="app-card live-crypto-card wide-card" id="live-crypto">
-          <div class="card-heading">
+      <div class="live-wallet-modal" id="live-crypto" hidden>
+        <div class="live-wallet-modal-backdrop" data-live-transfer-close></div>
+        <div class="app-card live-crypto-card live-wallet-modal-card">
+          <div class="card-heading live-wallet-modal-heading">
             <div>
-              <span class="muted-label">Crypto wallet</span>
-              <h2>Receive and send</h2>
-              <p class="card-intro">Crypto actions are product previews until custody, wallet monitoring, approval rules, and security checks are connected.</p>
+              <span class="muted-label">Crypto transfer</span>
+              <h2 id="live-transfer-title">Receive crypto</h2>
+              <p class="card-intro">Select an asset, choose the network, then preview the receive or send flow. Real custody is still pending.</p>
+            </div>
+            <button class="asset-more-button" type="button" data-live-transfer-close aria-label="Close transfer panel">x</button>
+          </div>
+
+          <div class="live-method-tabs" role="tablist" aria-label="Crypto transfer type">
+            <button type="button" class="active" data-live-transfer-tab="receive">Receive</button>
+            <button type="button" data-live-transfer-tab="send">Send</button>
+          </div>
+
+          <div class="live-transfer-panel" data-live-transfer-panel="receive">
+            <div class="live-panel-heading">
+              <span class="muted-label">Receive</span>
+              <strong>Fresh deposit request</strong>
+            </div>
+            <label>
+              <span>Asset</span>
+              <select id="receive-asset">
+                <option value="BTC">BTC / Bitcoin</option>
+                <option value="ETH">ETH / Ethereum</option>
+                <option value="USDT">USDT / Tether USDt</option>
+                <option value="USDC">USDC / USD Coin</option>
+                <option value="BNB">BNB / BNB</option>
+                <option value="BCH">BCH / Bitcoin Cash</option>
+                <option value="DOGE">DOGE / Dogecoin</option>
+              </select>
+            </label>
+            <label>
+              <span>Network</span>
+              <select id="receive-network"></select>
+            </label>
+            <div class="live-address-box">
+              <span id="receive-address">Generate an address to preview the receive flow.</span>
+              <button type="button" id="copy-receive-address">Copy</button>
+            </div>
+            <div class="live-action-row">
+              <button class="btn" type="button" id="generate-receive-address">Generate Address</button>
+              <button class="btn btn-ghost" type="button" data-live-message="Fresh address rotation is planned so repeat deposits do not depend on one static address.">Fresh Address Policy</button>
             </div>
           </div>
 
-          <div class="live-transfer-grid">
-            <div class="live-transfer-panel">
-              <div class="live-panel-heading">
-                <span class="muted-label">Receive</span>
-                <strong>Fresh deposit request</strong>
-              </div>
-              <label>
-                <span>Asset</span>
-                <select id="receive-asset">
-                  <option value="BTC">BTC / Bitcoin</option>
-                  <option value="ETH">ETH / Ethereum</option>
-                  <option value="USDT">USDT / Tether USDt</option>
-                  <option value="USDC">USDC / USD Coin</option>
-                  <option value="BNB">BNB / BNB</option>
-                  <option value="BCH">BCH / Bitcoin Cash</option>
-                  <option value="DOGE">DOGE / Dogecoin</option>
-                </select>
-              </label>
-              <label>
-                <span>Network</span>
-                <select id="receive-network"></select>
-              </label>
-              <div class="live-address-box">
-                <span id="receive-address">Generate an address to preview the receive flow.</span>
-                <button type="button" id="copy-receive-address">Copy</button>
-              </div>
-              <div class="live-action-row">
-                <button class="btn" type="button" id="generate-receive-address">Generate Address</button>
-                <button class="btn btn-ghost" type="button" data-live-message="Fresh address rotation is planned so repeat deposits do not depend on one static address.">Fresh Address Policy</button>
-              </div>
+          <div class="live-transfer-panel" data-live-transfer-panel="send" hidden>
+            <div class="live-panel-heading">
+              <span class="muted-label">Send</span>
+              <strong>Withdrawal preview</strong>
             </div>
-
-            <div class="live-transfer-panel">
-              <div class="live-panel-heading">
-                <span class="muted-label">Send</span>
-                <strong>Withdrawal preview</strong>
-              </div>
-              <label>
-                <span>Asset</span>
-                <select id="send-asset">
-                  <option value="BTC">BTC / Bitcoin</option>
-                  <option value="ETH">ETH / Ethereum</option>
-                  <option value="USDT">USDT / Tether USDt</option>
-                  <option value="USDC">USDC / USD Coin</option>
-                  <option value="BNB">BNB / BNB</option>
-                  <option value="BCH">BCH / Bitcoin Cash</option>
-                  <option value="DOGE">DOGE / Dogecoin</option>
-                </select>
-              </label>
-              <label>
-                <span>Destination address</span>
-                <input id="send-address" type="text" placeholder="Paste wallet address" />
-              </label>
-              <label>
-                <span>Amount</span>
-                <input id="send-amount" type="number" min="0" placeholder="0.00" />
-              </label>
-              <button class="btn btn-full" type="button" id="review-send">Review Send</button>
-            </div>
+            <label>
+              <span>Asset</span>
+              <select id="send-asset">
+                <option value="BTC">BTC / Bitcoin</option>
+                <option value="ETH">ETH / Ethereum</option>
+                <option value="USDT">USDT / Tether USDt</option>
+                <option value="USDC">USDC / USD Coin</option>
+                <option value="BNB">BNB / BNB</option>
+                <option value="BCH">BCH / Bitcoin Cash</option>
+                <option value="DOGE">DOGE / Dogecoin</option>
+              </select>
+            </label>
+            <label>
+              <span>Destination address</span>
+              <input id="send-address" type="text" placeholder="Paste wallet address" />
+            </label>
+            <label>
+              <span>Amount</span>
+              <input id="send-amount" type="number" min="0" placeholder="0.00" />
+            </label>
+            <button class="btn btn-full" type="button" id="review-send">Review Send</button>
           </div>
         </div>
-      </section>
+      </div>
     </main>
   </div>
   <script src="demo-auth.js"></script>

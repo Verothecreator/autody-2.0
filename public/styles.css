@@ -1741,7 +1741,8 @@ a.asset-table-row {
   margin-top: 16px;
 }
 
-.wallet-action-grid a {
+.wallet-action-grid a,
+.wallet-action-grid button {
   min-height: 48px;
   display: inline-flex;
   align-items: center;
@@ -1750,11 +1751,14 @@ a.asset-table-row {
   border-radius: 8px;
   background: rgba(93, 95, 239, 0.16);
   color: var(--text);
+  font: inherit;
   font-weight: 900;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.wallet-action-grid a:first-child {
+.wallet-action-grid a:first-child,
+.wallet-action-grid button:first-child {
   background: linear-gradient(135deg, #5d5fef, #4345ce);
 }
 
@@ -1930,6 +1934,7 @@ a.asset-table-row {
 
 .live-wallet-tools {
   margin-top: 18px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .live-method-tabs {
@@ -2046,6 +2051,50 @@ a.asset-table-row {
 .live-transfer-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-bottom: 0;
+}
+
+.live-wallet-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.live-wallet-modal[hidden] {
+  display: none !important;
+}
+
+.live-wallet-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 12, 0.78);
+}
+
+.live-wallet-modal-card {
+  position: relative;
+  z-index: 1;
+  width: min(680px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  background:
+    radial-gradient(circle at 88% 0%, rgba(47, 226, 139, 0.11), transparent 36%),
+    #111620;
+}
+
+.live-wallet-modal-heading {
+  align-items: flex-start;
+}
+
+.live-wallet-modal-heading .asset-more-button {
+  position: static;
+  flex: 0 0 36px;
+  text-transform: uppercase;
+}
+
+body.modal-open {
+  overflow: hidden;
 }
 
 .live-transfer-panel {

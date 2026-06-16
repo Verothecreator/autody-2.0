@@ -5,6 +5,11 @@ let assetLoading = false;
 let assetRequestToken = 0;
 
 const ASSET_REFRESH_MS = 10000;
+const ASSET_PAGE_NAME = location.pathname.split("/").pop() || "demo-asset.html";
+const IS_LIVE_ASSET_PAGE = ASSET_PAGE_NAME === "account-asset.html";
+const ASSET_ORDERS_PAGE = IS_LIVE_ASSET_PAGE ? "account-orders.html" : "demo-orders.html";
+const ASSET_WALLET_PAGE = IS_LIVE_ASSET_PAGE ? "account-wallet.html" : "demo-wallet.html";
+const ASSET_RESEARCH_PAGE = IS_LIVE_ASSET_PAGE ? "account-research.html" : "demo-research.html";
 
 function priceDigits(number, compact = false) {
   if (compact) return 2;
@@ -310,6 +315,23 @@ function renderDetails(asset, chart) {
 
 function renderActions(asset) {
   const symbol = encodeURIComponent(asset.symbol);
+  if (IS_LIVE_ASSET_PAGE) {
+    const cryptoActions = `
+      <a href="${ASSET_ORDERS_PAGE}?side=buy&symbol=${symbol}">Buy</a>
+      <a href="${ASSET_ORDERS_PAGE}?side=swap&symbol=${symbol}">Swap</a>
+      <a href="${ASSET_WALLET_PAGE}?asset=${symbol}&transfer=send#live-crypto">Send</a>
+      <a href="${ASSET_WALLET_PAGE}?asset=${symbol}&transfer=receive#live-crypto">Receive</a>
+    `;
+    const marketActions = `
+      <a href="${ASSET_ORDERS_PAGE}?side=buy&symbol=${symbol}">Buy</a>
+      <a href="${ASSET_ORDERS_PAGE}?side=sell&symbol=${symbol}">Sell</a>
+      <button type="button" data-add-watchlist>Watchlist</button>
+      <a href="${ASSET_RESEARCH_PAGE}">Research</a>
+    `;
+    document.getElementById("asset-action-grid").innerHTML = asset.assetType === "crypto" ? cryptoActions : marketActions;
+    return;
+  }
+
   const cryptoActions = `
     <a href="demo-orders.html?side=buy&symbol=${symbol}">Buy</a>
     <a href="demo-orders.html?side=swap&symbol=${symbol}">Swap</a>
@@ -327,6 +349,16 @@ function renderActions(asset) {
 
 function renderActivity(orders) {
   const target = document.getElementById("asset-activity-list");
+  if (IS_LIVE_ASSET_PAGE) {
+    target.innerHTML = `
+      <div class="asset-empty-activity">
+        <strong>No live activity yet.</strong>
+        <span>Deposits, buys, sells, swaps, sends, and receives will appear here after live account storage is connected.</span>
+      </div>
+    `;
+    return;
+  }
+
   if (!orders?.length) {
     target.innerHTML = `
       <div class="asset-empty-activity">
@@ -350,7 +382,7 @@ function renderAsset(data) {
   const asset = data.asset;
   const chart = data.chart || {};
   currentAsset = asset;
-  document.title = `Autody Demo Account | ${asset.symbol}`;
+  document.title = `Autody ${IS_LIVE_ASSET_PAGE ? "Live Account" : "Demo Account"} | ${asset.symbol}`;
   document.getElementById("asset-logo-wrap").innerHTML = assetLogoMarkup(asset, "asset-logo-hero");
   document.getElementById("asset-type-label").textContent = assetTypeLabel(asset);
   document.getElementById("asset-symbol").textContent = asset.symbol;
@@ -360,17 +392,30 @@ function renderAsset(data) {
   change.textContent = formatMove(asset.changePct);
   change.className = moveClass(asset.changePct);
   document.getElementById("asset-chart-title").textContent = `${asset.name} movement`;
-  document.getElementById("asset-sidebar-balance").textContent = `${formatPrice(data.demo?.buyingPower || 50000, "USD")} USD`;
-  document.getElementById("asset-buying-power").textContent = `Buying power ${formatPrice(data.demo?.buyingPower || 50000, "USD")}`;
-  document.getElementById("asset-owned").textContent = data.demo?.holding
-    ? `${formatNumber(data.demo.holding.balance, false)} ${asset.symbol}`
-    : `0 ${asset.symbol}`;
-  document.getElementById("asset-owned-value").textContent = formatPrice(data.demo?.holding?.valueUsd || 0, "USD");
+  if (IS_LIVE_ASSET_PAGE) {
+    document.querySelectorAll("[data-live-balance]").forEach((node) => {
+      node.textContent = "$0.00 USD";
+    });
+    document.getElementById("asset-buying-power").textContent = "Account balance $0.00";
+    document.getElementById("asset-owned").textContent = `0 ${asset.symbol}`;
+    document.getElementById("asset-owned-value").textContent = "$0.00";
+    document.querySelector(".asset-action-card .muted-label").textContent = "Live actions";
+    document.getElementById("asset-action-title").textContent = "Use this asset";
+    document.querySelector(".asset-balance-card .muted-label").textContent = "Your live balance";
+    document.querySelector(".asset-activity-card h2").textContent = "Live history";
+  } else {
+    document.getElementById("asset-sidebar-balance").textContent = `${formatPrice(data.demo?.buyingPower || 50000, "USD")} USD`;
+    document.getElementById("asset-buying-power").textContent = `Buying power ${formatPrice(data.demo?.buyingPower || 50000, "USD")}`;
+    document.getElementById("asset-owned").textContent = data.demo?.holding
+      ? `${formatNumber(data.demo.holding.balance, false)} ${asset.symbol}`
+      : `0 ${asset.symbol}`;
+    document.getElementById("asset-owned-value").textContent = formatPrice(data.demo?.holding?.valueUsd || 0, "USD");
+  }
 
   renderLineChart(asset, chart);
   renderDetails(asset, chart);
   renderActions(asset);
-  renderActivity(data.demo?.orders || []);
+  renderActivity(IS_LIVE_ASSET_PAGE ? [] : data.demo?.orders || []);
   renderChartStats(asset, chart);
   setAssetMessage("");
 }
@@ -445,6 +490,13 @@ document.addEventListener("click", async (event) => {
 
   const addWatchlist = event.target.closest("[data-add-watchlist]");
   if (addWatchlist && currentAsset) {
+    if (IS_LIVE_ASSET_PAGE) {
+      setAssetMessage(`${currentAsset.symbol} live watchlist storage will connect with live account records.`, "flat");
+      if (moreMenu) moreMenu.hidden = true;
+      document.getElementById("asset-more-button")?.setAttribute("aria-expanded", "false");
+      return;
+    }
+
     setAssetMessage("Saving to watchlist...");
     try {
       const data = await postJson("/api/demo/watchlist", { symbol: currentAsset.symbol });

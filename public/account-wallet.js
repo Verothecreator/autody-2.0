@@ -284,7 +284,7 @@ function liveGroupAssets(group) {
       balance: 0,
       currency: market.currency || "USD",
       status: "Not held",
-      url: `demo-asset.html?symbol=${encodeURIComponent(symbol)}`
+      url: `account-asset.html?symbol=${encodeURIComponent(symbol)}`
     };
   });
 }
@@ -310,7 +310,7 @@ function liveWalletAssetForSymbol(symbol) {
     currency: market.currency || "USD",
     status: "Not held",
     detail: hasLiveWalletNumber(market.price) ? "Live price before you hold" : "Available after market data loads",
-    url: `demo-asset.html?symbol=${encodeURIComponent(lookup)}`
+    url: `account-asset.html?symbol=${encodeURIComponent(lookup)}`
   };
 }
 
@@ -322,7 +322,7 @@ function formatLiveBalance(asset) {
 }
 
 function liveAssetMarketUrl(symbol) {
-  return `demo-asset.html?symbol=${encodeURIComponent(symbol)}`;
+  return `account-asset.html?symbol=${encodeURIComponent(symbol)}`;
 }
 
 function liveTradeUrl(side, symbol) {
@@ -349,7 +349,7 @@ function liveWalletActions(asset) {
   if (asset.symbol === "USD") {
     return [
       ["Add Funds", "#live-funding"],
-      ["Receive Crypto", "#live-crypto"]
+      ["Receive Crypto", "modal:receive"]
     ];
   }
   if (asset.symbol === "AU") {
@@ -361,7 +361,7 @@ function liveWalletActions(asset) {
   }
   if (asset.isGroup) {
     const filter = asset.key === "stocks" ? "stocks" : asset.key;
-    const primary = asset.key === "crypto" ? ["Receive Crypto", "#live-crypto"] : [`Browse ${asset.name}`, `account-markets.html?filter=${encodeURIComponent(filter)}`];
+    const primary = asset.key === "crypto" ? ["Receive Crypto", "modal:receive"] : [`Browse ${asset.name}`, `account-markets.html?filter=${encodeURIComponent(filter)}`];
     return [
       primary,
       ["Orders", "account-orders.html"]
@@ -372,7 +372,11 @@ function liveWalletActions(asset) {
     ["Buy", liveTradeUrl("buy", asset.symbol)],
     ["Sell", liveTradeUrl("sell", asset.symbol)]
   ];
-  if (type === "crypto" || type === "currency") actions.push(["Swap", liveTradeUrl("swap", asset.symbol)]);
+  if (type === "crypto" || type === "currency") {
+    actions.push(["Swap", liveTradeUrl("swap", asset.symbol)]);
+    actions.push(["Receive", "modal:receive"]);
+    actions.push(["Send", "modal:send"]);
+  }
   return actions;
 }
 
@@ -508,7 +512,9 @@ function liveRenderDetail(asset) {
   const actions = document.getElementById("live-wallet-detail-actions");
   if (actions) {
     actions.innerHTML = liveWalletActions(asset)
-      .map(([label, href]) => `<a href="${escapeLiveWalletHtml(href)}">${escapeLiveWalletHtml(label)}</a>`)
+      .map(([label, href]) => href.startsWith("modal:")
+        ? `<button type="button" data-live-wallet-transfer="${escapeLiveWalletHtml(href.replace("modal:", ""))}">${escapeLiveWalletHtml(label)}</button>`
+        : `<a href="${escapeLiveWalletHtml(href)}">${escapeLiveWalletHtml(label)}</a>`)
       .join("");
   }
 }
@@ -602,7 +608,79 @@ function openLiveWalletMenu(symbol, menuButton) {
   menuButton.closest(".wallet-holding-row")?.classList.add("menu-open");
 }
 
+function liveCryptoSelectValue(symbol) {
+  const value = String(symbol || selectedLiveWalletSymbol || "BTC").toUpperCase();
+  const cryptoSymbols = new Set(["BTC", "ETH", "USDT", "USDC", "BNB", "BCH", "DOGE"]);
+  return cryptoSymbols.has(value) ? value : "BTC";
+}
+
+function setLiveTransferTab(mode = "receive") {
+  const normalized = mode === "send" ? "send" : "receive";
+  document.querySelectorAll("[data-live-transfer-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.liveTransferTab === normalized);
+  });
+  document.querySelectorAll("[data-live-transfer-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.liveTransferPanel !== normalized;
+  });
+  setLiveWalletText("live-transfer-title", normalized === "send" ? "Send crypto" : "Receive crypto");
+}
+
+function openLiveTransferModal(mode = "receive", symbol = selectedLiveWalletSymbol) {
+  const modal = document.getElementById("live-crypto");
+  if (!modal) return;
+  const assetSymbol = liveCryptoSelectValue(symbol);
+  const receiveSelect = document.getElementById("receive-asset");
+  const sendSelect = document.getElementById("send-asset");
+  if (receiveSelect) {
+    receiveSelect.value = assetSymbol;
+    if (typeof updateReceiveNetworks === "function") updateReceiveNetworks();
+  }
+  if (sendSelect) sendSelect.value = assetSymbol;
+  const addressNode = document.getElementById("receive-address");
+  if (addressNode && receiveSelect?.value === assetSymbol) {
+    addressNode.textContent = "Generate an address to preview the receive flow.";
+    delete addressNode.dataset.address;
+  }
+  setLiveTransferTab(mode);
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeLiveTransferModal() {
+  document.getElementById("live-crypto")?.setAttribute("hidden", "");
+  document.body.classList.remove("modal-open");
+}
+
 document.addEventListener("click", (event) => {
+  const transferButton = event.target.closest("[data-live-wallet-transfer]");
+  if (transferButton) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openLiveTransferModal(transferButton.dataset.liveWalletTransfer);
+    return;
+  }
+
+  const cryptoFocus = event.target.closest('[data-live-focus="crypto"]');
+  if (cryptoFocus) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openLiveTransferModal("receive");
+    return;
+  }
+
+  const transferTab = event.target.closest("[data-live-transfer-tab]");
+  if (transferTab) {
+    event.preventDefault();
+    setLiveTransferTab(transferTab.dataset.liveTransferTab);
+    return;
+  }
+
+  if (event.target.closest("[data-live-transfer-close]")) {
+    event.preventDefault();
+    closeLiveTransferModal();
+    return;
+  }
+
   const menuButton = event.target.closest("[data-live-wallet-menu-symbol]");
   if (menuButton) {
     event.preventDefault();
@@ -645,6 +723,12 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeLiveTransferModal();
+    closeLiveWalletMenus();
+    return;
+  }
+
   if (!["Enter", " "].includes(event.key)) return;
   if (event.target.closest("button, a")) return;
   const row = event.target.closest("[data-live-wallet-symbol]");
@@ -654,6 +738,10 @@ document.addEventListener("keydown", (event) => {
 });
 
 loadLiveWallet();
+if (location.hash === "#live-crypto") {
+  const initialTransferMode = new URLSearchParams(location.search).get("transfer") === "send" ? "send" : "receive";
+  openLiveTransferModal(initialTransferMode, selectedLiveWalletSymbol);
+}
 setInterval(refreshLiveWalletWhenVisible, LIVE_WALLET_REFRESH_MS);
 window.addEventListener("focus", refreshLiveWalletWhenVisible);
 document.addEventListener("visibilitychange", refreshLiveWalletWhenVisible);

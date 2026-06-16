@@ -70,7 +70,8 @@ function cssValue(value = "") {
 }
 
 function assetUrl(asset) {
-  return `demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}`;
+  const page = IS_LIVE_MARKET_PAGE ? "account-asset.html" : "demo-asset.html";
+  return `${page}?symbol=${encodeURIComponent(asset.symbol)}`;
 }
 
 function logoFallbackText(asset) {

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Live Account | Asset</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="account.html">Overview</a>
+        <a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html" class="active">Markets</a>
+        <a href="account-orders.html">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a>
+        <a href="account-research.html">Research</a>
+        <a href="demo-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Account balance</span>
+        <strong data-live-balance>$0.00 USD</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
+        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a>
+      </div>
+    </aside>
+
+    <main class="app-main asset-detail-main">
+      <header class="asset-detail-hero">
+        <a href="account-markets.html" class="text-link">Back to Markets</a>
+        <div class="asset-hero-row">
+          <div class="asset-identity">
+            <span id="asset-logo-wrap" aria-hidden="true"></span>
+            <div>
+              <p class="eyebrow" id="asset-type-label">Market asset</p>
+              <h1 id="asset-symbol">Asset</h1>
+              <p class="app-subtitle" id="asset-name">Loading market details...</p>
+            </div>
+          </div>
+          <div class="asset-price-panel">
+            <strong id="asset-price">$0.00</strong>
+            <span id="asset-change">Live feed</span>
+            <div class="asset-more-wrap">
+              <button class="asset-more-button" id="asset-more-button" type="button" aria-label="More asset actions" aria-expanded="false">...</button>
+              <div class="asset-more-menu" id="asset-more-menu" hidden>
+                <button type="button" data-add-watchlist>Add to watchlist</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="asset-detail-layout">
+        <article class="app-card asset-chart-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Price chart</span>
+              <h2 id="asset-chart-title">Live movement</h2>
+            </div>
+            <div class="chart-range-tabs" aria-label="Chart range">
+              <button class="active" type="button" data-chart-range="1d">1D</button>
+              <button type="button" data-chart-range="1w">1W</button>
+              <button type="button" data-chart-range="1m">1M</button>
+              <button type="button" data-chart-range="3m">3M</button>
+              <button type="button" data-chart-range="1y">1Y</button>
+              <button type="button" data-chart-range="all">All</button>
+            </div>
+          </div>
+          <div class="asset-line-chart" id="asset-line-chart" aria-label="Asset price chart"></div>
+          <div class="asset-chart-stats" id="asset-chart-stats"></div>
+        </article>
+
+        <aside class="asset-side-stack">
+          <article class="app-card asset-action-card">
+            <span class="muted-label">Live actions</span>
+            <h2 id="asset-action-title">Use this asset</h2>
+            <div class="asset-action-grid" id="asset-action-grid">
+              <a href="account-orders.html">Buy</a>
+              <a href="account-orders.html">Sell</a>
+              <a href="account-wallet.html#live-crypto">Send</a>
+              <a href="account-wallet.html#live-crypto">Receive</a>
+            </div>
+            <p class="order-status" id="asset-action-message" role="status"></p>
+          </article>
+
+          <article class="app-card asset-balance-card">
+            <span class="muted-label">Your live balance</span>
+            <div class="asset-balance-row">
+              <strong id="asset-owned">0</strong>
+              <span id="asset-owned-value">$0.00</span>
+            </div>
+            <small id="asset-buying-power">Account balance $0.00</small>
+          </article>
+        </aside>
+
+        <article class="app-card asset-details-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Asset details</span>
+              <h2 id="asset-detail-heading">Token details</h2>
+            </div>
+          </div>
+          <div class="asset-detail-list" id="asset-detail-list"></div>
+        </article>
+
+        <article class="app-card asset-activity-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Your activity</span>
+              <h2>Live history</h2>
+            </div>
+          </div>
+          <div class="asset-activity-list" id="asset-activity-list">
+            <div class="asset-empty-activity">No live activity yet.</div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+  <script src="demo-sidebar.js"></script>
+  <script src="demo-asset.js"></script>
+  <script src="live-account.js"></script>
+</body>
+</html>
