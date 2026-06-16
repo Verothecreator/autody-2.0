@@ -11,6 +11,10 @@ const orderWholeMoney = new Intl.NumberFormat("en-US", {
 });
 
 const orderParams = new URLSearchParams(location.search);
+const ORDER_PAGE_NAME = location.pathname.split("/").pop() || "demo-orders.html";
+const IS_LIVE_ORDER_PAGE = ORDER_PAGE_NAME === "account-orders.html";
+const ORDER_PAGE_URL = IS_LIVE_ORDER_PAGE ? "account-orders.html" : "demo-orders.html";
+const ORDER_ASSET_PAGE = IS_LIVE_ORDER_PAGE ? "account-asset.html" : "demo-asset.html";
 let orderSide = ["buy", "sell", "swap"].includes(orderParams.get("side")) ? orderParams.get("side") : "buy";
 let orderAssets = [];
 let orderWallet = null;
@@ -273,8 +277,8 @@ function renderSideState() {
   document.getElementById("order-amount-label").textContent = orderSide === "sell" ? "Sell amount (USD)" : orderSide === "swap" ? "Swap amount (USD)" : "Buy amount (USD)";
   const submit = document.getElementById("order-submit");
   submit.textContent = orderSide === "swap"
-    ? "Place Demo Swap"
-    : `Place Demo ${orderSide.charAt(0).toUpperCase()}${orderSide.slice(1)}`;
+    ? IS_LIVE_ORDER_PAGE ? "Review Live Swap" : "Place Demo Swap"
+    : `${IS_LIVE_ORDER_PAGE ? "Review Live" : "Place Demo"} ${orderSide.charAt(0).toUpperCase()}${orderSide.slice(1)}`;
   renderAssetSelect();
   renderPreview();
 }
@@ -287,7 +291,9 @@ function tradeValidation(asset, amount) {
     const availableUsd = Number(orderWallet?.cashBalance || 0);
     return {
       blocked: amount > availableUsd + 0.005,
-      message: amount > availableUsd + 0.005 ? "Not enough USD funds for this buy." : "",
+      message: amount > availableUsd + 0.005
+        ? IS_LIVE_ORDER_PAGE ? "Deposit USD funds before placing this buy." : "Not enough USD funds for this buy."
+        : "",
       availableUsd,
       availableLabel: "Available funds"
     };
@@ -355,7 +361,7 @@ function renderPreview() {
     preview.innerHTML = `
       <span>${orderSide === "buy" ? "Buy with USD funds" : orderSide === "sell" ? "Sell to USD funds" : "Swap crypto to crypto"}</span>
       <strong>Enter an amount to preview</strong>
-      <small>${orderSide === "swap" ? "Only held crypto assets can be used as the swap source." : "USD value is used for the demo order."}</small>
+      <small>${orderSide === "swap" ? "Only held crypto assets can be used as the swap source." : `USD value is used for the ${IS_LIVE_ORDER_PAGE ? "live" : "demo"} order.`}</small>
     `;
     return;
   }
@@ -381,12 +387,12 @@ function renderPreview() {
     : `${orderSide === "sell" ? "Sell about" : "Buy about"} ${formatOrderNumber(quantity)} ${asset.symbol}`;
   const detail = validation.availableLabel
     ? `${validation.availableLabel}: ${formatOrderMoney(validation.availableUsd)}`
-    : "Live demo market order";
+    : IS_LIVE_ORDER_PAGE ? "Live market order preview" : "Live demo market order";
 
   preview.className = `order-preview ${validation.blocked ? "loss" : "gain"}`;
   preview.innerHTML = `
     <span>${escapeOrderHtml(actionText)}</span>
-    <strong>${escapeOrderHtml(formatAssetPrice(price, asset.currency || "USD"))} live demo price</strong>
+    <strong>${escapeOrderHtml(formatAssetPrice(price, asset.currency || "USD"))} ${IS_LIVE_ORDER_PAGE ? "live market price" : "live demo price"}</strong>
     <small>${escapeOrderHtml(validation.message || detail)}</small>
   `;
   if (submit) submit.disabled = validation.blocked;
@@ -411,7 +417,7 @@ function renderOrderHistory() {
     const symbol = String(order.symbol || "-").toUpperCase();
     const notional = order.notional_usd ?? order.notionalUsd ?? 0;
     return `
-      <a class="asset-table-row order-row-link" href="demo-asset.html?symbol=${encodeURIComponent(symbol)}">
+      <a class="asset-table-row order-row-link" href="${ORDER_ASSET_PAGE}?symbol=${encodeURIComponent(symbol)}">
         <span>${escapeOrderHtml(side)}</span>
         <span>${escapeOrderHtml(symbol)}</span>
         <span>${escapeOrderHtml(formatOrderMoney(notional))}</span>
@@ -432,7 +438,7 @@ function renderOrderHistory() {
         <span>No orders yet</span>
         <span>-</span>
         <span>$0.00</span>
-        <span>Fresh account</span>
+        <span>${IS_LIVE_ORDER_PAGE ? "No live orders" : "Fresh account"}</span>
       </div>
     `}
   `;
@@ -445,7 +451,7 @@ function renderHoldingList() {
     ? holdings.slice(0, 8).map((holding) => {
       const asset = bySymbol(holding.symbol) || holding;
       return `
-        <a href="demo-orders.html?side=sell&symbol=${encodeURIComponent(holding.symbol)}">
+        <a href="${ORDER_PAGE_URL}?side=sell&symbol=${encodeURIComponent(holding.symbol)}">
           ${orderLogoMarkup(asset, "asset-logo-small")}
           <span><b>${escapeOrderHtml(holding.symbol)}</b><em>${escapeOrderHtml(holding.name)}</em></span>
           <strong>${escapeOrderHtml(formatOrderMoney(holding.valueUsd))}</strong>
@@ -453,7 +459,7 @@ function renderHoldingList() {
         </a>
       `;
     }).join("")
-    : `<article class="wallet-empty-state">Buy your first demo asset from this ticket or the Markets page.</article>`;
+    : `<article class="wallet-empty-state">${IS_LIVE_ORDER_PAGE ? "Fund the account or receive crypto before selling." : "Buy your first demo asset from this ticket or the Markets page."}</article>`;
 }
 
 function renderOrdersPage() {
@@ -467,8 +473,8 @@ async function loadOrdersPage(options = {}) {
   try {
     const [catalog, wallet, orders] = await Promise.all([
       getOrderJson("/api/markets/catalog?type=all"),
-      getOrderJson("/api/demo/wallet"),
-      getOrderJson("/api/demo/orders")
+      IS_LIVE_ORDER_PAGE ? Promise.resolve({ wallet: { cashBalance: 0, totalValue: 0, positionsCount: 0, holdings: [] } }) : getOrderJson("/api/demo/wallet"),
+      IS_LIVE_ORDER_PAGE ? Promise.resolve({ orders: [] }) : getOrderJson("/api/demo/orders")
     ]);
     orderAssets = (catalog.assets || [])
       .filter((asset) => asset.price != null)
@@ -491,12 +497,18 @@ async function submitOrder(event) {
     return;
   }
   if (!Number.isFinite(amount) || amount <= 0) {
-    setStatus("Enter a demo amount greater than zero.", "loss");
+    setStatus(`Enter a ${IS_LIVE_ORDER_PAGE ? "live" : "demo"} amount greater than zero.`, "loss");
     return;
   }
   const validation = tradeValidation(asset, amount);
   if (validation.blocked) {
     setStatus(validation.message || "This order cannot be placed yet.", "loss");
+    renderPreview();
+    return;
+  }
+
+  if (IS_LIVE_ORDER_PAGE) {
+    setStatus("Live execution is locked until funding, custody, and brokerage rails are connected.", "flat");
     renderPreview();
     return;
   }
@@ -532,7 +544,7 @@ document.addEventListener("click", (event) => {
   if (!sideButton) return;
   orderSide = sideButton.dataset.orderSide;
   const symbol = document.getElementById("order-symbol")?.value || orderParams.get("symbol") || "BTC";
-  history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
+  history.replaceState(null, "", `${ORDER_PAGE_URL}?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
   renderSideState();
 });
 
@@ -544,14 +556,14 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "order-from") {
     const symbol = document.getElementById("order-symbol")?.value || "BTC";
     const from = document.getElementById("order-from")?.value || "";
-    history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}&from=${encodeURIComponent(from)}`);
+    history.replaceState(null, "", `${ORDER_PAGE_URL}?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}&from=${encodeURIComponent(from)}`);
     renderSideState();
     return;
   }
 
   if (event.target.id === "order-symbol") {
     const symbol = document.getElementById("order-symbol")?.value || "BTC";
-    history.replaceState(null, "", `demo-orders.html?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
+    history.replaceState(null, "", `${ORDER_PAGE_URL}?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
     renderPreview();
   }
 });

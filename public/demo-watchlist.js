@@ -7,6 +7,10 @@ const watchMoney = new Intl.NumberFormat("en-US", {
 let watchCatalog = [];
 let watchSymbols = [];
 let watchSearch = "";
+const WATCH_PAGE_NAME = location.pathname.split("/").pop() || "demo-watchlist.html";
+const IS_LIVE_WATCHLIST_PAGE = WATCH_PAGE_NAME === "account-watchlist.html";
+const WATCHLIST_API = IS_LIVE_WATCHLIST_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
+const WATCHLIST_ASSET_PAGE = IS_LIVE_WATCHLIST_PAGE ? "account-asset.html" : "demo-asset.html";
 const WATCH_CRYPTO_ICON_SYMBOLS = {
   BTC: "btc",
   ETH: "eth",
@@ -140,7 +144,7 @@ function watchAssetRow(asset) {
     <div class="asset-table-row watchlist-row">
       <span>
         ${watchLogoMarkup(asset)}
-        <a href="demo-asset.html?symbol=${encodeURIComponent(asset.symbol)}">
+        <a href="${WATCHLIST_ASSET_PAGE}?symbol=${encodeURIComponent(asset.symbol)}">
           <span class="asset-copy">
             <b>${escapeWatchHtml(asset.symbol)}</b>
             <small>${escapeWatchHtml(asset.name || asset.symbol)}</small>
@@ -207,8 +211,8 @@ async function loadWatchlist() {
   try {
     const [catalog, watchlist, wallet] = await Promise.all([
       getWatchJson("/api/markets/catalog?type=all"),
-      getWatchJson("/api/demo/watchlist"),
-      getWatchJson("/api/demo/wallet").catch(() => null)
+      getWatchJson(WATCHLIST_API),
+      IS_LIVE_WATCHLIST_PAGE ? Promise.resolve(null) : getWatchJson("/api/demo/wallet").catch(() => null)
     ]);
     watchCatalog = catalog.assets || [];
     watchSymbols = flattenWatchlist(watchlist.watchlist);
@@ -248,7 +252,7 @@ document.addEventListener("click", async (event) => {
     const symbol = removeButton.dataset.watchRemoveSymbol;
     removeButton.disabled = true;
     try {
-      const data = await deleteWatchJson(`/api/demo/watchlist/${encodeURIComponent(symbol)}`);
+      const data = await deleteWatchJson(`${WATCHLIST_API}/${encodeURIComponent(symbol)}`);
       watchSymbols = flattenWatchlist(data.watchlist);
       renderWatchlist();
     } catch (err) {

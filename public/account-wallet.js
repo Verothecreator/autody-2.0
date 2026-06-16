@@ -141,6 +141,17 @@ function showLiveWalletToast(message, tone = "") {
   showLiveWalletToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
 }
 
+async function postLiveWalletJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
+  return data;
+}
+
 function liveCatalogAsset(symbol) {
   const lookup = String(symbol || "").toUpperCase();
   return liveWalletCatalog.find((asset) => String(asset.symbol).toUpperCase() === lookup) || null;
@@ -707,8 +718,19 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     const symbol = watchButton.dataset.liveWalletWatchSymbol;
+    watchButton.disabled = true;
     closeLiveWalletMenus();
-    showLiveWalletToast(`${symbol} live watchlist storage will connect with live account records.`, "flat");
+    postLiveWalletJson("/api/account/watchlist", { symbol })
+      .then((data) => {
+        showLiveWalletToast(
+          data.alreadySaved ? `${symbol} is already in your watchlist.` : `${symbol} added to your watchlist.`,
+          data.alreadySaved ? "flat" : "gain"
+        );
+      })
+      .catch((err) => showLiveWalletToast(err.message || "Watchlist could not be updated.", "loss"))
+      .finally(() => {
+        watchButton.disabled = false;
+      });
     return;
   }
 

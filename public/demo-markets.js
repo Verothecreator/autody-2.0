@@ -12,6 +12,7 @@ const MIN_STABLE_MARKET_ASSETS = 390;
 const MARKET_PAGE_NAME = location.pathname.split("/").pop() || "demo-markets.html";
 const MARKET_HISTORY_PAGE = MARKET_PAGE_NAME === "account-markets.html" ? "account-markets.html" : "demo-markets.html";
 const IS_LIVE_MARKET_PAGE = MARKET_PAGE_NAME === "account-markets.html";
+const MARKET_WATCHLIST_API = IS_LIVE_MARKET_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
 
 function marketPriceDigits(number, compact = false) {
   if (compact) return 2;
@@ -386,15 +387,8 @@ document.addEventListener("click", (event) => {
   const watchButton = event.target.closest("[data-market-watch-symbol]");
   if (watchButton) {
     const symbol = watchButton.dataset.marketWatchSymbol;
-    if (IS_LIVE_MARKET_PAGE) {
-      document.querySelector(`[data-market-menu="${cssValue(symbol)}"]`)?.setAttribute("hidden", "");
-      document.querySelector(`[data-market-menu-symbol="${cssValue(symbol)}"]`)?.setAttribute("aria-expanded", "false");
-      showMarketToast("Live watchlist storage will connect after live account APIs are ready.", "flat");
-      return;
-    }
-
     watchButton.disabled = true;
-    postJson("/api/demo/watchlist", { symbol })
+    postJson(MARKET_WATCHLIST_API, { symbol })
       .then((data) => {
         document.querySelector(`[data-market-menu="${cssValue(symbol)}"]`)?.setAttribute("hidden", "");
         document.querySelector(`[data-market-menu-symbol="${cssValue(symbol)}"]`)?.setAttribute("aria-expanded", "false");

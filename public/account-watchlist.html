@@ -24,7 +24,7 @@
       </nav>
       <div class="sidebar-profile">
         <span>Account balance</span>
-        <strong data-live-balance>$0.00 USD</strong>
+        <strong id="watchlist-sidebar-balance" data-live-balance>$0 USD</strong>
       </div>
       <div class="sidebar-actions">
         <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
@@ -37,46 +37,64 @@
         <div>
           <p class="eyebrow">Live watchlist</p>
           <h1>Watchlist</h1>
-          <p class="app-subtitle">Save real assets to follow when live market access is connected.</p>
+          <p class="app-subtitle">Follow live assets before funding, buying, selling, or swapping from the main account.</p>
         </div>
         <div class="account-mode-stack">
-          <span class="status-pill">Live mode</span>
-          <strong>Empty watchlist</strong>
+          <span class="status-pill">Saved assets</span>
+          <strong id="watchlist-count">Loading</strong>
         </div>
       </header>
 
+      <section class="market-search-panel">
+        <div class="market-search-box">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input id="watchlist-search" type="search" placeholder="Search your saved assets..." autocomplete="off" />
+        </div>
+      </section>
+
       <section class="account-grid">
-        <div class="app-card settings-preview-card wide-card">
+        <article class="app-card wide-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Saved assets</span>
-              <h2>Live watchlist will use account storage</h2>
+              <span class="muted-label">Following</span>
+              <h2>Your saved assets</h2>
+            </div>
+            <a href="account-markets.html" class="text-link">Browse Markets</a>
+          </div>
+          <div class="asset-table watchlist-table" id="watchlist-grid">
+            <div class="asset-table-row head">
+              <span>Asset</span>
+              <span>Price</span>
+              <span>Move</span>
+              <span>Status</span>
+            </div>
+            <div class="asset-table-row">
+              <span>Loading watchlist...</span>
+              <span>-</span>
+              <span>-</span>
+              <span>Loading</span>
             </div>
           </div>
-          <p>Demo watchlist behavior already saves assets for the practice account. The live watchlist stays separate so real user saves can later connect to live account records, notifications, and research alerts.</p>
-          <div class="live-action-row">
-            <a class="btn" href="demo-watchlist.html">Open Demo Watchlist</a>
-            <button class="btn btn-ghost" type="button" data-live-message="Live watchlist storage will connect after live account records are separated from demo records.">Prepare Watchlist</button>
+        </article>
+
+        <article class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Quick groups</span>
+              <h2>Watchlist sections</h2>
+            </div>
           </div>
-          <p class="live-notice" id="live-notice" hidden></p>
-        </div>
-        <div class="app-card live-status-card">
-          <div>
-            <span class="muted-label">Alerts</span>
-            <strong>Planned</strong>
-            <small>Users can later get price, news, and risk alerts for saved live assets.</small>
+          <div class="activity-list" id="watchlist-groups">
+            <div><span>Crypto</span><strong>Loading</strong><small>Coins, stablecoins, and AU</small></div>
+            <div><span>Markets</span><strong>Loading</strong><small>Stocks, ETFs, oil, and metals</small></div>
           </div>
-          <div>
-            <span class="muted-label">Privacy</span>
-            <strong>Account-specific</strong>
-            <small>Saved assets should belong to each signed-in user.</small>
-          </div>
-        </div>
+        </article>
       </section>
     </main>
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>
+  <script src="demo-watchlist.js"></script>
   <script src="live-account.js"></script>
 </body>
 </html>

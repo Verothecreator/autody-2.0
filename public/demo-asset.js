@@ -10,6 +10,7 @@ const IS_LIVE_ASSET_PAGE = ASSET_PAGE_NAME === "account-asset.html";
 const ASSET_ORDERS_PAGE = IS_LIVE_ASSET_PAGE ? "account-orders.html" : "demo-orders.html";
 const ASSET_WALLET_PAGE = IS_LIVE_ASSET_PAGE ? "account-wallet.html" : "demo-wallet.html";
 const ASSET_RESEARCH_PAGE = IS_LIVE_ASSET_PAGE ? "account-research.html" : "demo-research.html";
+const ASSET_WATCHLIST_API = IS_LIVE_ASSET_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
 
 function priceDigits(number, compact = false) {
   if (compact) return 2;
@@ -490,16 +491,9 @@ document.addEventListener("click", async (event) => {
 
   const addWatchlist = event.target.closest("[data-add-watchlist]");
   if (addWatchlist && currentAsset) {
-    if (IS_LIVE_ASSET_PAGE) {
-      setAssetMessage(`${currentAsset.symbol} live watchlist storage will connect with live account records.`, "flat");
-      if (moreMenu) moreMenu.hidden = true;
-      document.getElementById("asset-more-button")?.setAttribute("aria-expanded", "false");
-      return;
-    }
-
     setAssetMessage("Saving to watchlist...");
     try {
-      const data = await postJson("/api/demo/watchlist", { symbol: currentAsset.symbol });
+      const data = await postJson(ASSET_WATCHLIST_API, { symbol: currentAsset.symbol });
       setAssetMessage(
         data.alreadySaved ? `${currentAsset.symbol} is already in your watchlist.` : `${currentAsset.symbol} added to your watchlist.`,
         data.alreadySaved ? "flat" : "gain"

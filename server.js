@@ -4444,6 +4444,53 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
   }
 });
 
+app.get("/api/account/watchlist", async (req, res) => {
+  try {
+    const account = await getPracticeAccountAny();
+    return res.json({
+      success: true,
+      user: publicUser(account.user),
+      watchlist: account.watchlist,
+      source: account.source
+    });
+  } catch (err) {
+    console.error("Live watchlist API error:", err);
+    return sendDemoError(res, err, "Live watchlist unavailable");
+  }
+});
+
+app.post("/api/account/watchlist", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const result = await addDemoWatchlistSymbol(body.symbol);
+    return res.json({
+      success: true,
+      asset: result.asset,
+      watchlist: result.account.watchlist,
+      alreadySaved: Boolean(result.alreadySaved),
+      source: result.source
+    });
+  } catch (err) {
+    console.error("Live watchlist add error:", err);
+    return sendDemoError(res, err, "Watchlist could not be updated");
+  }
+});
+
+app.delete("/api/account/watchlist/:symbol", async (req, res) => {
+  try {
+    const symbol = decodeURIComponent(req.params.symbol || "");
+    const result = await removeDemoWatchlistSymbol(symbol);
+    return res.json({
+      success: true,
+      watchlist: result.account.watchlist,
+      source: result.source
+    });
+  } catch (err) {
+    console.error("Live watchlist remove error:", err);
+    return sendDemoError(res, err, "Watchlist could not be updated");
+  }
+});
+
 app.get("/api/demo/performance", async (req, res) => {
   try {
     const account = await getPracticeAccountAny();
