@@ -154,7 +154,12 @@ document.addEventListener("click", (event) => {
   const liveFocus = event.target.closest("[data-live-focus]");
   if (liveFocus) {
     const targetId = liveFocus.dataset.liveFocus === "crypto" ? "live-crypto" : "live-funding";
-    document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const target = document.getElementById(targetId);
+    if (!target) {
+      window.location.href = `account-wallet.html#${targetId}`;
+      return;
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
     if (liveFocus.dataset.liveFocus === "funding") setFundingTab("card");
     if (liveFocus.dataset.liveFocus === "crypto") setFundingTab("crypto");
     return;
@@ -183,3 +188,11 @@ document.getElementById("copy-receive-address")?.addEventListener("click", copyR
 document.getElementById("review-send")?.addEventListener("click", reviewLiveSend);
 
 updateReceiveNetworks();
+
+if (location.hash === "#live-crypto") {
+  setFundingTab("crypto");
+}
+
+if (location.hash === "#live-funding") {
+  setFundingTab("card");
+}

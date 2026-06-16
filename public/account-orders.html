@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Live Account | Orders</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="account.html">Overview</a>
+        <a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html">Markets</a>
+        <a href="account-orders.html" class="active">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a>
+        <a href="account-research.html">Research</a>
+        <a href="demo-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Account balance</span>
+        <strong>$47,782 USD</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
+        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Live orders</p>
+          <h1>Orders</h1>
+          <p class="app-subtitle">Track real deposits, withdrawals, buys, sells, and swaps once live providers are connected.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">Live mode</span>
+          <strong>No orders yet</strong>
+        </div>
+      </header>
+
+      <section class="account-kpi-grid">
+        <div class="app-card mini-metric">
+          <span class="muted-label">Open orders</span>
+          <strong>0</strong>
+          <small>Nothing pending</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Deposits</span>
+          <strong>0</strong>
+          <small>No verified funding</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Withdrawals</span>
+          <strong>0</strong>
+          <small>No send requests</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Trade status</span>
+          <strong>Paused</strong>
+          <small>Execution rails pending</small>
+        </div>
+      </section>
+
+      <section class="account-grid">
+        <div class="app-card wallet-record-card wide-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Activity</span>
+              <h2>Live records</h2>
+            </div>
+          </div>
+          <div class="wallet-record-list">
+            <div class="wallet-record-row">
+              <span>SETUP</span>
+              <strong>Live account interface created</strong>
+              <small>Pending custody</small>
+            </div>
+            <div class="wallet-record-row">
+              <span>USD</span>
+              <strong>Card, ACH, and wire rails planned</strong>
+              <small>$0.00</small>
+            </div>
+            <div class="wallet-record-row">
+              <span>CRYPTO</span>
+              <strong>Receive address flow drafted</strong>
+              <small>0 deposits</small>
+            </div>
+          </div>
+        </div>
+        <div class="app-card settings-preview-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Trade ticket</span>
+              <h2>Live order entry pending</h2>
+            </div>
+          </div>
+          <p>The demo order page is the active trading lab. This live orders page will connect after real custody, brokerage, and withdrawal checks are ready.</p>
+          <a class="btn" href="demo-orders.html">Open Demo Orders</a>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+  <script src="demo-sidebar.js"></script>
+  <script src="live-account.js"></script>
+</body>
+</html>

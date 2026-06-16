@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Live Account | Research</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="account.html">Overview</a>
+        <a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html">Markets</a>
+        <a href="account-orders.html">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a>
+        <a href="account-research.html" class="active">Research</a>
+        <a href="demo-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Account balance</span>
+        <strong>$47,782 USD</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
+        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Live research</p>
+          <h1>Research</h1>
+          <p class="app-subtitle">Connect live account context, watchlist signals, and market stories before a user makes a real move.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">Live mode</span>
+          <strong>Research ready</strong>
+        </div>
+      </header>
+
+      <section class="account-grid">
+        <div class="app-card settings-preview-card wide-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Account lens</span>
+              <h2>Research should explain what matters to this user</h2>
+            </div>
+          </div>
+          <p>When live balances are connected, this page can compare user holdings, pending orders, saved assets, and market news so the account feels guided instead of just transactional.</p>
+        </div>
+
+        <div class="app-card live-security-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Controls</span>
+              <h2>Before launch</h2>
+            </div>
+          </div>
+          <div class="settings-list">
+            <div><span>Custody wallet rules</span><strong>Needed</strong></div>
+            <div><span>Deposit monitoring</span><strong>Needed</strong></div>
+            <div><span>Withdrawal approvals</span><strong>Needed</strong></div>
+            <div><span>Compliance provider</span><strong>Needed</strong></div>
+          </div>
+        </div>
+
+        <div class="app-card live-status-card wide-card">
+          <div>
+            <span class="muted-label">Research plan</span>
+            <strong>Wallet, market, orders, watchlist</strong>
+            <small>Use live account data to explain risk, opportunity, and next steps before the user buys, sells, sends, or swaps.</small>
+          </div>
+          <div>
+            <span class="muted-label">News</span>
+            <strong>Account relevant</strong>
+            <small>Stories should connect back to what the user holds or follows, not just broad headlines.</small>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+  <script src="demo-sidebar.js"></script>
+  <script src="live-account.js"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Live Account | Markets</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="account.html">Overview</a>
+        <a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html" class="active">Markets</a>
+        <a href="account-orders.html">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a>
+        <a href="account-research.html">Research</a>
+        <a href="demo-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Account balance</span>
+        <strong>$47,782 USD</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
+        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <header class="app-topbar">
+        <div>
+          <p class="eyebrow">Live markets</p>
+          <h1>Markets</h1>
+          <p class="app-subtitle">Preview how real market access will sit beside live funding and verified account balances.</p>
+        </div>
+        <div class="account-mode-stack">
+          <span class="status-pill">Live mode</span>
+          <strong>Trading pending</strong>
+        </div>
+      </header>
+
+      <section class="account-grid">
+        <div class="app-card settings-preview-card wide-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Live trading access</span>
+              <h2>Markets will unlock after rails are connected</h2>
+            </div>
+          </div>
+          <p>Crypto, stocks, ETFs, and commodity exposure will use the same market data structure already built in Demo Markets. The live page stays separate so order routing, custody rules, limits, fees, and compliance checks can be added without crowding the overview.</p>
+          <div class="live-action-row">
+            <a class="btn" href="demo-markets.html">Open Demo Markets</a>
+            <button class="btn btn-ghost" type="button" data-live-message="Live market execution will be enabled after brokerage, custody, and compliance providers are connected.">Check Live Status</button>
+          </div>
+          <p class="live-notice" id="live-notice" hidden></p>
+        </div>
+        <div class="app-card live-status-card">
+          <div>
+            <span class="muted-label">Crypto</span>
+            <strong>Custody required</strong>
+            <small>Receive/send and real balances need wallet monitoring and approval rules.</small>
+          </div>
+          <div>
+            <span class="muted-label">Stocks and ETFs</span>
+            <strong>Brokerage required</strong>
+            <small>Live equity orders need a regulated provider before launch.</small>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script>
+  <script src="demo-sidebar.js"></script>
+  <script src="live-account.js"></script>
+</body>
+</html>
