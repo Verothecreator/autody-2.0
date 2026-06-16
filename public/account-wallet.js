@@ -329,6 +329,16 @@ function liveTradeUrl(side, symbol) {
   return `account-orders.html?side=${encodeURIComponent(side)}&symbol=${encodeURIComponent(symbol)}`;
 }
 
+function liveWalletUsesCryptoActionGrid(asset = {}) {
+  const type = String(asset.assetType || asset.category || "").toLowerCase();
+  return !asset.isGroup && asset.symbol !== "USD" && (
+    asset.symbol === "AU" ||
+    type === "crypto" ||
+    type === "currency" ||
+    type === "stablecoin"
+  );
+}
+
 function liveDetailRow(label, value, tone = "") {
   return `
     <div>
@@ -513,7 +523,7 @@ function liveRenderDetail(asset) {
 
   const actions = document.getElementById("live-wallet-detail-actions");
   if (actions) {
-    actions.classList.toggle("wallet-action-grid-au", asset.symbol === "AU");
+    actions.classList.toggle("wallet-action-grid-crypto", liveWalletUsesCryptoActionGrid(asset));
     actions.innerHTML = liveWalletActions(asset)
       .map(([label, href]) => href.startsWith("modal:")
         ? `<button type="button" data-live-wallet-transfer="${escapeLiveWalletHtml(href.replace("modal:", ""))}">${escapeLiveWalletHtml(label)}</button>`

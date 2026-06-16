@@ -1741,8 +1741,16 @@ a.asset-table-row {
   margin-top: 16px;
 }
 
-.wallet-action-grid.wallet-action-grid-au {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.wallet-action-grid.wallet-action-grid-crypto {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.wallet-action-grid.wallet-action-grid-crypto > :nth-child(-n+3) {
+  grid-column: span 2;
+}
+
+.wallet-action-grid.wallet-action-grid-crypto > :nth-child(n+4) {
+  grid-column: span 3;
 }
 
 .wallet-action-grid a,
@@ -1766,7 +1774,7 @@ a.asset-table-row {
   background: linear-gradient(135deg, #5d5fef, #4345ce);
 }
 
-.wallet-action-grid.wallet-action-grid-au [data-live-wallet-transfer="receive"] {
+.wallet-action-grid.wallet-action-grid-crypto [data-live-wallet-transfer="receive"] {
   background: linear-gradient(135deg, #5d5fef, #4345ce);
 }
 
