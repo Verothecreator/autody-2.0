@@ -24,7 +24,7 @@
       </nav>
       <div class="sidebar-profile">
         <span>Account balance</span>
-        <strong data-live-balance>$0.00 USD</strong>
+        <strong id="overview-sidebar-balance" data-live-balance>$0 USD</strong>
       </div>
       <div class="sidebar-actions">
         <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
@@ -37,94 +37,125 @@
         <div>
           <p class="eyebrow">Live account</p>
           <h1>Overview</h1>
-          <p class="app-subtitle">A live account workspace for funding, verified balances, crypto receive/send, and future trading access.</p>
+          <p class="app-subtitle">Track verified balances, funding readiness, saved assets, and the next live account actions.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Live mode</span>
-          <strong>Funding pending</strong>
+          <strong id="overview-top-balance">$0 USD</strong>
         </div>
       </header>
 
-      <section class="account-overview live-account-overview">
-        <div class="balance-card live-account-card">
+      <section class="account-overview" id="overview">
+        <div class="balance-card">
           <div class="balance-card-top">
             <div>
               <span class="muted-label">Live account value</span>
-              <strong>$0.00</strong>
+              <strong id="overview-portfolio-value">$0.00</strong>
             </div>
-            <span class="status-pill">Setup stage</span>
+            <span class="status-pill" id="overview-status-pill">Loading</span>
           </div>
-          <p><span class="flat">0.00%</span> no verified live deposits yet</p>
-          <div class="account-line-chart flat-chart" aria-hidden="true">
-            <span style="height: 44%"></span>
-            <span style="height: 44%"></span>
-            <span style="height: 44%"></span>
-            <span style="height: 44%"></span>
-            <span style="height: 44%"></span>
-            <span style="height: 44%"></span>
-            <span style="height: 44%"></span>
-            <span style="height: 44%"></span>
+          <p id="overview-move-line"><span class="flat">&rarr; +0.00%</span> checking live account status</p>
+          <div class="account-line-chart flat-chart" id="overview-chart" aria-hidden="true">
+            <span style="height: 52%"></span>
+            <span style="height: 52%"></span>
+            <span style="height: 52%"></span>
+            <span style="height: 52%"></span>
+            <span style="height: 52%"></span>
+            <span style="height: 52%"></span>
+            <span style="height: 52%"></span>
+            <span style="height: 52%"></span>
           </div>
         </div>
 
         <div class="quick-actions">
           <a href="account-wallet.html#live-crypto">Receive Crypto</a>
           <a href="account-wallet.html#live-funding">Add USD Funds</a>
-          <a href="account-markets.html">Markets</a>
-          <a href="account-wallet.html">Wallet</a>
+          <a href="account-markets.html?filter=crypto">Markets</a>
+          <a href="account-watchlist.html">Watchlist</a>
         </div>
       </section>
 
       <section class="account-kpi-grid">
         <div class="app-card mini-metric">
           <span class="muted-label">Available USD</span>
-          <strong>$0.00</strong>
-          <small>Card, ACH, and wire rails pending</small>
-        </div>
-        <div class="app-card mini-metric">
-          <span class="muted-label">Crypto balance</span>
-          <strong>$0.00</strong>
-          <small>Receive addresses ready for connection</small>
+          <strong id="overview-buying-power">$0</strong>
+          <small>Verified funds</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Open positions</span>
-          <strong>0</strong>
-          <small>No live assets held yet</small>
+          <strong id="overview-position-count">0</strong>
+          <small id="overview-position-label">No live assets held yet</small>
         </div>
         <div class="app-card mini-metric">
-          <span class="muted-label">Pending transfers</span>
-          <strong>0</strong>
-          <small>Nothing waiting on confirmations</small>
+          <span class="muted-label">Watchlist</span>
+          <strong id="overview-watchlist-count">0</strong>
+          <small>Saved assets</small>
+        </div>
+        <div class="app-card mini-metric profit-metric">
+          <span class="muted-label">Live profit/loss</span>
+          <strong class="flat" id="overview-profit-loss">$0.00</strong>
+          <small id="overview-return-label">+0.00% total return</small>
         </div>
       </section>
 
       <section class="account-grid">
-        <div class="app-card settings-preview-card wide-card">
+        <div class="app-card wide-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Live setup</span>
-              <h2>Build the real account step by step</h2>
+              <span class="muted-label">Recent activity</span>
+              <h2>Latest live orders</h2>
+            </div>
+            <a href="account-orders.html" class="text-link">Open Orders</a>
+          </div>
+          <div class="asset-table overview-activity-table" id="overview-activity-list">
+            <div class="asset-table-row">
+              <span>Loading</span>
+              <span>-</span>
+              <span>$0.00</span>
+              <span>Waiting</span>
             </div>
           </div>
-          <p>The demo account already proves the account experience. The live account now mirrors that structure, but each section is separated into its own page so funding, wallet, markets, orders, watchlist, and research can grow without crowding one screen.</p>
         </div>
-        <div class="app-card live-status-card">
-          <div>
-            <span class="muted-label">Treasury path</span>
-            <strong>Wallet first</strong>
-            <small>Deposits will credit a user ledger before treasury rules move or store funds.</small>
+
+        <div class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Holdings</span>
+              <h2>Live positions</h2>
+            </div>
+            <a href="account-wallet.html" class="text-link">Open Wallet</a>
           </div>
-          <div>
-            <span class="muted-label">Fresh addresses</span>
-            <strong>Supported</strong>
-            <small>Crypto receive can generate a fresh deposit address per request.</small>
+          <div class="compact-market-list" id="overview-holdings-list">
+            <article class="wallet-empty-state">Loading holdings...</article>
           </div>
+        </div>
+
+        <div class="app-card au-vision-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">AU purpose</span>
+              <h2>More than trading</h2>
+            </div>
+          </div>
+          <p>AU belongs in the live account as a usable digital currency for exchange, payments, goods, and services, with gold-backed confidence as the long-term direction.</p>
+        </div>
+
+        <div class="app-card settings-preview-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Account controls</span>
+              <h2>Live settings</h2>
+            </div>
+          </div>
+          <p>Funding, custody checks, market alerts, and withdrawal approvals can connect here as the live system grows.</p>
+          <a href="demo-settings.html" class="btn">Open Settings</a>
         </div>
       </section>
     </main>
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>
+  <script src="demo-account.js"></script>
   <script src="live-account.js"></script>
 </body>
 </html>

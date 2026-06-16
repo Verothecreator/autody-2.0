@@ -975,6 +975,73 @@ async function buildDemoWalletSnapshot(account) {
     };
 }
 
+function liveWalletHoldingUrl(holding) {
+    const symbol = String(holding.symbol || "").toUpperCase();
+    if (symbol === "USD") return "account-wallet.html?asset=USD";
+    if (symbol === "AU") return "account-wallet.html?asset=AU";
+    if (symbol === "CRYPTO") return "account-markets.html?filter=crypto";
+    if (symbol === "STOCKS") return "account-markets.html?filter=stocks";
+    if (symbol === "ETFS") return "account-markets.html?filter=etf";
+    if (symbol === "OILMETALS") return "account-markets.html?filter=commodity";
+    return `account-asset.html?symbol=${encodeURIComponent(symbol)}`;
+}
+
+function buildLiveWalletSnapshot(account) {
+    const currency = account?.user?.currency || "USD";
+    const createdAt = account?.user?.createdAt || new Date().toISOString();
+    const holding = (symbol, name, category, status, detail) => ({
+        symbol,
+        name,
+        category,
+        assetType: category,
+        balance: 0,
+        valueUsd: 0,
+        price: symbol === "USD" ? 1 : null,
+        changePct: null,
+        status,
+        detail,
+        url: liveWalletHoldingUrl({ symbol })
+    });
+
+    return {
+        currency,
+        startingBalance: 0,
+        cashBalance: 0,
+        reservedCash: 0,
+        totalValue: 0,
+        investedValue: 0,
+        positionsCount: 0,
+        pendingTransfers: 0,
+        groups: {
+            cashValue: 0,
+            auValue: 0,
+            cryptoValue: 0,
+            stockValue: 0,
+            etfValue: 0,
+            commodityValue: 0
+        },
+        holdings: [
+            holding("USD", "USD Funds", "cash", "Awaiting deposit", "Available after a verified deposit"),
+            holding("AU", "Autody AU", "crypto", "Not held", "Autody balance"),
+            holding("CRYPTO", "Crypto", "crypto", "Ready", "Deposit-ready digital assets"),
+            holding("STOCKS", "Stocks", "stock", "Ready", "Company shares"),
+            holding("ETFS", "ETFs", "etf", "Ready", "Funds and baskets"),
+            holding("OILMETALS", "Oil and metals", "commodity", "Ready", "Commodity instruments")
+        ],
+        records: [
+            {
+                type: "setup",
+                title: "Live account opened",
+                symbol: "LIVE",
+                assetType: "account",
+                valueUsd: 0,
+                status: "awaiting funding",
+                createdAt
+            }
+        ]
+    };
+}
+
 function demoTradeError(status, message) {
     const err = new Error(message);
     err.status = status;
@@ -4570,6 +4637,37 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
   } catch (err) {
     console.error("Demo watchlist remove error:", err);
     return sendDemoError(res, err, "Watchlist could not be updated");
+  }
+});
+
+app.get("/api/account/wallet", async (req, res) => {
+  try {
+    const account = await getPracticeAccountAny();
+    const wallet = buildLiveWalletSnapshot(account);
+    return res.json({
+      success: true,
+      user: publicUser(account.user),
+      wallet,
+      source: account.source
+    });
+  } catch (err) {
+    console.error("Live wallet API error:", err);
+    return sendDemoError(res, err, "Live wallet unavailable");
+  }
+});
+
+app.get("/api/account/orders", async (req, res) => {
+  try {
+    const account = await getPracticeAccountAny();
+    return res.json({
+      success: true,
+      user: publicUser(account.user),
+      orders: [],
+      source: account.source
+    });
+  } catch (err) {
+    console.error("Live orders API error:", err);
+    return sendDemoError(res, err, "Live orders unavailable");
   }
 });
 

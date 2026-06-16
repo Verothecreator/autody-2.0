@@ -24,7 +24,7 @@
       </nav>
       <div class="sidebar-profile">
         <span>Account balance</span>
-        <strong data-live-balance>$0.00 USD</strong>
+        <strong data-live-balance>$0 USD</strong>
       </div>
       <div class="sidebar-actions">
         <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
@@ -37,50 +37,89 @@
         <div>
           <p class="eyebrow">Live research</p>
           <h1>Research</h1>
-          <p class="app-subtitle">Connect live account context, watchlist signals, and market stories before a user makes a real move.</p>
+          <p class="app-subtitle">Connect live account context, saved assets, market stories, and funding readiness before a real move.</p>
         </div>
         <div class="account-mode-stack">
-          <span class="status-pill">Live mode</span>
-          <strong>Research ready</strong>
+          <span class="status-pill">Personal feed</span>
+          <strong id="research-status">Loading</strong>
         </div>
       </header>
 
-      <section class="account-grid">
-        <div class="app-card settings-preview-card wide-card">
+      <section class="account-kpi-grid">
+        <div class="app-card mini-metric">
+          <span class="muted-label">Available USD</span>
+          <strong id="research-cash">$0</strong>
+          <small>Verified funds</small>
+        </div>
+        <div class="app-card mini-metric profit-metric">
+          <span class="muted-label">Live P/L</span>
+          <strong id="research-profit-loss" class="flat">$0.00</strong>
+          <small id="research-return-label">+0.00% total return</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Positions</span>
+          <strong id="research-positions">0</strong>
+          <small>Held assets</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Watchlist</span>
+          <strong id="research-watchlist-count">0</strong>
+          <small>Saved assets</small>
+        </div>
+      </section>
+
+      <section class="research-page-grid">
+        <article class="app-card research-feature">
+          <span class="muted-label">Account lens</span>
+          <h2 id="research-brief-title">What matters to this account right now.</h2>
+          <p id="research-brief-copy">Autody is connecting watchlist assets, live account readiness, and finance headlines into a cleaner research flow.</p>
+          <div class="wallet-action-grid">
+            <a href="account-markets.html?filter=crypto">Browse Crypto</a>
+            <a href="account-markets.html?filter=stocks">Browse Stocks</a>
+            <a href="account-watchlist.html">Open Watchlist</a>
+          </div>
+        </article>
+
+        <div class="app-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Account lens</span>
-              <h2>Research should explain what matters to this user</h2>
+              <span class="muted-label">Watchlist focus</span>
+              <h2>Following</h2>
             </div>
           </div>
-          <p>When live balances are connected, this page can compare user holdings, pending orders, saved assets, and market news so the account feels guided instead of just transactional.</p>
+          <div class="research-list" id="research-watchlist">
+            <article><span>Loading</span><h3>Fetching saved assets...</h3></article>
+          </div>
         </div>
 
-        <div class="app-card live-security-card">
+        <div class="app-card wide-card research-news-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Controls</span>
-              <h2>Before launch</h2>
+              <span class="muted-label">Live feed</span>
+              <h2>Market story brief</h2>
             </div>
+            <span class="status-pill" id="research-news-count">Checking</span>
           </div>
-          <div class="settings-list">
-            <div><span>Custody wallet rules</span><strong>Needed</strong></div>
-            <div><span>Deposit monitoring</span><strong>Needed</strong></div>
-            <div><span>Withdrawal approvals</span><strong>Needed</strong></div>
-            <div><span>Compliance provider</span><strong>Needed</strong></div>
+          <div class="research-news-carousel" id="research-news">
+            <article class="research-news-empty">
+              <span>Loading</span>
+              <h3>Checking market stories...</h3>
+            </article>
           </div>
         </div>
 
-        <div class="app-card live-status-card wide-card">
-          <div>
-            <span class="muted-label">Research plan</span>
-            <strong>Wallet, market, orders, watchlist</strong>
-            <small>Use live account data to explain risk, opportunity, and next steps before the user buys, sells, sends, or swaps.</small>
+        <div class="app-card wide-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Research plan</span>
+              <h2>What to check next</h2>
+              <p class="card-intro">This plan turns funding, watchlist, and live stories into practical checks before a buy, sell, send, receive, or swap.</p>
+            </div>
           </div>
-          <div>
-            <span class="muted-label">News</span>
-            <strong>Account relevant</strong>
-            <small>Stories should connect back to what the user holds or follows, not just broad headlines.</small>
+          <div class="research-plan-grid" id="research-queue">
+            <article><span>Funding</span><h3>Confirm USD or crypto funding before live orders.</h3></article>
+            <article><span>Watchlist</span><h3>Compare saved assets against the current market brief.</h3></article>
+            <article><span>Macro</span><h3>Watch gold, rates, inflation, energy, and liquidity signals.</h3></article>
           </div>
         </div>
       </section>
@@ -88,6 +127,7 @@
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>
+  <script src="demo-research.js"></script>
   <script src="live-account.js"></script>
 </body>
 </html>

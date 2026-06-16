@@ -1,5 +1,13 @@
 const RESEARCH_REFRESH_MS = 30000;
 const RESEARCH_NEWS_SLIDE_MS = 9000;
+const RESEARCH_PAGE_NAME = location.pathname.split("/").pop() || "demo-research.html";
+const IS_LIVE_RESEARCH_PAGE = RESEARCH_PAGE_NAME === "account-research.html";
+const RESEARCH_WALLET_API = IS_LIVE_RESEARCH_PAGE ? "/api/account/wallet" : "/api/demo/wallet";
+const RESEARCH_WATCHLIST_API = IS_LIVE_RESEARCH_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
+const RESEARCH_MARKETS_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-markets.html" : "demo-markets.html";
+const RESEARCH_WALLET_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-wallet.html" : "demo-wallet.html";
+const RESEARCH_ORDERS_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-orders.html" : "demo-orders.html";
+const RESEARCH_WATCHLIST_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-watchlist.html" : "demo-watchlist.html";
 
 let researchArticles = [];
 let activeResearchArticleIndex = 0;
@@ -115,8 +123,9 @@ function articleAccountAngle(article = {}) {
 }
 
 function renderResearchWallet(wallet = {}, watchSymbols = []) {
-  const starting = Number(wallet.startingBalance || 50000);
-  const total = Number(wallet.totalValue || starting);
+  const fallbackStarting = IS_LIVE_RESEARCH_PAGE ? 0 : 50000;
+  const starting = Number(wallet.startingBalance ?? fallbackStarting);
+  const total = Number(wallet.totalValue ?? starting);
   const profitLoss = total - starting;
   const profitLossPct = starting > 0 ? (profitLoss / starting) * 100 : 0;
   const tone = researchTone(profitLoss);
@@ -127,7 +136,9 @@ function renderResearchWallet(wallet = {}, watchSymbols = []) {
   document.getElementById("research-return-label").textContent = `${formatResearchMove(profitLossPct)} total return`;
   document.getElementById("research-positions").textContent = String(wallet.positionsCount || 0);
   document.getElementById("research-watchlist-count").textContent = String(watchSymbols.length);
-  document.getElementById("research-status").textContent = wallet.positionsCount ? "Active demo" : "Ready";
+  document.getElementById("research-status").textContent = wallet.positionsCount
+    ? (IS_LIVE_RESEARCH_PAGE ? "Active live" : "Active demo")
+    : (IS_LIVE_RESEARCH_PAGE ? "Awaiting funding" : "Ready");
 
   const briefTitle = document.getElementById("research-brief-title");
   const briefCopy = document.getElementById("research-brief-copy");
@@ -135,8 +146,10 @@ function renderResearchWallet(wallet = {}, watchSymbols = []) {
     briefTitle.textContent = "Your holdings are now part of the research story.";
     briefCopy.textContent = `This wallet is tracking ${wallet.positionsCount} held asset${wallet.positionsCount === 1 ? "" : "s"}, ${formatResearchMoney(wallet.cashBalance, true)} in USD funds, and market stories that can affect decisions.`;
   } else {
-    briefTitle.textContent = "Build the first position with context.";
-    briefCopy.textContent = "Use this page to compare live market stories, watchlist assets, and account readiness before placing a demo order.";
+    briefTitle.textContent = IS_LIVE_RESEARCH_PAGE ? "Prepare the first live move with context." : "Build the first position with context.";
+    briefCopy.textContent = IS_LIVE_RESEARCH_PAGE
+      ? "Use this page to compare market stories, saved assets, and funding readiness before placing a live order."
+      : "Use this page to compare live market stories, watchlist assets, and account readiness before placing a demo order.";
   }
 }
 
@@ -266,21 +279,23 @@ function renderResearchPlan(wallet = {}, watchSymbols = []) {
   const items = [
     {
       label: "Wallet",
-      title: positions ? "Start with your biggest exposure" : "Choose the first asset with context",
+      title: positions ? "Start with your biggest exposure" : IS_LIVE_RESEARCH_PAGE ? "Prepare before the first live position" : "Choose the first asset with context",
       text: positions
         ? `${holding?.symbol || "Top holding"} is the biggest current exposure. Check its story, chart, and recent movement before adding more.`
-        : "Pick a first demo asset after checking the market board and current news.",
+        : IS_LIVE_RESEARCH_PAGE ? "Review the market board, funding status, and current news before opening a real position." : "Pick a first demo asset after checking the market board and current news.",
       action: positions ? "Open wallet" : "Explore markets",
-      href: positions ? "demo-wallet.html" : "demo-markets.html"
+      href: positions ? RESEARCH_WALLET_PAGE : RESEARCH_MARKETS_PAGE
     },
     {
       label: "Risk",
-      title: cash < 10000 ? "Protect buying power" : "Use available USD with intention",
-      text: cash < 10000
+      title: IS_LIVE_RESEARCH_PAGE && cash <= 0 ? "Fund before opening risk" : cash < 10000 ? "Protect buying power" : "Use available USD with intention",
+      text: IS_LIVE_RESEARCH_PAGE && cash <= 0
+        ? "Add USD funds or receive crypto before live trades, sends, and swaps are turned on."
+        : cash < 10000
         ? "USD funds are lower, so compare sell or swap choices before opening new buys."
         : "USD funds are healthy, so research can focus on timing and asset quality.",
       action: "Open orders",
-      href: "demo-orders.html"
+      href: RESEARCH_ORDERS_PAGE
     },
     {
       label: "Watchlist",
@@ -289,7 +304,7 @@ function renderResearchPlan(wallet = {}, watchSymbols = []) {
         ? `${watchSymbols.slice(0, 3).join(", ")} ${watchSymbols.length > 3 ? "and more are" : "are"} saved for follow-up.`
         : "Add assets to the watchlist so this page can become more personal.",
       action: "Open watchlist",
-      href: "demo-watchlist.html"
+      href: RESEARCH_WATCHLIST_PAGE
     },
     {
       label: "News",
@@ -315,8 +330,8 @@ function renderResearchPlan(wallet = {}, watchSymbols = []) {
 async function loadResearchPage() {
   try {
     const [walletData, watchlistData, catalogData, newsData] = await Promise.all([
-      getResearchJson("/api/demo/wallet"),
-      getResearchJson("/api/demo/watchlist").catch(() => ({ watchlist: {} })),
+      getResearchJson(RESEARCH_WALLET_API),
+      getResearchJson(RESEARCH_WATCHLIST_API).catch(() => ({ watchlist: {} })),
       getResearchJson("/api/markets/catalog?type=all").catch(() => ({ assets: [] })),
       getResearchJson("/api/news").catch(() => ({ articles: [] }))
     ]);

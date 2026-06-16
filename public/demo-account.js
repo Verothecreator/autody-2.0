@@ -12,6 +12,12 @@ const overviewWholeMoney = new Intl.NumberFormat("en-US", {
 
 const OVERVIEW_REFRESH_MS = 10000;
 const OVERVIEW_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
+const OVERVIEW_PAGE_NAME = location.pathname.split("/").pop() || "demo-account.html";
+const IS_LIVE_OVERVIEW_PAGE = OVERVIEW_PAGE_NAME === "account.html";
+const OVERVIEW_WALLET_API = IS_LIVE_OVERVIEW_PAGE ? "/api/account/wallet" : "/api/demo/wallet";
+const OVERVIEW_ORDERS_API = IS_LIVE_OVERVIEW_PAGE ? "/api/account/orders" : "/api/demo/orders";
+const OVERVIEW_WATCHLIST_API = IS_LIVE_OVERVIEW_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
+const OVERVIEW_ASSET_PAGE = IS_LIVE_OVERVIEW_PAGE ? "account-asset.html" : "demo-asset.html";
 
 function escapeOverviewHtml(value = "") {
   return String(value)
@@ -90,8 +96,9 @@ function overviewLogoMarkup(holding = {}) {
 function portfolioChart(wallet, orders = []) {
   const target = document.getElementById("overview-chart");
   if (!target) return;
-  const starting = Number(wallet.startingBalance || 50000);
-  const total = Number(wallet.totalValue || starting);
+  const fallbackStarting = IS_LIVE_OVERVIEW_PAGE ? 0 : 50000;
+  const starting = Number(wallet.startingBalance ?? fallbackStarting);
+  const total = Number(wallet.totalValue ?? starting);
   const movePct = starting > 0 ? ((total - starting) / starting) * 100 : 0;
   const orderCount = orders.length;
   const bars = Array.from({ length: 12 }, (_, index) => {
@@ -112,7 +119,7 @@ function renderOverviewActivity(orders = []) {
     const symbol = String(order.symbol || "-").toUpperCase();
     const notional = order.notional_usd ?? order.notionalUsd ?? 0;
     return `
-      <a class="asset-table-row order-row-link" href="demo-asset.html?symbol=${encodeURIComponent(symbol)}">
+      <a class="asset-table-row order-row-link" href="${OVERVIEW_ASSET_PAGE}?symbol=${encodeURIComponent(symbol)}">
         <span>${escapeOverviewHtml(side)}</span>
         <span>${escapeOverviewHtml(symbol)}</span>
         <span>${escapeOverviewHtml(formatOverviewMoney(notional))}</span>
@@ -123,10 +130,10 @@ function renderOverviewActivity(orders = []) {
 
   target.innerHTML = rows || `
     <div class="asset-table-row">
-      <span>No orders yet</span>
+      <span>${IS_LIVE_OVERVIEW_PAGE ? "No live orders" : "No orders yet"}</span>
       <span>-</span>
       <span>$0.00</span>
-      <span>Ready</span>
+      <span>${IS_LIVE_OVERVIEW_PAGE ? "Awaiting funding" : "Ready"}</span>
     </div>
   `;
 }
@@ -142,42 +149,48 @@ function renderOverviewHoldings(wallet = {}) {
 
   target.innerHTML = holdings.length
     ? holdings.map((holding) => `
-      <a href="${escapeOverviewHtml(holding.url || `demo-asset.html?symbol=${encodeURIComponent(holding.symbol)}`)}">
+      <a href="${escapeOverviewHtml(holding.url || `${OVERVIEW_ASSET_PAGE}?symbol=${encodeURIComponent(holding.symbol)}`)}">
         ${overviewLogoMarkup(holding)}
         <span><b>${escapeOverviewHtml(holding.symbol)}</b><em>${escapeOverviewHtml(holding.name || holding.symbol)}</em></span>
         <strong>${escapeOverviewHtml(formatOverviewMoney(holding.valueUsd))}</strong>
         <small>${escapeOverviewHtml(formatOverviewNumber(holding.balance))}</small>
       </a>
     `).join("")
-    : `<article class="wallet-empty-state">No positions yet. Start from Markets or Orders.</article>`;
+    : `<article class="wallet-empty-state">${IS_LIVE_OVERVIEW_PAGE ? "No live positions yet. Fund the account or receive crypto first." : "No positions yet. Start from Markets or Orders."}</article>`;
 }
 
 function renderOverview({ wallet, orders, watchlist }) {
-  const totalValue = Number(wallet.totalValue || wallet.startingBalance || 50000);
-  const starting = Number(wallet.startingBalance || 50000);
+  const fallbackStarting = IS_LIVE_OVERVIEW_PAGE ? 0 : 50000;
+  const starting = Number(wallet.startingBalance ?? fallbackStarting);
+  const totalValue = Number(wallet.totalValue ?? starting);
   const profitLoss = totalValue - starting;
   const profitLossPct = starting > 0 ? (profitLoss / starting) * 100 : 0;
   const tone = overviewMoveClass(profitLoss);
   const watchCount = flattenWatchlist(watchlist).length;
   const orderCount = orders.length;
+  const cashBalance = Number(wallet.cashBalance ?? 0);
+  const positionCount = Number(wallet.positionsCount || 0);
 
-  setOverviewText("overview-sidebar-balance", `${formatOverviewMoney(wallet.cashBalance, true)} USD`);
-  setOverviewText("overview-top-balance", `${formatOverviewMoney(wallet.cashBalance, true)} USD`);
+  setOverviewText("overview-sidebar-balance", `${formatOverviewMoney(cashBalance, true)} USD`);
+  setOverviewText("overview-top-balance", `${formatOverviewMoney(cashBalance, true)} USD`);
   setOverviewText("overview-portfolio-value", formatOverviewMoney(totalValue));
-  setOverviewText("overview-buying-power", formatOverviewMoney(wallet.cashBalance, true));
-  setOverviewText("overview-position-count", String(wallet.positionsCount || 0));
-  setOverviewText("overview-position-label", wallet.positionsCount ? "Assets currently held" : "Choose assets in Markets");
+  setOverviewText("overview-buying-power", formatOverviewMoney(cashBalance, true));
+  setOverviewText("overview-position-count", String(positionCount));
+  setOverviewText("overview-position-label", positionCount ? "Assets currently held" : IS_LIVE_OVERVIEW_PAGE ? "No live assets held yet" : "Choose assets in Markets");
   setOverviewText("overview-watchlist-count", String(watchCount));
   setOverviewText("overview-profit-loss", formatOverviewMoney(profitLoss));
   setOverviewText("overview-return-label", `${formatOverviewMove(profitLossPct)} total return`);
-  setOverviewText("overview-status-pill", orderCount ? "Active demo" : "Ready");
+  setOverviewText("overview-status-pill", orderCount ? (IS_LIVE_OVERVIEW_PAGE ? "Active live" : "Active demo") : (IS_LIVE_OVERVIEW_PAGE ? "Awaiting funding" : "Ready"));
 
   const profitNode = document.getElementById("overview-profit-loss");
   if (profitNode) profitNode.className = tone;
   const moveLine = document.getElementById("overview-move-line");
   if (moveLine) {
     const arrow = profitLoss > 0 ? "&uarr;" : profitLoss < 0 ? "&darr;" : "&rarr;";
-    moveLine.innerHTML = `<span class="${tone}">${arrow} ${escapeOverviewHtml(formatOverviewMove(profitLossPct))}</span> ${orderCount ? `${orderCount} filled demo order${orderCount === 1 ? "" : "s"}` : "no trades placed yet"}`;
+    const activityText = orderCount
+      ? `${orderCount} filled ${IS_LIVE_OVERVIEW_PAGE ? "live" : "demo"} order${orderCount === 1 ? "" : "s"}`
+      : IS_LIVE_OVERVIEW_PAGE ? "no verified live deposits yet" : "no trades placed yet";
+    moveLine.innerHTML = `<span class="${tone}">${arrow} ${escapeOverviewHtml(formatOverviewMove(profitLossPct))}</span> ${activityText}`;
   }
 
   portfolioChart(wallet, orders);
@@ -188,18 +201,18 @@ function renderOverview({ wallet, orders, watchlist }) {
 async function loadOverview(options = {}) {
   try {
     const [walletData, ordersData, watchlistData] = await Promise.all([
-      getOverviewJson("/api/demo/wallet"),
-      getOverviewJson("/api/demo/orders"),
-      getOverviewJson("/api/demo/watchlist").catch(() => ({ watchlist: {} }))
+      getOverviewJson(OVERVIEW_WALLET_API),
+      getOverviewJson(OVERVIEW_ORDERS_API),
+      getOverviewJson(OVERVIEW_WATCHLIST_API).catch(() => ({ watchlist: {} }))
     ]);
-    if (!walletData.success) throw new Error(walletData.error || "Demo wallet failed");
+    if (!walletData.success) throw new Error(walletData.error || `${IS_LIVE_OVERVIEW_PAGE ? "Live" : "Demo"} wallet failed`);
     renderOverview({
       wallet: walletData.wallet,
       orders: ordersData.orders || [],
       watchlist: watchlistData.watchlist || {}
     });
   } catch (err) {
-    console.warn("Demo overview failed:", err);
+    console.warn(`${IS_LIVE_OVERVIEW_PAGE ? "Live" : "Demo"} overview failed:`, err);
     if (!options.silent) {
       setOverviewText("overview-status-pill", "Warming up");
     }
