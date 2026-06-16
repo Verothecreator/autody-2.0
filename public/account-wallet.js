@@ -356,7 +356,9 @@ function liveWalletActions(asset) {
     return [
       ["Buy", liveTradeUrl("buy", asset.symbol)],
       ["Sell", liveTradeUrl("sell", asset.symbol)],
-      ["Swap", liveTradeUrl("swap", asset.symbol)]
+      ["Swap", liveTradeUrl("swap", asset.symbol)],
+      ["Receive", "modal:receive"],
+      ["Send", "modal:send"]
     ];
   }
   if (asset.isGroup) {
