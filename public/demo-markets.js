@@ -9,6 +9,8 @@ let marketsLoading = false;
 
 const MARKET_REFRESH_MS = 10000;
 const MIN_STABLE_MARKET_ASSETS = 390;
+const MARKET_PAGE_NAME = location.pathname.split("/").pop() || "demo-markets.html";
+const MARKET_HISTORY_PAGE = MARKET_PAGE_NAME === "account-markets.html" ? "account-markets.html" : "demo-markets.html";
 
 function marketPriceDigits(number, compact = false) {
   if (compact) return 2;
@@ -303,8 +305,13 @@ function updateDashboard() {
   document.getElementById("market-open-positions").textContent = `${openPositions} positions`;
 
   if (demoWallet) {
+    const sidebarBalance = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: demoWallet.currency || "USD",
+      maximumFractionDigits: 0
+    }).format(Number(demoWallet.cashBalance || 0));
     document.querySelectorAll(".sidebar-profile strong").forEach((node) => {
-      node.textContent = `${marketPrice(demoWallet.cashBalance, demoWallet.currency || "USD")} USD`;
+      node.textContent = `${sidebarBalance} ${demoWallet.currency || "USD"}`;
     });
     document.getElementById("market-buying-power").textContent = marketPrice(demoWallet.cashBalance, demoWallet.currency || "USD");
   }
@@ -335,7 +342,7 @@ async function loadDemoMarkets(options = {}) {
     demoWallet = wallet?.wallet || null;
     updateDashboard();
   } catch (err) {
-    console.warn("Demo market catalog failed:", err);
+    console.warn("Market catalog failed:", err);
     if (!options.silent && !allMarketAssets.length) {
       document.getElementById("market-card-grid").innerHTML = `<article class="market-empty-state">Market data is still loading. Try refreshing in a moment.</article>`;
     }
@@ -402,7 +409,7 @@ document.addEventListener("click", (event) => {
   const filter = event.target.closest("[data-market-filter]");
   if (!filter) return;
   activeFilter = filter.dataset.marketFilter;
-  history.replaceState(null, "", `demo-markets.html?filter=${encodeURIComponent(activeFilter)}`);
+  history.replaceState(null, "", `${MARKET_HISTORY_PAGE}?filter=${encodeURIComponent(activeFilter)}`);
   syncActiveFilterButtons();
   renderMarketCards();
 });

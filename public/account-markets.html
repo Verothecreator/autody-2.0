@@ -33,50 +33,121 @@
     </aside>
 
     <main class="app-main">
-      <header class="app-topbar">
+      <header class="app-topbar market-topbar">
         <div>
           <p class="eyebrow">Live markets</p>
           <h1>Markets</h1>
-          <p class="app-subtitle">Preview how real market access will sit beside live funding and verified account balances.</p>
+          <p class="app-subtitle">Search coins, stocks, ETFs, and global instruments with the same live market data powering the account experience.</p>
         </div>
         <div class="account-mode-stack">
-          <span class="status-pill">Live mode</span>
-          <strong>Trading pending</strong>
+          <span class="status-pill">Account balance</span>
+          <strong id="market-buying-power">$47,782</strong>
         </div>
       </header>
 
-      <section class="account-grid">
-        <div class="app-card settings-preview-card wide-card">
+      <section class="market-search-panel">
+        <div class="market-search-box">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input id="market-search" type="search" placeholder="Search Bitcoin, USDT, Apple, oil, gold, ticker..." autocomplete="off" />
+        </div>
+        <div class="market-filter-row" aria-label="Market filters">
+          <button class="active" type="button" data-market-filter="all">All</button>
+          <button type="button" data-market-filter="crypto">Crypto</button>
+          <button type="button" data-market-filter="stablecoin">Stablecoins</button>
+          <button type="button" data-market-filter="stocks">Stocks</button>
+          <button type="button" data-market-filter="etf">ETFs</button>
+          <button type="button" data-market-filter="commodity">Oil and metals</button>
+        </div>
+      </section>
+
+      <section class="market-intel-grid">
+        <article class="market-intel-card">
+          <span class="muted-label">Markets loaded</span>
+          <strong id="market-total-count">100</strong>
+          <small>Crypto, stocks, ETFs, and commodities</small>
+        </article>
+        <article class="market-intel-card">
+          <span class="muted-label">Top mover</span>
+          <strong id="market-top-mover">Loading</strong>
+          <small id="market-top-mover-detail">Live percentage move</small>
+        </article>
+        <article class="market-intel-card">
+          <span class="muted-label">Live exposure</span>
+          <strong id="market-open-positions">0 positions</strong>
+          <small>Based on the current account wallet</small>
+        </article>
+      </section>
+
+      <section class="market-feature-grid">
+        <article class="app-card market-spotlight-card">
+          <div class="card-heading">
+            <div class="spotlight-heading">
+              <span id="spotlight-logo-wrap" aria-hidden="true"></span>
+              <div>
+                <span class="muted-label">Market spotlight</span>
+                <h2 id="spotlight-name">Bitcoin</h2>
+              </div>
+            </div>
+            <a id="spotlight-link" class="text-link" href="demo-asset.html?symbol=BTC">Open details</a>
+          </div>
+          <div class="spotlight-price-row">
+            <strong id="spotlight-price">$0.00</strong>
+            <span id="spotlight-move">Live feed</span>
+          </div>
+          <div class="spark-chart" id="spotlight-chart" aria-label="Market movement preview"></div>
+          <div class="spotlight-meta" id="spotlight-meta"></div>
+        </article>
+
+        <article class="app-card market-movers-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Live trading access</span>
-              <h2>Markets will unlock after rails are connected</h2>
+              <span class="muted-label">Live movers</span>
+              <h2>What traders are watching</h2>
             </div>
           </div>
-          <p>Crypto, stocks, ETFs, and commodity exposure will use the same market data structure already built in Demo Markets. The live page stays separate so order routing, custody rules, limits, fees, and compliance checks can be added without crowding the overview.</p>
-          <div class="live-action-row">
-            <a class="btn" href="demo-markets.html">Open Demo Markets</a>
-            <button class="btn btn-ghost" type="button" data-live-message="Live market execution will be enabled after brokerage, custody, and compliance providers are connected.">Check Live Status</button>
+          <div class="market-mover-list" id="market-movers-list"></div>
+        </article>
+      </section>
+
+      <section class="app-card market-board-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Explore</span>
+            <h2 id="market-list-title">All markets</h2>
           </div>
-          <p class="live-notice" id="live-notice" hidden></p>
+          <span class="market-result-count" id="market-result-count">Loading</span>
         </div>
-        <div class="app-card live-status-card">
-          <div>
-            <span class="muted-label">Crypto</span>
-            <strong>Custody required</strong>
-            <small>Receive/send and real balances need wallet monitoring and approval rules.</small>
+        <div class="market-card-grid" id="market-card-grid">
+          <article class="market-loading-card">Loading markets...</article>
+        </div>
+      </section>
+
+      <section class="market-columns">
+        <div class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Deposit-ready crypto</span>
+              <h2>Popular funding assets</h2>
+            </div>
           </div>
-          <div>
-            <span class="muted-label">Stocks and ETFs</span>
-            <strong>Brokerage required</strong>
-            <small>Live equity orders need a regulated provider before launch.</small>
+          <div class="compact-market-list" id="funding-assets-list"></div>
+        </div>
+
+        <div class="app-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">World economy</span>
+              <h2>Global instruments</h2>
+            </div>
           </div>
+          <div class="compact-market-list" id="global-assets-list"></div>
         </div>
       </section>
     </main>
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>
+  <script src="demo-markets.js"></script>
   <script src="live-account.js"></script>
 </body>
 </html>
