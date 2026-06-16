@@ -143,13 +143,13 @@ function updateDemoSidebarBalance(wallet = {}) {
   const cash = Number(wallet.cashBalance);
   if (!Number.isFinite(cash)) return;
   const value = `${demoSidebarMoney.format(cash)} USD`;
-  document.querySelectorAll(".sidebar-profile strong:not([data-static-profile])").forEach((node) => {
+  document.querySelectorAll(".sidebar-profile strong:not([data-static-profile]):not([data-live-balance])").forEach((node) => {
     node.textContent = value;
   });
 }
 
 async function loadDemoSidebarBalance() {
-  if (!document.querySelector(".sidebar-profile strong:not([data-static-profile])")) return;
+  if (!document.querySelector(".sidebar-profile strong:not([data-static-profile]):not([data-live-balance])")) return;
 
   try {
     const response = await fetch("/api/demo/wallet", { cache: "no-store" });

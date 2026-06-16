@@ -11,6 +11,7 @@ const MARKET_REFRESH_MS = 10000;
 const MIN_STABLE_MARKET_ASSETS = 390;
 const MARKET_PAGE_NAME = location.pathname.split("/").pop() || "demo-markets.html";
 const MARKET_HISTORY_PAGE = MARKET_PAGE_NAME === "account-markets.html" ? "account-markets.html" : "demo-markets.html";
+const IS_LIVE_MARKET_PAGE = MARKET_PAGE_NAME === "account-markets.html";
 
 function marketPriceDigits(number, compact = false) {
   if (compact) return 2;
@@ -297,14 +298,18 @@ function updateDashboard() {
   const liveAssets = allMarketAssets.filter((asset) => asset.price != null);
   const topMover = sortByMove(liveAssets)[0];
   const holdings = demoWallet?.holdings || [];
-  const openPositions = holdings.filter((asset) => !["USD", "AU", "CRYPTO", "STOCKS"].includes(asset.symbol) && Number(asset.valueUsd) > 0).length;
+  const openPositions = IS_LIVE_MARKET_PAGE
+    ? 0
+    : holdings.filter((asset) => !["USD", "AU", "CRYPTO", "STOCKS"].includes(asset.symbol) && Number(asset.valueUsd) > 0).length;
 
   document.getElementById("market-total-count").textContent = String(allMarketAssets.length || 0);
   document.getElementById("market-top-mover").textContent = topMover ? topMover.symbol : "Waiting";
   document.getElementById("market-top-mover-detail").textContent = topMover ? `${topMover.name} ${marketMove(topMover.changePct)}` : "Live percentage move";
   document.getElementById("market-open-positions").textContent = `${openPositions} positions`;
 
-  if (demoWallet) {
+  if (IS_LIVE_MARKET_PAGE) {
+    document.getElementById("market-buying-power").textContent = "$0.00";
+  } else if (demoWallet) {
     const sidebarBalance = new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: demoWallet.currency || "USD",
@@ -329,7 +334,7 @@ async function loadDemoMarkets(options = {}) {
   try {
     const [catalog, wallet] = await Promise.all([
       getJson("/api/markets/catalog?type=all"),
-      getJson("/api/demo/wallet").catch(() => null)
+      IS_LIVE_MARKET_PAGE ? Promise.resolve(null) : getJson("/api/demo/wallet").catch(() => null)
     ]);
 
     const nextAssets = catalog.assets || [];
@@ -380,6 +385,13 @@ document.addEventListener("click", (event) => {
   const watchButton = event.target.closest("[data-market-watch-symbol]");
   if (watchButton) {
     const symbol = watchButton.dataset.marketWatchSymbol;
+    if (IS_LIVE_MARKET_PAGE) {
+      document.querySelector(`[data-market-menu="${cssValue(symbol)}"]`)?.setAttribute("hidden", "");
+      document.querySelector(`[data-market-menu-symbol="${cssValue(symbol)}"]`)?.setAttribute("aria-expanded", "false");
+      showMarketToast("Live watchlist storage will connect after live account APIs are ready.", "flat");
+      return;
+    }
+
     watchButton.disabled = true;
     postJson("/api/demo/watchlist", { symbol })
       .then((data) => {
