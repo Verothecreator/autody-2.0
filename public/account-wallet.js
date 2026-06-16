@@ -513,6 +513,7 @@ function liveRenderDetail(asset) {
 
   const actions = document.getElementById("live-wallet-detail-actions");
   if (actions) {
+    actions.classList.toggle("wallet-action-grid-au", asset.symbol === "AU");
     actions.innerHTML = liveWalletActions(asset)
       .map(([label, href]) => href.startsWith("modal:")
         ? `<button type="button" data-live-wallet-transfer="${escapeLiveWalletHtml(href.replace("modal:", ""))}">${escapeLiveWalletHtml(label)}</button>`
