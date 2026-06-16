@@ -186,8 +186,14 @@ const defaultDemoDb = {
     },
     watchlists: {
         [PRACTICE_USER_ID]: {
-            crypto: ["BTC", "ETH", "SOL", "DOGE", "ADA", "AU"],
-            stocks: ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
+            demo: {
+                crypto: ["BTC", "ETH", "SOL", "DOGE", "ADA", "AU"],
+                stocks: ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
+            },
+            live: {
+                crypto: [],
+                stocks: []
+            }
         }
     },
     researchPreferences: {
@@ -227,12 +233,68 @@ function ensureDemoDb() {
 
 function loadDemoDb() {
     ensureDemoDb();
-    return JSON.parse(fs.readFileSync(DEMO_DB_STORE, "utf8"));
+    const data = JSON.parse(fs.readFileSync(DEMO_DB_STORE, "utf8"));
+    if (normalizeJsonWatchlists(data)) saveDemoDb(data);
+    return data;
 }
 
 function saveDemoDb(data) {
     ensureDemoDb();
     fs.writeFileSync(DEMO_DB_STORE, JSON.stringify(data, null, 2));
+}
+
+function defaultWatchlistForMode(mode = "demo") {
+    return mode === "live"
+        ? { crypto: [], stocks: [] }
+        : {
+            crypto: ["BTC", "ETH", "SOL", "DOGE", "ADA", "AU"],
+            stocks: ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
+        };
+}
+
+function normalizeWatchlistMode(mode = "demo") {
+    return mode === "live" ? "live" : "demo";
+}
+
+function normalizeJsonWatchlists(db) {
+    db.watchlists = db.watchlists || {};
+    const bucket = db.watchlists[PRACTICE_USER_ID];
+    let changed = false;
+
+    if (!bucket) {
+        db.watchlists[PRACTICE_USER_ID] = {
+            demo: defaultWatchlistForMode("demo"),
+            live: defaultWatchlistForMode("live")
+        };
+        return true;
+    }
+
+    if (Array.isArray(bucket.crypto) || Array.isArray(bucket.stocks)) {
+        db.watchlists[PRACTICE_USER_ID] = {
+            demo: {
+                crypto: Array.from(new Set(bucket.crypto || [])),
+                stocks: Array.from(new Set(bucket.stocks || []))
+            },
+            live: defaultWatchlistForMode("live")
+        };
+        return true;
+    }
+
+    ["demo", "live"].forEach((mode) => {
+        if (!bucket[mode]) {
+            bucket[mode] = defaultWatchlistForMode(mode);
+            changed = true;
+        }
+        bucket[mode].crypto = Array.from(new Set(bucket[mode].crypto || []));
+        bucket[mode].stocks = Array.from(new Set(bucket[mode].stocks || []));
+    });
+
+    return changed;
+}
+
+function jsonWatchlistForMode(db, mode = "demo") {
+    normalizeJsonWatchlists(db);
+    return db.watchlists[PRACTICE_USER_ID][normalizeWatchlistMode(mode)];
 }
 
 function publicUser(user) {
@@ -297,7 +359,7 @@ function getPracticeAccount() {
         user,
         wallet: db.wallets[PRACTICE_USER_ID],
         orders: db.orders[PRACTICE_USER_ID] || [],
-        watchlist: db.watchlists[PRACTICE_USER_ID],
+        watchlist: jsonWatchlistForMode(db, "demo"),
         researchPreferences: db.researchPreferences[PRACTICE_USER_ID] || [],
         performance: db.performance?.[PRACTICE_USER_ID],
         settings: db.settings?.[PRACTICE_USER_ID]
@@ -645,6 +707,7 @@ async function getPracticeAccountFromDatabase() {
             select symbol, asset_type
             from watchlists
             where profile_id = $1
+              and mode = 'demo'
             order by created_at asc
         `, [row.profile_id]),
         dbPool.query(`
@@ -678,11 +741,7 @@ async function getPracticeAccountFromDatabase() {
         status: "Available"
     };
     const nonCashHoldings = holdings.filter((holding) => holding.symbol !== "USD");
-    const watchlist = watchlistResult.rows.reduce((groups, item) => {
-        const key = item.asset_type === "stock" || item.asset_type === "etf" ? "stocks" : "crypto";
-        groups[key].push(item.symbol);
-        return groups;
-    }, { crypto: [], stocks: [] });
+    const watchlist = reduceWatchlistRows(watchlistResult.rows);
 
     const performanceRow = performanceResult.rows[0] || {};
     const settingsRow = settingsResult.rows[0] || {};
@@ -1024,6 +1083,44 @@ async function getPracticeDbContext(client = dbPool) {
 
     if (!result.rows[0]) throw demoTradeError(503, "Practice account is not ready yet.");
     return result.rows[0];
+}
+
+function reduceWatchlistRows(rows = []) {
+    return rows.reduce((groups, item) => {
+        const key = item.asset_type === "stock" || item.asset_type === "etf" || item.asset_type === "commodity" ? "stocks" : "crypto";
+        groups[key].push(item.symbol);
+        return groups;
+    }, { crypto: [], stocks: [] });
+}
+
+async function getDatabaseWatchlist(mode = "demo") {
+    const context = await getPracticeDbContext();
+    const result = await dbPool.query(`
+        select symbol, asset_type
+        from watchlists
+        where profile_id = $1
+          and mode = $2
+        order by created_at asc
+    `, [context.profile_id, normalizeWatchlistMode(mode)]);
+    return reduceWatchlistRows(result.rows);
+}
+
+async function getPracticeWatchlistAny(mode = "demo") {
+    const watchlistMode = normalizeWatchlistMode(mode);
+    if (databaseConfigured()) {
+        try {
+            return await withDbTimeout(
+                getDatabaseWatchlist(watchlistMode),
+                `Supabase ${watchlistMode} watchlist read`
+            );
+        } catch (err) {
+            console.error(`Supabase ${watchlistMode} watchlist read failed:`, err.message || err);
+            throw persistentDemoUnavailable(err);
+        }
+    }
+
+    const db = loadDemoDb();
+    return jsonWatchlistForMode(db, watchlistMode);
 }
 
 async function getPracticeAccountAfterDatabaseWrite(label) {
@@ -1463,76 +1560,108 @@ async function placeDemoOrder(body) {
     );
 }
 
-async function addDatabaseWatchlistSymbol(symbol) {
+async function addDatabaseWatchlistSymbol(symbol, mode = "demo") {
     const asset = await resolveWatchlistAsset(symbol);
     const context = await getPracticeDbContext();
+    const watchlistMode = normalizeWatchlistMode(mode);
     const result = await dbPool.query(`
-        insert into watchlists (profile_id, symbol, asset_type)
-        values ($1, $2, $3)
-        on conflict (profile_id, symbol) do nothing
+        insert into watchlists (profile_id, symbol, asset_type, mode)
+        values ($1, $2, $3, $4)
+        on conflict (profile_id, symbol, mode) do nothing
         returning symbol
-    `, [context.profile_id, asset.symbol, tradeAssetType(asset)]);
+    `, [context.profile_id, asset.symbol, tradeAssetType(asset), watchlistMode]);
+
+    const watchlist = await getDatabaseWatchlist(watchlistMode);
+    const account = await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist add`);
 
     return {
         asset,
-        account: await getPracticeAccountAfterDatabaseWrite("Supabase watchlist add"),
+        account: { ...account, watchlist },
+        watchlist,
         alreadySaved: !result.rows.length,
         source: "supabase"
     };
 }
 
-async function addJsonWatchlistSymbol(symbol) {
+async function addJsonWatchlistSymbol(symbol, mode = "demo") {
     const asset = await resolveWatchlistAsset(symbol);
     const db = loadDemoDb();
-    const watchlist = db.watchlists[PRACTICE_USER_ID] || { crypto: [], stocks: [] };
+    const watchlistMode = normalizeWatchlistMode(mode);
+    const watchlist = jsonWatchlistForMode(db, watchlistMode);
     const key = ["stock", "etf", "commodity"].includes(tradeAssetType(asset)) ? "stocks" : "crypto";
     const alreadySaved = (watchlist[key] || []).some((item) => normalizeTradeSymbol(item) === asset.symbol);
     watchlist[key] = Array.from(new Set([...(watchlist[key] || []), asset.symbol]));
-    db.watchlists[PRACTICE_USER_ID] = watchlist;
     saveDemoDb(db);
-    return { asset, account: getPracticeAccount(), alreadySaved, source: "json" };
+    return {
+        asset,
+        account: { ...getPracticeAccount(), watchlist },
+        watchlist,
+        alreadySaved,
+        source: "json"
+    };
 }
 
-async function addDemoWatchlistSymbol(symbol) {
+async function addWatchlistSymbol(symbol, mode = "demo") {
+    const watchlistMode = normalizeWatchlistMode(mode);
     return withDemoWriteFallback(
-        "Supabase watchlist add",
-        () => addDatabaseWatchlistSymbol(symbol),
-        () => addJsonWatchlistSymbol(symbol)
+        `Supabase ${watchlistMode} watchlist add`,
+        () => addDatabaseWatchlistSymbol(symbol, watchlistMode),
+        () => addJsonWatchlistSymbol(symbol, watchlistMode)
     );
 }
 
-async function removeDatabaseWatchlistSymbol(symbol) {
+async function addDemoWatchlistSymbol(symbol) {
+    return addWatchlistSymbol(symbol, "demo");
+}
+
+async function addLiveWatchlistSymbol(symbol) {
+    return addWatchlistSymbol(symbol, "live");
+}
+
+async function removeDatabaseWatchlistSymbol(symbol, mode = "demo") {
     const lookup = normalizeTradeSymbol(symbol);
     if (!lookup) throw demoTradeError(400, "Choose an asset first.");
 
     const context = await getPracticeDbContext();
+    const watchlistMode = normalizeWatchlistMode(mode);
     await dbPool.query(`
         delete from watchlists
         where profile_id = $1 and upper(symbol) = upper($2)
-    `, [context.profile_id, lookup]);
+          and mode = $3
+    `, [context.profile_id, lookup, watchlistMode]);
 
-    return { account: await getPracticeAccountAfterDatabaseWrite("Supabase watchlist remove"), source: "supabase" };
+    const watchlist = await getDatabaseWatchlist(watchlistMode);
+    const account = await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist remove`);
+    return { account: { ...account, watchlist }, watchlist, source: "supabase" };
 }
 
-async function removeJsonWatchlistSymbol(symbol) {
+async function removeJsonWatchlistSymbol(symbol, mode = "demo") {
     const lookup = normalizeTradeSymbol(symbol);
     if (!lookup) throw demoTradeError(400, "Choose an asset first.");
 
     const db = loadDemoDb();
-    const watchlist = db.watchlists[PRACTICE_USER_ID] || { crypto: [], stocks: [] };
+    const watchlist = jsonWatchlistForMode(db, normalizeWatchlistMode(mode));
     watchlist.crypto = (watchlist.crypto || []).filter((item) => normalizeTradeSymbol(item) !== lookup);
     watchlist.stocks = (watchlist.stocks || []).filter((item) => normalizeTradeSymbol(item) !== lookup);
-    db.watchlists[PRACTICE_USER_ID] = watchlist;
     saveDemoDb(db);
-    return { account: getPracticeAccount(), source: "json" };
+    return { account: { ...getPracticeAccount(), watchlist }, watchlist, source: "json" };
+}
+
+async function removeWatchlistSymbol(symbol, mode = "demo") {
+    const watchlistMode = normalizeWatchlistMode(mode);
+    return withDemoWriteFallback(
+        `Supabase ${watchlistMode} watchlist remove`,
+        () => removeDatabaseWatchlistSymbol(symbol, watchlistMode),
+        () => removeJsonWatchlistSymbol(symbol, watchlistMode)
+    );
 }
 
 async function removeDemoWatchlistSymbol(symbol) {
-    return withDemoWriteFallback(
-        "Supabase watchlist remove",
-        () => removeDatabaseWatchlistSymbol(symbol),
-        () => removeJsonWatchlistSymbol(symbol)
-    );
+    return removeWatchlistSymbol(symbol, "demo");
+}
+
+async function removeLiveWatchlistSymbol(symbol) {
+    return removeWatchlistSymbol(symbol, "live");
 }
 
 async function createDatabaseSession(profileId) {
@@ -4419,7 +4548,7 @@ app.post("/api/demo/watchlist", async (req, res) => {
     return res.json({
       success: true,
       asset: result.asset,
-      watchlist: result.account.watchlist,
+      watchlist: result.watchlist || result.account.watchlist,
       alreadySaved: Boolean(result.alreadySaved),
       source: result.source
     });
@@ -4435,7 +4564,7 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
     const result = await removeDemoWatchlistSymbol(symbol);
     return res.json({
       success: true,
-      watchlist: result.account.watchlist,
+      watchlist: result.watchlist || result.account.watchlist,
       source: result.source
     });
   } catch (err) {
@@ -4447,10 +4576,11 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
 app.get("/api/account/watchlist", async (req, res) => {
   try {
     const account = await getPracticeAccountAny();
+    const watchlist = await getPracticeWatchlistAny("live");
     return res.json({
       success: true,
       user: publicUser(account.user),
-      watchlist: account.watchlist,
+      watchlist,
       source: account.source
     });
   } catch (err) {
@@ -4462,11 +4592,11 @@ app.get("/api/account/watchlist", async (req, res) => {
 app.post("/api/account/watchlist", async (req, res) => {
   try {
     const body = parseJsonBody(req);
-    const result = await addDemoWatchlistSymbol(body.symbol);
+    const result = await addLiveWatchlistSymbol(body.symbol);
     return res.json({
       success: true,
       asset: result.asset,
-      watchlist: result.account.watchlist,
+      watchlist: result.watchlist || result.account.watchlist,
       alreadySaved: Boolean(result.alreadySaved),
       source: result.source
     });
@@ -4479,10 +4609,10 @@ app.post("/api/account/watchlist", async (req, res) => {
 app.delete("/api/account/watchlist/:symbol", async (req, res) => {
   try {
     const symbol = decodeURIComponent(req.params.symbol || "");
-    const result = await removeDemoWatchlistSymbol(symbol);
+    const result = await removeLiveWatchlistSymbol(symbol);
     return res.json({
       success: true,
-      watchlist: result.account.watchlist,
+      watchlist: result.watchlist || result.account.watchlist,
       source: result.source
     });
   } catch (err) {

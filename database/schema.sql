@@ -72,9 +72,39 @@ create table if not exists watchlists (
   profile_id uuid not null references profiles(id) on delete cascade,
   symbol text not null,
   asset_type text not null,
+  mode text not null default 'demo' check (mode in ('demo', 'live')),
   created_at timestamptz not null default now(),
-  unique (profile_id, symbol)
+  unique (profile_id, symbol, mode)
 );
+
+alter table watchlists
+add column if not exists mode text not null default 'demo';
+
+alter table watchlists
+drop constraint if exists watchlists_profile_id_symbol_key;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'watchlists_mode_check'
+      and conrelid = 'watchlists'::regclass
+  ) then
+    alter table watchlists
+    add constraint watchlists_mode_check check (mode in ('demo', 'live'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'watchlists_profile_id_symbol_mode_key'
+      and conrelid = 'watchlists'::regclass
+  ) then
+    alter table watchlists
+    add constraint watchlists_profile_id_symbol_mode_key unique (profile_id, symbol, mode);
+  end if;
+end $$;
 
 create table if not exists research_preferences (
   id uuid primary key default gen_random_uuid(),
@@ -390,8 +420,8 @@ on conflict (wallet_id, symbol) do nothing;
 with practice_profile as (
   select id from profiles where email = 'ontold7@gmail.com'
 )
-insert into watchlists (profile_id, symbol, asset_type)
-select id, symbol, asset_type
+insert into watchlists (profile_id, symbol, asset_type, mode)
+select id, symbol, asset_type, 'demo'
 from practice_profile
 cross join (
   values
@@ -408,7 +438,7 @@ cross join (
     ('TSLA', 'stock'),
     ('MSFT', 'stock')
 ) as seed_watchlist(symbol, asset_type)
-on conflict (profile_id, symbol) do nothing;
+on conflict (profile_id, symbol, mode) do nothing;
 
 with practice_profile as (
   select id from profiles where email = 'ontold7@gmail.com'

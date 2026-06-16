@@ -61,8 +61,14 @@
   },
   "watchlists": {
     "practice-user": {
-      "crypto": ["BTC", "ETH", "SOL", "DOGE", "ADA", "AU"],
-      "stocks": ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
+      "demo": {
+        "crypto": ["BTC", "ETH", "SOL", "DOGE", "ADA", "AU"],
+        "stocks": ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
+      },
+      "live": {
+        "crypto": [],
+        "stocks": []
+      }
     }
   },
   "researchPreferences": {
