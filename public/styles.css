@@ -1928,6 +1928,10 @@ a.asset-table-row {
   margin-bottom: 18px;
 }
 
+.live-wallet-tools {
+  margin-top: 18px;
+}
+
 .live-method-tabs {
   display: flex;
   flex-wrap: wrap;

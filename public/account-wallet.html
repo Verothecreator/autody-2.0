@@ -37,44 +37,99 @@
         <div>
           <p class="eyebrow">Live wallet</p>
           <h1>Wallet</h1>
-          <p class="app-subtitle">Fund with USD, receive crypto, preview sends, and track live balances when production custody is connected.</p>
+          <p class="app-subtitle">Track verified USD, AU, crypto, stocks, ETFs, and commodity balances once live deposits are connected.</p>
         </div>
         <div class="account-mode-stack">
-          <span class="status-pill">Live mode</span>
-          <strong>Funding pending</strong>
+          <span class="status-pill">Account balance</span>
+          <strong id="live-wallet-topbar">$0.00 USD</strong>
         </div>
       </header>
 
       <section class="account-kpi-grid">
         <div class="app-card mini-metric">
           <span class="muted-label">Available USD</span>
-          <strong>$0.00</strong>
-          <small>Card, ACH, and wire rails pending</small>
+          <strong id="live-wallet-cash">$0.00</strong>
+          <small>Waiting for the first verified deposit</small>
         </div>
         <div class="app-card mini-metric">
-          <span class="muted-label">Crypto balance</span>
-          <strong>$0.00</strong>
-          <small>Receive addresses ready</small>
+          <span class="muted-label">Account value</span>
+          <strong id="live-wallet-total">$0.00</strong>
+          <small>USD plus verified holdings</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Positions</span>
-          <strong>0</strong>
+          <strong id="live-wallet-positions">0</strong>
           <small>No live assets held yet</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Pending transfers</span>
-          <strong>0</strong>
+          <strong id="live-wallet-pending">0</strong>
           <small>No confirmations waiting</small>
         </div>
       </section>
 
       <section class="account-grid">
+        <div class="app-card holdings-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Balances</span>
+              <h2>Live holdings</h2>
+            </div>
+            <span class="status-pill">Empty account</span>
+          </div>
+          <div class="asset-table" id="live-wallet-holdings">
+            <div class="asset-table-row head">
+              <span>Asset</span>
+              <span>Balance</span>
+              <span>Value</span>
+              <span>Status</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="wallet-side-stack">
+          <div class="app-card wallet-detail-card">
+            <div class="card-heading">
+              <div class="wallet-detail-heading">
+                <span id="live-wallet-detail-icon" class="asset-token asset-logo asset-logo-large logo-fallback" data-symbol="USD"><b>USD</b></span>
+                <div>
+                  <span class="muted-label" id="live-wallet-detail-label">Selected balance</span>
+                  <h2 id="live-wallet-detail-title">USD Funds</h2>
+                </div>
+              </div>
+            </div>
+            <div class="wallet-detail-hero">
+              <strong id="live-wallet-detail-value">$0.00</strong>
+              <span id="live-wallet-detail-subtitle">Available after funding</span>
+            </div>
+            <div class="wallet-detail-list" id="live-wallet-detail-list"></div>
+            <div class="wallet-action-grid" id="live-wallet-detail-actions">
+              <a href="#live-funding">Add Funds</a>
+              <a href="#live-crypto">Receive Crypto</a>
+            </div>
+          </div>
+
+          <div class="app-card wallet-record-card">
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Records</span>
+                <h2>Wallet history</h2>
+              </div>
+            </div>
+            <div class="wallet-record-list" id="live-wallet-record-list">
+              <div class="wallet-empty-state">No live wallet records yet.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="account-grid live-wallet-tools">
         <div class="app-card live-funding-card wide-card" id="live-funding">
           <div class="card-heading">
             <div>
               <span class="muted-label">Funding</span>
               <h2>Add funds</h2>
-              <p class="card-intro">Choose how a live user would fund their account. These buttons prepare the flow only; no card, ACH, wire, or crypto payment is sent yet.</p>
+              <p class="card-intro">These flows prepare how users will fund a live account. No real card, ACH, wire, or crypto payment is sent yet.</p>
             </div>
           </div>
 
@@ -101,7 +156,7 @@
             </div>
             <div class="live-method-summary">
               <strong>Card funding provider pending</strong>
-              <span>When connected, this flow can collect card details through a regulated payment or onramp provider.</span>
+              <span>When connected, this opens a regulated checkout instead of storing card details on Autody.</span>
             </div>
             <button class="btn btn-full" type="button" data-live-message="Card funding is not connected yet. This button will open the provider checkout when we connect one.">Prepare Card Deposit</button>
           </div>
@@ -122,7 +177,7 @@
             </div>
             <div class="live-method-summary">
               <strong>ACH funding provider pending</strong>
-              <span>Users will connect a bank through a provider; Autody will credit the ledger only after settlement rules pass.</span>
+              <span>Users will connect a bank through a provider; Autody credits the ledger only after settlement rules pass.</span>
             </div>
             <button class="btn btn-full" type="button" data-live-message="ACH is not connected yet. This will become a bank-link flow after provider setup.">Prepare ACH Deposit</button>
           </div>
@@ -155,7 +210,7 @@
             <div>
               <span class="muted-label">Crypto wallet</span>
               <h2>Receive and send</h2>
-              <p class="card-intro">Crypto actions are shown for product design. Real deposits and withdrawals need custody rules, wallet monitoring, and security checks before launch.</p>
+              <p class="card-intro">Crypto actions are product previews until custody, wallet monitoring, approval rules, and security checks are connected.</p>
             </div>
           </div>
 
@@ -220,65 +275,12 @@
             </div>
           </div>
         </div>
-
-        <div class="app-card holdings-card wide-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Assets</span>
-              <h2>Live holdings</h2>
-            </div>
-            <span class="status-pill">Empty account</span>
-          </div>
-          <div class="asset-table live-holdings-table">
-            <div class="asset-table-row head">
-              <span>Asset</span>
-              <span>Balance</span>
-              <span>Value</span>
-              <span>Actions</span>
-            </div>
-            <div class="asset-table-row">
-              <span><i class="asset-dot cash"></i> USD Funds</span>
-              <span>$0.00</span>
-              <span>$0.00</span>
-              <span><button type="button" data-live-focus="funding">Deposit</button></span>
-            </div>
-            <div class="asset-table-row">
-              <span><i class="asset-dot au"></i> Autody AU</span>
-              <span>0 AU</span>
-              <span>$0.00</span>
-              <span><button type="button" data-live-message="Live AU trading will connect after production custody and market-maker rules are ready.">Manage</button></span>
-            </div>
-            <div class="asset-table-row">
-              <span><i class="asset-dot btc"></i> Crypto</span>
-              <span>0 assets</span>
-              <span>$0.00</span>
-              <span><button type="button" data-live-focus="crypto">Receive</button></span>
-            </div>
-            <div class="asset-table-row">
-              <span><i class="asset-dot stk"></i> Stocks</span>
-              <span>0 assets</span>
-              <span>$0.00</span>
-              <span><button type="button" data-live-message="Live stock trading will require brokerage rails before it can be enabled.">Trade</button></span>
-            </div>
-            <div class="asset-table-row">
-              <span><i class="asset-dot etf"></i> ETFs</span>
-              <span>0 assets</span>
-              <span>$0.00</span>
-              <span><button type="button" data-live-message="Live ETF trading will require brokerage rails before it can be enabled.">Trade</button></span>
-            </div>
-            <div class="asset-table-row">
-              <span><i class="asset-dot gold"></i> Oil and metals</span>
-              <span>0 assets</span>
-              <span>$0.00</span>
-              <span><button type="button" data-live-message="Live commodity exposure will require provider support before it can be enabled.">Trade</button></span>
-            </div>
-          </div>
-        </div>
       </section>
     </main>
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>
+  <script src="account-wallet.js"></script>
   <script src="live-account.js"></script>
 </body>
 </html>
