@@ -283,8 +283,8 @@ function renderResearchPlan(wallet = {}, watchSymbols = []) {
       text: positions
         ? `${holding?.symbol || "Top holding"} is the biggest current exposure. Check its story, chart, and recent movement before adding more.`
         : IS_LIVE_RESEARCH_PAGE ? "Review the market board, funding status, and current news before opening a real position." : "Pick a first demo asset after checking the market board and current news.",
-      action: positions ? "Open wallet" : "Explore markets",
-      href: positions ? RESEARCH_WALLET_PAGE : RESEARCH_MARKETS_PAGE
+      action: positions || IS_LIVE_RESEARCH_PAGE ? "Open wallet" : "Explore markets",
+      href: positions || IS_LIVE_RESEARCH_PAGE ? RESEARCH_WALLET_PAGE : RESEARCH_MARKETS_PAGE
     },
     {
       label: "Risk",
