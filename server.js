@@ -2506,6 +2506,53 @@ app.post("/webhook/transak", async (req, res) => {
 
 // ------------------ SERVE FRONTEND --------------------
 
+const NEWS_IMAGE_LIBRARY = {
+  Markets: [
+    "/news/image00003.jpeg",
+    "/news/image00005.jpeg",
+    "/news/image00006.jpeg",
+    "/news/image00008.jpeg",
+    "/news/image00015.jpeg",
+    "/news/image00017.jpeg",
+    "/news/image00019.jpeg"
+  ],
+  Stocks: [
+    "/news/image00003.jpeg",
+    "/news/image00006.jpeg",
+    "/news/image00008.jpeg",
+    "/news/image00017.jpeg",
+    "/news/image00019.jpeg"
+  ],
+  Economy: [
+    "/news/image00004.jpeg",
+    "/news/image00005.jpeg",
+    "/news/image00009.jpeg",
+    "/news/image00015.jpeg"
+  ],
+  Crypto: [
+    "/news/image00009.jpeg",
+    "/news/image00012.jpeg",
+    "/news/image00015.jpeg",
+    "/news/image00017.jpeg"
+  ],
+  Business: [
+    "/news/image00007.jpeg",
+    "/news/image00010.jpeg",
+    "/news/image00011.jpeg",
+    "/news/image00013.jpeg",
+    "/news/image00016.jpeg",
+    "/news/image00020.jpeg"
+  ]
+};
+
+const NEWS_BLOCKED_TERMS = [
+  /\bnigeria\b/i,
+  /\bnigerian\b/i,
+  /\blagos\b/i,
+  /\babuja\b/i,
+  /\bnaira\b/i
+];
+
 const fallbackNews = [
   {
     title: "Markets watch inflation, rates, and consumer strength for the next signal.",
@@ -2513,7 +2560,7 @@ const fallbackNews = [
     url: "#",
     subject: "Economy",
     summary: "A quick economy brief focused on the market signals that can affect stocks, crypto, and consumer confidence.",
-    image: "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80"
+    image: "/news/image00004.jpeg"
   },
   {
     title: "Crypto traders keep liquidity, wallet activity, and risk appetite in focus.",
@@ -2521,7 +2568,7 @@ const fallbackNews = [
     url: "#",
     subject: "Crypto",
     summary: "A quick crypto brief focused on the conditions that can affect digital assets and wallet decisions.",
-    image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80"
+    image: "/news/image00009.jpeg"
   },
   {
     title: "Stocks react to earnings guidance, AI spending, and global demand.",
@@ -2529,7 +2576,7 @@ const fallbackNews = [
     url: "#",
     subject: "Business",
     summary: "A quick business brief focused on company news and market pressure that can shape account decisions.",
-    image: "https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=80"
+    image: "/news/image00013.jpeg"
   }
 ];
 
@@ -3708,27 +3755,61 @@ function isCompetitorPromo(article) {
   return competitorNames.test(text) && promoTerms.test(text);
 }
 
+function isBlockedNewsRegion(article = {}) {
+  const text = [
+    article.title,
+    article.source,
+    article.summary,
+    article.subject,
+    article.url
+  ].filter(Boolean).join(" ");
+  return NEWS_BLOCKED_TERMS.some((pattern) => pattern.test(text));
+}
+
+function stableNewsImageIndex(seed = "", length = 1) {
+  if (!length) return 0;
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = ((hash * 31) + seed.charCodeAt(index)) >>> 0;
+  }
+  return hash % length;
+}
+
+function newsImageSubject(article = {}) {
+  const subject = String(article.subject || inferNewsSubject(article.title, "Markets") || "Markets").toLowerCase();
+  const text = `${subject} ${article.title || ""} ${article.summary || ""}`.toLowerCase();
+  if (/(bitcoin|crypto|ethereum|token|blockchain|stablecoin|wallet)/.test(text)) return "Crypto";
+  if (/(stock|stocks|shares|nasdaq|s&p|dow|earnings|nvidia|apple|tesla|market)/.test(text)) return "Stocks";
+  if (/(inflation|fed|rates|jobs|economy|tariff|gdp|dollar|treasury|central bank)/.test(text)) return "Economy";
+  if (/(company|business|ceo|startup|profit|revenue|deal|merger|partnership|enterprise)/.test(text)) return "Business";
+  return "Markets";
+}
+
+function curatedNewsImage(article = {}) {
+  const bucket = newsImageSubject(article);
+  const pool = NEWS_IMAGE_LIBRARY[bucket] || NEWS_IMAGE_LIBRARY.Markets;
+  const seed = `${article.title || ""}|${article.source || ""}|${bucket}`;
+  return pool[stableNewsImageIndex(seed, pool.length)];
+}
+
 function subjectImage(subject = "Markets") {
-  const key = subject.toLowerCase();
-  if (key.includes("crypto")) return "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80";
-  if (key.includes("stock")) return "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80";
-  if (key.includes("business")) return "https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=80";
-  if (key.includes("economy")) return "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80";
-  return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=80";
+  return curatedNewsImage({ subject });
 }
 
 function ensureArticleImage(article) {
+  const subject = article.subject || inferNewsSubject(article.title, "Markets");
+  const normalizedArticle = { ...article, subject };
   return {
-    ...article,
-    image: article.image || subjectImage(article.subject),
-    summary: article.summary || "Open the source for the full story and market context."
+    ...normalizedArticle,
+    image: curatedNewsImage(normalizedArticle) || article.image || subjectImage(subject),
+    summary: normalizedArticle.summary || "Open the source for the full story and market context."
   };
 }
 
 function uniqueArticles(articles) {
   const seen = new Set();
   return articles.filter((article) => {
-    if (isCompetitorPromo(article)) return false;
+    if (isCompetitorPromo(article) || isBlockedNewsRegion(article)) return false;
     const key = (article.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 90);
     if (!key || seen.has(key)) return false;
     seen.add(key);
@@ -4024,7 +4105,10 @@ async function fetchNewsData() {
     };
   } catch (err) {
     console.error("News proxy error:", err);
-    const cachedArticles = await readLatestNewsSnapshots(9);
+    const cachedArticles = (await readLatestNewsSnapshots(30))
+      .filter((article) => !isBlockedNewsRegion(article))
+      .slice(0, 9)
+      .map(ensureArticleImage);
     if (cachedArticles.length) {
       return { success: true, provider: "supabase-cache", cached: true, articles: cachedArticles };
     }
@@ -4304,7 +4388,21 @@ app.get("/api/news/snapshots", async (req, res) => {
         limit $1
       `, [limit]);
 
-    return res.json({ success: true, configured: true, articles: result.rows });
+    const articles = result.rows
+      .map((row) => ({
+        title: row.title,
+        source: row.source,
+        subject: row.subject,
+        image: row.image,
+        url: row.url,
+        publishedAt: row.published_at,
+        capturedAt: row.captured_at,
+        provider: row.provider
+      }))
+      .filter((article) => !isBlockedNewsRegion(article))
+      .map(ensureArticleImage);
+
+    return res.json({ success: true, configured: true, articles });
   } catch (err) {
     console.error("News snapshot read failed:", err);
     return res.status(500).json({ success: false, error: "News snapshots unavailable" });
