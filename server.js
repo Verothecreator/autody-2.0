@@ -345,6 +345,10 @@ function signUpError(statusCode, message) {
     return err;
 }
 
+function truthyFormValue(value) {
+    return value === true || value === "true" || value === "on" || value === 1 || value === "1";
+}
+
 function passwordValidationMessage(password = "") {
     const value = String(password || "");
     if (value.length < 8) return "Password must be at least 8 characters.";
@@ -378,9 +382,9 @@ function parseSignUpPayload(body = {}) {
     const dateOfBirth = String(body.dateOfBirth || "").trim();
     const accountType = "personal";
     const password = String(body.password || "");
-    const truthy = (value) => value === true || value === "true" || value === "on" || value === 1 || value === "1";
-    const acceptedAccuracy = truthy(body.acceptedAccuracy ?? body.acceptedTerms);
-    const acceptedServiceTerms = truthy(body.acceptedServiceTerms ?? body.termsAccepted);
+    const acceptedAccuracy = truthyFormValue(body.acceptedAccuracy ?? body.acceptedTerms);
+    const acceptedServiceTerms = truthyFormValue(body.acceptedServiceTerms ?? body.termsAccepted);
+    const humanCheck = truthyFormValue(body.humanCheck);
     const acceptedAt = new Date().toISOString();
 
     if (firstName.length < 1 || lastName.length < 1) throw signUpError(400, "Enter your first and last name.");
@@ -394,6 +398,7 @@ function parseSignUpPayload(body = {}) {
     if (passwordMessage) throw signUpError(400, passwordMessage);
     if (!acceptedAccuracy) throw signUpError(400, "Confirm that the account information is accurate.");
     if (!acceptedServiceTerms) throw signUpError(400, "Read and accept the Terms of Service.");
+    if (!humanCheck) throw signUpError(400, "Confirm that you are not a robot.");
 
     return {
         firstName,
@@ -5052,6 +5057,12 @@ app.post("/api/auth/sign-in", async (req, res) => {
     const body = parseJsonBody(req);
     const email = normalizeEmail(body.email);
     const password = String(body.password || "");
+    if (!truthyFormValue(body.humanCheck)) {
+      return res.status(400).json({
+        success: false,
+        error: "Confirm that you are not a robot."
+      });
+    }
     const databaseSignIn = await signInFromDatabase(email, password).catch((err) => {
       console.error("Supabase sign in failed, using JSON fallback:", err);
       return null;

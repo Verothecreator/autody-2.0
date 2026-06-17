@@ -21,8 +21,14 @@ signInForm?.addEventListener("submit", async (event) => {
   const form = new FormData(signInForm);
   const payload = {
     email: form.get("email"),
-    password: form.get("password")
+    password: form.get("password"),
+    humanCheck: form.get("humanCheck") === "on"
   };
+
+  if (!payload.humanCheck) {
+    setError("Confirm that you are not a robot.");
+    return;
+  }
 
   if (signInButton) {
     signInButton.disabled = true;
