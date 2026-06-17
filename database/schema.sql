@@ -16,6 +16,39 @@ create table if not exists profile_credentials (
   password_updated_at timestamptz not null default now()
 );
 
+create table if not exists profile_verifications (
+  profile_id uuid primary key references profiles(id) on delete cascade,
+  legal_name text not null,
+  phone text not null,
+  country text not null,
+  date_of_birth date not null,
+  account_type text not null default 'personal',
+  email_status text not null default 'pending',
+  phone_status text not null default 'pending',
+  identity_status text not null default 'pending',
+  risk_status text not null default 'pending',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists verification_codes (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references profiles(id) on delete cascade,
+  channel text not null check (channel in ('email', 'phone')),
+  destination text not null,
+  purpose text not null default 'sign_up',
+  code_salt text not null,
+  code_hash text not null,
+  status text not null default 'pending',
+  attempts integer not null default 0,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  verified_at timestamptz
+);
+
+create index if not exists verification_codes_profile_status_idx
+  on verification_codes (profile_id, channel, status, created_at desc);
+
 create table if not exists account_modes (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references profiles(id) on delete cascade,

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody | Create Account</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main navigation">
+      <a href="index.html" class="brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div class="nav-actions">
+        <a href="sign-in.html" class="btn btn-ghost">Sign In</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="auth-shell auth-shell-wide">
+    <section class="auth-panel">
+      <div class="auth-copy">
+        <p class="eyebrow">Create account</p>
+        <h1>Open your Autody account</h1>
+        <p>Start with a live account shell, a demo wallet, and verification records ready for email, phone, and identity checks.</p>
+      </div>
+
+      <form class="auth-form auth-form-wide" id="sign-up-form">
+        <div class="auth-form-grid">
+          <label>
+            Legal name
+            <input name="legalName" type="text" autocomplete="name" placeholder="Full legal name" required />
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+          </label>
+          <label>
+            Phone number
+            <input name="phone" type="tel" autocomplete="tel" placeholder="+1 555 000 0000" required />
+          </label>
+          <label>
+            Country of residence
+            <input name="country" type="text" autocomplete="country-name" placeholder="United States" required />
+          </label>
+          <label>
+            Date of birth
+            <input name="dateOfBirth" type="date" autocomplete="bday" required />
+          </label>
+          <label>
+            Account type
+            <select name="accountType">
+              <option value="personal">Personal</option>
+              <option value="business">Business</option>
+            </select>
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autocomplete="new-password" required />
+          </label>
+          <label>
+            Confirm password
+            <input name="confirmPassword" type="password" autocomplete="new-password" required />
+          </label>
+        </div>
+
+        <label class="auth-check">
+          <input name="acceptedTerms" type="checkbox" required />
+          <span>I confirm this information is accurate and can be used for Autody account verification.</span>
+        </label>
+
+        <p class="auth-error" id="sign-up-error" role="alert" hidden></p>
+        <p class="auth-success" id="sign-up-success" role="status" hidden></p>
+        <button class="btn btn-large" id="sign-up-button" type="submit">Create Account</button>
+      </form>
+    </section>
+
+    <aside class="auth-side-panel">
+      <span class="status-pill">Verification setup</span>
+      <h2>Account checks</h2>
+      <p>Autody will own the account records, hashed passwords, sessions, verification status, and code history in its database.</p>
+      <div class="auth-checklist">
+        <div><span>Email code</span><strong>Prepared</strong></div>
+        <div><span>Phone code</span><strong>Prepared</strong></div>
+        <div><span>Identity review</span><strong>Pending</strong></div>
+        <div><span>Demo wallet</span><strong>$50,000 USD</strong></div>
+        <div><span>Live wallet</span><strong>$0 USD</strong></div>
+      </div>
+      <a href="sign-in.html" class="auth-inline-link">Already have an account?</a>
+    </aside>
+  </main>
+
+  <script src="sign-up.js"></script>
+</body>
+</html>

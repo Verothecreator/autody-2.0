@@ -298,7 +298,14 @@ function jsonWatchlistForMode(db, mode = "demo") {
 }
 
 function publicUser(user) {
-    const { auth, ...safeUser } = user;
+    const { auth, verification, ...safeUser } = user;
+    if (verification) {
+        safeUser.verification = {
+            email: verification.emailStatus || verification.email || "pending",
+            phone: verification.phoneStatus || verification.phone || "pending",
+            identity: verification.identityStatus || verification.identity || "pending"
+        };
+    }
     return safeUser;
 }
 
@@ -321,6 +328,88 @@ function verifyPassword(password, auth) {
     const expected = Buffer.from(auth.passwordHash, "hex");
     const actual = Buffer.from(hashPassword(password, auth.passwordSalt), "hex");
     return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function normalizePhone(phone = "") {
+    return String(phone || "").trim().replace(/[^\d+]/g, "");
+}
+
+function normalizeText(value = "") {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function signUpError(statusCode, message) {
+    const err = new Error(message);
+    err.statusCode = statusCode;
+    return err;
+}
+
+function passwordValidationMessage(password = "") {
+    const value = String(password || "");
+    if (value.length < 8) return "Password must be at least 8 characters.";
+    if (!/[A-Z]/.test(value)) return "Password must include an uppercase letter.";
+    if (!/[a-z]/.test(value)) return "Password must include a lowercase letter.";
+    if (!/\d/.test(value)) return "Password must include a number.";
+    return "";
+}
+
+function isAdultDate(dateOfBirth = "") {
+    const parsed = Date.parse(dateOfBirth);
+    if (!Number.isFinite(parsed)) return false;
+    const birthday = new Date(parsed);
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - 18);
+    return birthday <= cutoff;
+}
+
+function parseSignUpPayload(body = {}) {
+    const legalName = normalizeText(body.legalName || body.name);
+    const displayName = normalizeText(body.displayName || legalName);
+    const email = normalizeEmail(body.email);
+    const phone = normalizePhone(body.phone);
+    const country = normalizeText(body.country);
+    const dateOfBirth = String(body.dateOfBirth || "").trim();
+    const accountType = normalizeText(body.accountType || "personal").toLowerCase() === "business" ? "business" : "personal";
+    const password = String(body.password || "");
+    const acceptedTerms = Boolean(body.acceptedTerms);
+
+    if (legalName.length < 2) throw signUpError(400, "Enter your legal name.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw signUpError(400, "Enter a valid email address.");
+    if (phone.replace(/\D/g, "").length < 7) throw signUpError(400, "Enter a valid phone number.");
+    if (country.length < 2) throw signUpError(400, "Enter your country of residence.");
+    if (!isAdultDate(dateOfBirth)) throw signUpError(400, "Autody accounts require a valid date of birth for an adult user.");
+
+    const passwordMessage = passwordValidationMessage(password);
+    if (passwordMessage) throw signUpError(400, passwordMessage);
+    if (!acceptedTerms) throw signUpError(400, "Confirm that the account information is accurate.");
+
+    return {
+        legalName,
+        displayName,
+        email,
+        phone,
+        country,
+        dateOfBirth,
+        accountType,
+        password
+    };
+}
+
+function verificationCodeHash(code, salt) {
+    return crypto.createHash("sha256").update(`${salt}:${code}`).digest("hex");
+}
+
+function createVerificationCodeRecord(channel, destination) {
+    const code = String(crypto.randomInt(100000, 1000000));
+    const salt = crypto.randomBytes(16).toString("hex");
+    return {
+        channel,
+        destination,
+        code,
+        salt,
+        hash: verificationCodeHash(code, salt),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 10).toISOString()
+    };
 }
 
 function createDemoSession(db, userId) {
@@ -1731,18 +1820,18 @@ async function removeLiveWatchlistSymbol(symbol) {
     return removeWatchlistSymbol(symbol, "live");
 }
 
-async function createDatabaseSession(profileId) {
+async function createDatabaseSessionWithClient(client, profileId) {
     const token = crypto.randomBytes(32).toString("hex");
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 8);
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
-    await dbPool.query(`
+    await client.query(`
         delete from app_sessions
         where profile_id = $1 or expires_at <= now()
     `, [profileId]);
 
-    await dbPool.query(`
+    await client.query(`
         insert into app_sessions (profile_id, token_hash, created_at, expires_at)
         values ($1, $2, $3, $4)
     `, [profileId, tokenHash, now.toISOString(), expiresAt.toISOString()]);
@@ -1751,6 +1840,301 @@ async function createDatabaseSession(profileId) {
         token,
         userId: profileId,
         expiresAt: expiresAt.toISOString()
+    };
+}
+
+async function createDatabaseSession(profileId) {
+    return createDatabaseSessionWithClient(dbPool, profileId);
+}
+
+async function ensureSignUpTables(client = dbPool) {
+    await client.query(`
+        create table if not exists profile_verifications (
+          profile_id uuid primary key references profiles(id) on delete cascade,
+          legal_name text not null,
+          phone text not null,
+          country text not null,
+          date_of_birth date not null,
+          account_type text not null default 'personal',
+          email_status text not null default 'pending',
+          phone_status text not null default 'pending',
+          identity_status text not null default 'pending',
+          risk_status text not null default 'pending',
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        );
+
+        create table if not exists verification_codes (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references profiles(id) on delete cascade,
+          channel text not null check (channel in ('email', 'phone')),
+          destination text not null,
+          purpose text not null default 'sign_up',
+          code_salt text not null,
+          code_hash text not null,
+          status text not null default 'pending',
+          attempts integer not null default 0,
+          created_at timestamptz not null default now(),
+          expires_at timestamptz not null,
+          verified_at timestamptz
+        );
+
+        create index if not exists verification_codes_profile_status_idx
+          on verification_codes (profile_id, channel, status, created_at desc);
+    `);
+}
+
+async function seedAccountWallet(client, profileId, mode, startingBalance) {
+    const modeResult = await client.query(`
+        insert into account_modes (profile_id, mode, status)
+        values ($1, $2, 'active')
+        on conflict (profile_id, mode) do update set status = 'active'
+        returning id
+    `, [profileId, mode]);
+    const accountModeId = modeResult.rows[0].id;
+
+    const walletResult = await client.query(`
+        insert into wallets (account_mode_id, currency, cash_balance, reserved_cash, starting_balance)
+        values ($1, 'USD', $2, 0, $2)
+        on conflict (account_mode_id) do update
+        set currency = excluded.currency,
+            updated_at = now()
+        returning id
+    `, [accountModeId, startingBalance]);
+    const walletId = walletResult.rows[0].id;
+
+    const seedHoldings = [
+        ["USD", mode === "demo" ? "USD Cash" : "USD Funds", "cash", startingBalance, startingBalance],
+        ["AU", "Autody AU", "currency", 0, 0],
+        ["CRYPTO", "Crypto", "crypto", 0, 0],
+        ["STOCKS", "Stocks", "stock", 0, 0],
+        ["ETFS", "ETFs", "etf", 0, 0],
+        ["OILMETALS", "Oil and metals", "commodity", 0, 0]
+    ];
+
+    for (const [symbol, assetName, assetType, quantity, valueUsd] of seedHoldings) {
+        await client.query(`
+            insert into holdings (wallet_id, symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at)
+            values ($1, $2, $3, $4, $5, case when $2 = 'USD' then 1 else null end, case when $2 = 'USD' then 1 else null end, $6, now())
+            on conflict (wallet_id, symbol) do nothing
+        `, [walletId, symbol, assetName, assetType, quantity, valueUsd]);
+    }
+
+    return { accountModeId, walletId };
+}
+
+async function createDatabaseAccount(signUp) {
+    if (!databaseConfigured()) return null;
+
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        await ensureSignUpTables(client);
+
+        const existing = await client.query(`
+            select id from profiles where lower(email) = lower($1) limit 1
+        `, [signUp.email]);
+        if (existing.rows[0]) throw signUpError(409, "An Autody account already exists for this email.");
+
+        const profileResult = await client.query(`
+            insert into profiles (email, display_name)
+            values ($1, $2)
+            returning id, email, display_name, created_at
+        `, [signUp.email, signUp.displayName]);
+        const profile = profileResult.rows[0];
+
+        const passwordSalt = crypto.randomBytes(16).toString("hex");
+        await client.query(`
+            insert into profile_credentials (profile_id, password_algorithm, password_salt, password_hash)
+            values ($1, 'scrypt', $2, $3)
+        `, [profile.id, passwordSalt, hashPassword(signUp.password, passwordSalt)]);
+
+        await client.query(`
+            insert into profile_verifications (
+              profile_id, legal_name, phone, country, date_of_birth, account_type,
+              email_status, phone_status, identity_status, risk_status
+            )
+            values ($1, $2, $3, $4, $5, $6, 'pending', 'pending', 'pending', 'pending')
+        `, [profile.id, signUp.legalName, signUp.phone, signUp.country, signUp.dateOfBirth, signUp.accountType]);
+
+        const verificationCodes = [
+            createVerificationCodeRecord("email", signUp.email),
+            createVerificationCodeRecord("phone", signUp.phone)
+        ];
+        for (const item of verificationCodes) {
+            await client.query(`
+                insert into verification_codes (profile_id, channel, destination, purpose, code_salt, code_hash, expires_at)
+                values ($1, $2, $3, 'sign_up', $4, $5, $6)
+            `, [profile.id, item.channel, item.destination, item.salt, item.hash, item.expiresAt]);
+        }
+
+        await client.query(`
+            insert into account_settings (profile_id, default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts)
+            values ($1, 'live', 'USD', 'standard', true, true, true)
+            on conflict (profile_id) do nothing
+        `, [profile.id]);
+
+        const demoAccount = await seedAccountWallet(client, profile.id, "demo", 50000);
+        await seedAccountWallet(client, profile.id, "live", 0);
+
+        await client.query(`
+            insert into demo_performance (account_mode_id, portfolio_value, starting_balance)
+            values ($1, 50000, 50000)
+            on conflict (account_mode_id) do nothing
+        `, [demoAccount.accountModeId]);
+
+        for (const topic of ["Crypto", "Stocks", "Gold", "Rates", "Inflation", "AU utility"]) {
+            await client.query(`
+                insert into research_preferences (profile_id, topic)
+                values ($1, $2)
+                on conflict (profile_id, topic) do nothing
+            `, [profile.id, topic]);
+        }
+
+        const session = await createDatabaseSessionWithClient(client, profile.id);
+        await client.query("commit");
+
+        console.log("Autody verification codes created for", signUp.email, verificationCodes.map((item) => `${item.channel}:${item.code}`).join(" "));
+
+        return {
+            user: {
+                id: profile.id,
+                name: profile.display_name,
+                email: profile.email,
+                mode: "live",
+                currency: "USD",
+                createdAt: profile.created_at,
+                verification: {
+                    email: "pending",
+                    phone: "pending",
+                    identity: "pending"
+                }
+            },
+            session,
+            source: "supabase"
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+function createJsonAccount(signUp) {
+    const db = loadDemoDb();
+    const existing = (db.users || []).find((user) => normalizeEmail(user.email) === signUp.email);
+    if (existing) throw signUpError(409, "An Autody account already exists for this email.");
+
+    const userId = crypto.randomUUID();
+    const passwordSalt = crypto.randomBytes(16).toString("hex");
+    const now = new Date().toISOString();
+    const user = {
+        id: userId,
+        name: signUp.displayName,
+        email: signUp.email,
+        mode: "live",
+        currency: "USD",
+        startingBalance: 50000,
+        cashBalance: 0,
+        reservedCash: 0,
+        createdAt: now,
+        auth: {
+            passwordAlgorithm: "scrypt",
+            passwordSalt,
+            passwordHash: hashPassword(signUp.password, passwordSalt),
+            passwordUpdatedAt: now
+        },
+        verification: {
+            legalName: signUp.legalName,
+            phone: signUp.phone,
+            country: signUp.country,
+            dateOfBirth: signUp.dateOfBirth,
+            accountType: signUp.accountType,
+            emailStatus: "pending",
+            phoneStatus: "pending",
+            identityStatus: "pending"
+        }
+    };
+
+    db.users = db.users || [];
+    db.users.push(user);
+    db.wallets = db.wallets || {};
+    db.wallets[userId] = {
+        cash: {
+            symbol: "USD",
+            name: "USD Cash",
+            balance: 50000,
+            valueUsd: 50000,
+            status: "Available"
+        },
+        liveCash: {
+            symbol: "USD",
+            name: "USD Funds",
+            balance: 0,
+            valueUsd: 0,
+            status: "Awaiting deposit"
+        },
+        holdings: [
+            { symbol: "AU", name: "Autody AU", category: "currency", balance: 0, valueUsd: 0, status: "Not held" },
+            { symbol: "CRYPTO", name: "Crypto", category: "crypto", balance: 0, valueUsd: 0, status: "Ready" },
+            { symbol: "STOCKS", name: "Stocks", category: "stocks", balance: 0, valueUsd: 0, status: "Ready" },
+            { symbol: "ETFS", name: "ETFs", category: "etf", balance: 0, valueUsd: 0, status: "Ready" },
+            { symbol: "OILMETALS", name: "Oil and metals", category: "commodity", balance: 0, valueUsd: 0, status: "Ready" }
+        ]
+    };
+    db.orders = db.orders || {};
+    db.orders[userId] = [];
+    db.watchlists = db.watchlists || {};
+    db.watchlists[userId] = {
+        demo: defaultWatchlistForMode("demo"),
+        live: defaultWatchlistForMode("live")
+    };
+    db.researchPreferences = db.researchPreferences || {};
+    db.researchPreferences[userId] = ["Crypto", "Stocks", "Gold", "Rates", "Inflation", "AU utility"];
+    db.performance = db.performance || {};
+    db.performance[userId] = {
+        portfolioValue: 50000,
+        startingBalance: 50000,
+        unrealizedProfitLoss: 0,
+        realizedProfitLoss: 0,
+        todayProfitLoss: 0,
+        todayProfitLossPct: 0,
+        winRatePct: 0,
+        tradesPlaced: 0
+    };
+    db.settings = db.settings || {};
+    db.settings[userId] = {
+        defaultMode: "live",
+        currency: "USD",
+        riskLevel: "standard",
+        orderConfirmation: true,
+        marketAlerts: true,
+        newsAlerts: true
+    };
+
+    const verificationCodes = [
+        createVerificationCodeRecord("email", signUp.email),
+        createVerificationCodeRecord("phone", signUp.phone)
+    ];
+    db.verificationCodes = db.verificationCodes || {};
+    db.verificationCodes[userId] = verificationCodes.map((item) => ({
+        channel: item.channel,
+        destination: item.destination,
+        salt: item.salt,
+        hash: item.hash,
+        expiresAt: item.expiresAt,
+        status: "pending",
+        createdAt: now
+    }));
+
+    const session = createDemoSession(db, userId);
+    console.log("Autody local verification codes created for", signUp.email, verificationCodes.map((item) => `${item.channel}:${item.code}`).join(" "));
+
+    return {
+        user: publicUser(user),
+        session,
+        source: "json"
     };
 }
 
@@ -4575,6 +4959,45 @@ app.get("/api/markets/signals", async (req, res) => {
 
 app.get("/api/news", async (req, res) => {
   return res.json(await fetchNewsData());
+});
+
+app.post("/api/auth/sign-up", async (req, res) => {
+  try {
+    const signUp = parseSignUpPayload(parseJsonBody(req));
+    let created = null;
+
+    if (databaseConfigured()) {
+      created = await createDatabaseAccount(signUp).catch((err) => {
+        if (err.statusCode) throw err;
+        console.error("Supabase sign up failed, using JSON fallback:", err);
+        return null;
+      });
+    }
+
+    if (!created) {
+      created = createJsonAccount(signUp);
+    }
+
+    return res.status(201).json({
+      success: true,
+      user: created.user,
+      session: created.session,
+      next: "account.html",
+      verification: {
+        email: "pending",
+        phone: "pending",
+        identity: "pending",
+        delivery: "Codes are generated and stored. Delivery provider connection comes next."
+      },
+      source: created.source || "json"
+    });
+  } catch (err) {
+    console.error("Sign up error:", err);
+    return res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.statusCode ? err.message : "Sign up unavailable"
+    });
+  }
 });
 
 app.post("/api/auth/sign-in", async (req, res) => {
