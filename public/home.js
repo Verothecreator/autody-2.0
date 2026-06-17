@@ -1,6 +1,14 @@
 let newsItems = [];
 let activeNewsIndex = 0;
 let newsSlideTimer = null;
+let marketRefreshTimer = null;
+let newsRefreshTimer = null;
+
+const HOME_MARKET_REFRESH_MS = 10000;
+const HOME_NEWS_REFRESH_MS = 1800000;
+const HOME_CRYPTO_SYMBOLS = ["BTC", "ETH", "BCH", "SOL", "BNB", "XRP"];
+const HOME_STOCK_SYMBOLS = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"];
+const HOME_STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD", "USDE", "USD1", "USDD", "FRAX"]);
 
 function priceDigits(number, compact = false) {
   if (compact) return 2;
@@ -50,9 +58,38 @@ function escapeHtml(value = "") {
 }
 
 async function getJson(url) {
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`${url} returned ${response.status}`);
   return response.json();
+}
+
+function normalizeSymbol(value = "") {
+  return String(value || "").trim().toUpperCase();
+}
+
+function orderedAssetsFromCatalog(catalog = [], symbols = []) {
+  const bySymbol = new Map(
+    catalog
+      .filter(Boolean)
+      .map((asset) => [normalizeSymbol(asset.symbol), asset])
+  );
+
+  return symbols
+    .map((symbol) => bySymbol.get(normalizeSymbol(symbol)))
+    .filter(Boolean);
+}
+
+function fillAssetsFromCatalog(selected = [], catalog = [], predicate = () => true, limit = 6) {
+  const used = new Set(selected.map((asset) => normalizeSymbol(asset.symbol)));
+  const extra = catalog
+    .filter((asset) => asset?.symbol && !used.has(normalizeSymbol(asset.symbol)))
+    .filter(predicate)
+    .slice(0, Math.max(0, limit - selected.length));
+  return [...selected, ...extra].slice(0, limit);
+}
+
+function firstCatalogMatch(catalog = [], symbols = []) {
+  return orderedAssetsFromCatalog(catalog, symbols)[0] || null;
 }
 
 function renderMarketList(targetId, assets, options = {}) {
@@ -76,14 +113,14 @@ function renderMarketList(targetId, assets, options = {}) {
   }).join("");
 }
 
-function renderHeroPulse(cryptoAssets, stockAssets, signals = {}) {
+function renderHeroPulse(cryptoAssets, stockAssets, signals = {}, catalog = []) {
   const target = document.getElementById("hero-market-grid");
   const status = document.getElementById("market-status");
   if (!target) return;
 
-  const btc = cryptoAssets.find((asset) => asset.id === "bitcoin") || cryptoAssets[0];
-  const spy = stockAssets.find((asset) => String(asset.symbol).toLowerCase().includes("spy")) || stockAssets[0];
-  const gold = signals.gold;
+  const btc = firstCatalogMatch(cryptoAssets, ["BTC"]) || cryptoAssets[0];
+  const spy = firstCatalogMatch(stockAssets, ["SPY", "VOO", "IVV"]) || stockAssets[0];
+  const gold = firstCatalogMatch(catalog, ["GLD", "GC=F"]) || signals.gold;
   const economy = signals.economy;
 
   target.innerHTML = `
@@ -167,28 +204,34 @@ function renderNews(articles) {
 async function loadMarketData() {
   const status = document.getElementById("market-status");
 
-  const [cryptoResult, stocksResult, signalsResult] = await Promise.allSettled([
-    getJson("/api/markets/crypto"),
-    getJson("/api/markets/stocks"),
+  const [catalogResult, signalsResult] = await Promise.allSettled([
+    getJson("/api/markets/catalog?type=all"),
     getJson("/api/markets/signals")
   ]);
 
-  const crypto = cryptoResult.status === "fulfilled" ? cryptoResult.value : { assets: [] };
-  const stocks = stocksResult.status === "fulfilled" ? stocksResult.value : { assets: [] };
+  const catalogData = catalogResult.status === "fulfilled" ? catalogResult.value : { assets: [] };
   const signals = signalsResult.status === "fulfilled" ? signalsResult.value : {};
+  const catalog = catalogData.assets || [];
 
-  const cryptoAssets = crypto.assets || [];
-  const stockAssets = stocks.assets || [];
+  const cryptoAssets = fillAssetsFromCatalog(
+    orderedAssetsFromCatalog(catalog, HOME_CRYPTO_SYMBOLS),
+    catalog,
+    (asset) => asset.assetType === "crypto" && !HOME_STABLE_SYMBOLS.has(normalizeSymbol(asset.symbol))
+  );
+  const stockAssets = fillAssetsFromCatalog(
+    orderedAssetsFromCatalog(catalog, HOME_STOCK_SYMBOLS),
+    catalog,
+    (asset) => ["stock", "etf"].includes(asset.assetType)
+  );
 
-  if (cryptoResult.status === "rejected") console.warn("Crypto market data failed:", cryptoResult.reason);
-  if (stocksResult.status === "rejected") console.warn("Stock market data failed:", stocksResult.reason);
+  if (catalogResult.status === "rejected") console.warn("Market catalog data failed:", catalogResult.reason);
   if (signalsResult.status === "rejected") console.warn("Signal data failed:", signalsResult.reason);
 
   renderMarketList("crypto-market-list", cryptoAssets, { compact: true });
   renderMarketList("stock-market-list", stockAssets);
-  renderHeroPulse(cryptoAssets, stockAssets, signals);
+  renderHeroPulse(cryptoAssets, stockAssets, signals, catalog);
 
-  const usingFallback = crypto.fallback || stocks.fallback || signals.fallback;
+  const usingFallback = catalogData.fallback || signals.fallback;
   if (status) status.textContent = usingFallback ? "Market preview active" : "Live data active";
 }
 
@@ -219,6 +262,13 @@ document.addEventListener("click", (event) => {
 document.addEventListener("DOMContentLoaded", () => {
   loadMarketData();
   loadNewsData();
-  setInterval(loadMarketData, 10000);
-  setInterval(loadNewsData, 1800000);
+  marketRefreshTimer = setInterval(loadMarketData, HOME_MARKET_REFRESH_MS);
+  newsRefreshTimer = setInterval(loadNewsData, HOME_NEWS_REFRESH_MS);
+});
+
+window.addEventListener("focus", loadMarketData);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  loadMarketData();
+  loadNewsData();
 });
