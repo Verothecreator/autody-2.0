@@ -3739,6 +3739,11 @@ body.modal-open {
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.58fr);
 }
 
+.auth-shell-single {
+  width: min(920px, calc(100% - 40px));
+  grid-template-columns: 1fr;
+}
+
 .auth-panel,
 .auth-side-panel {
   border: 1px solid var(--line);
@@ -3817,6 +3822,28 @@ body.modal-open {
   color: #111111;
 }
 
+.auth-phone-input {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.34fr) minmax(0, 1fr);
+  min-height: 52px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.auth-form .auth-phone-input select,
+.auth-form .auth-phone-input input {
+  min-height: 50px;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+.auth-form .auth-phone-input select {
+  border-right: 1px solid var(--line);
+}
+
 .auth-check {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
@@ -3836,6 +3863,11 @@ body.modal-open {
   height: 18px;
   margin: 2px 0 0;
   accent-color: var(--primary);
+}
+
+.auth-check a {
+  color: var(--primary);
+  font-weight: 900;
 }
 
 .auth-form button:disabled {
@@ -3924,6 +3956,47 @@ body.modal-open {
   margin-top: 22px;
   color: var(--primary);
   font-weight: 900;
+}
+
+.terms-panel {
+  display: grid;
+  gap: 26px;
+}
+
+.terms-content {
+  display: grid;
+  gap: 22px;
+  color: var(--muted);
+}
+
+.terms-content section {
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.terms-content h2 {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 1.3rem;
+}
+
+.terms-content p,
+.terms-content li {
+  line-height: 1.65;
+}
+
+.terms-content ul {
+  margin: 10px 0 0;
+  padding-left: 20px;
+}
+
+.terms-callout {
+  padding: 16px;
+  border: 1px solid rgba(91, 95, 239, 0.42);
+  border-radius: 8px;
+  background: rgba(91, 95, 239, 0.12);
+  color: var(--text);
+  font-weight: 800;
 }
 
 .popup-overlay {
@@ -4339,6 +4412,10 @@ body.modal-open {
 
   .auth-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .auth-phone-input {
+    grid-template-columns: minmax(112px, 0.38fr) minmax(0, 1fr);
   }
 
   .subject-card {

@@ -19,27 +19,34 @@
     </nav>
   </header>
 
-  <main class="auth-shell auth-shell-wide">
+  <main class="auth-shell auth-shell-single">
     <section class="auth-panel">
       <div class="auth-copy">
         <p class="eyebrow">Create account</p>
         <h1>Open your Autody account</h1>
-        <p>Start with a live account shell, a demo wallet, and verification records ready for email, phone, and identity checks.</p>
+        <p>Create your account, open the live workspace, and keep demo mode ready while the platform grows into full funding and verification.</p>
       </div>
 
       <form class="auth-form auth-form-wide" id="sign-up-form">
         <div class="auth-form-grid">
           <label>
-            Legal name
-            <input name="legalName" type="text" autocomplete="name" placeholder="Full legal name" required />
+            First name
+            <input name="firstName" type="text" autocomplete="given-name" placeholder="First name" required />
+          </label>
+          <label>
+            Last name
+            <input name="lastName" type="text" autocomplete="family-name" placeholder="Last name" required />
           </label>
           <label>
             Email
             <input name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
           </label>
-          <label>
+          <label class="auth-phone-label">
             Phone number
-            <input name="phone" type="tel" autocomplete="tel" placeholder="+1 555 000 0000" required />
+            <span class="auth-phone-input">
+              <select name="countryCode" id="country-code" aria-label="Country calling code" required></select>
+              <input name="phone" type="tel" autocomplete="tel-national" placeholder="555 000 0000" required />
+            </span>
           </label>
           <label>
             Country of residence
@@ -48,13 +55,6 @@
           <label>
             Date of birth
             <input name="dateOfBirth" type="date" autocomplete="bday" required />
-          </label>
-          <label>
-            Account type
-            <select name="accountType">
-              <option value="personal">Personal</option>
-              <option value="business">Business</option>
-            </select>
           </label>
           <label>
             Password
@@ -67,29 +67,20 @@
         </div>
 
         <label class="auth-check">
-          <input name="acceptedTerms" type="checkbox" required />
+          <input name="acceptedAccuracy" type="checkbox" required />
           <span>I confirm this information is accurate and can be used for Autody account verification.</span>
+        </label>
+        <label class="auth-check">
+          <input name="acceptedServiceTerms" type="checkbox" required />
+          <span>I have read the <a href="terms.html" target="_blank" rel="noopener">Terms of Service</a>.</span>
         </label>
 
         <p class="auth-error" id="sign-up-error" role="alert" hidden></p>
         <p class="auth-success" id="sign-up-success" role="status" hidden></p>
         <button class="btn btn-large" id="sign-up-button" type="submit">Create Account</button>
+        <a href="sign-in.html" class="auth-inline-link">Already have an account?</a>
       </form>
     </section>
-
-    <aside class="auth-side-panel">
-      <span class="status-pill">Verification setup</span>
-      <h2>Account checks</h2>
-      <p>Autody will own the account records, hashed passwords, sessions, verification status, and code history in its database.</p>
-      <div class="auth-checklist">
-        <div><span>Email code</span><strong>Prepared</strong></div>
-        <div><span>Phone code</span><strong>Prepared</strong></div>
-        <div><span>Identity review</span><strong>Pending</strong></div>
-        <div><span>Demo wallet</span><strong>$50,000 USD</strong></div>
-        <div><span>Live wallet</span><strong>$0 USD</strong></div>
-      </div>
-      <a href="sign-in.html" class="auth-inline-link">Already have an account?</a>
-    </aside>
   </main>
 
   <script src="sign-up.js"></script>

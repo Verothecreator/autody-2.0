@@ -18,6 +18,8 @@ create table if not exists profile_credentials (
 
 create table if not exists profile_verifications (
   profile_id uuid primary key references profiles(id) on delete cascade,
+  first_name text,
+  last_name text,
   legal_name text not null,
   phone text not null,
   country text not null,
@@ -27,9 +29,19 @@ create table if not exists profile_verifications (
   phone_status text not null default 'pending',
   identity_status text not null default 'pending',
   risk_status text not null default 'pending',
+  terms_version text not null default '2026-06-17',
+  terms_accepted_at timestamptz,
+  information_confirmed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table if exists profile_verifications
+  add column if not exists first_name text,
+  add column if not exists last_name text,
+  add column if not exists terms_version text not null default '2026-06-17',
+  add column if not exists terms_accepted_at timestamptz,
+  add column if not exists information_confirmed_at timestamptz;
 
 create table if not exists verification_codes (
   id uuid primary key default gen_random_uuid(),

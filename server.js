@@ -38,6 +38,7 @@ const DEMO_DB_STORE = path.join(__dirname, "data", "demo-db.json");
 const DATABASE_SCHEMA_STORE = path.join(__dirname, "database", "schema.sql");
 const PRACTICE_USER_ID = "practice-user";
 const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
+const ACCOUNT_TERMS_VERSION = "2026-06-17";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 15000);
 const DB_SLOW_RETRY_MS = Number(process.env.DB_SLOW_RETRY_MS || 30 * 1000);
@@ -363,16 +364,26 @@ function isAdultDate(dateOfBirth = "") {
 }
 
 function parseSignUpPayload(body = {}) {
-    const legalName = normalizeText(body.legalName || body.name);
+    const providedLegalName = normalizeText(body.legalName || body.name);
+    const providedNameParts = providedLegalName.split(" ").filter(Boolean);
+    const firstName = normalizeText(body.firstName) || providedNameParts[0] || "";
+    const lastName = normalizeText(body.lastName) || providedNameParts.slice(1).join(" ");
+    const legalName = providedLegalName || normalizeText(`${firstName} ${lastName}`);
     const displayName = normalizeText(body.displayName || legalName);
     const email = normalizeEmail(body.email);
-    const phone = normalizePhone(body.phone);
+    const countryCode = normalizePhone(body.countryCode);
+    const rawPhone = normalizePhone(body.phone);
+    const phone = rawPhone.startsWith("+") ? rawPhone : normalizePhone(`${countryCode}${rawPhone}`);
     const country = normalizeText(body.country);
     const dateOfBirth = String(body.dateOfBirth || "").trim();
-    const accountType = normalizeText(body.accountType || "personal").toLowerCase() === "business" ? "business" : "personal";
+    const accountType = "personal";
     const password = String(body.password || "");
-    const acceptedTerms = Boolean(body.acceptedTerms);
+    const truthy = (value) => value === true || value === "true" || value === "on" || value === 1 || value === "1";
+    const acceptedAccuracy = truthy(body.acceptedAccuracy ?? body.acceptedTerms);
+    const acceptedServiceTerms = truthy(body.acceptedServiceTerms ?? body.termsAccepted);
+    const acceptedAt = new Date().toISOString();
 
+    if (firstName.length < 1 || lastName.length < 1) throw signUpError(400, "Enter your first and last name.");
     if (legalName.length < 2) throw signUpError(400, "Enter your legal name.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw signUpError(400, "Enter a valid email address.");
     if (phone.replace(/\D/g, "").length < 7) throw signUpError(400, "Enter a valid phone number.");
@@ -381,9 +392,12 @@ function parseSignUpPayload(body = {}) {
 
     const passwordMessage = passwordValidationMessage(password);
     if (passwordMessage) throw signUpError(400, passwordMessage);
-    if (!acceptedTerms) throw signUpError(400, "Confirm that the account information is accurate.");
+    if (!acceptedAccuracy) throw signUpError(400, "Confirm that the account information is accurate.");
+    if (!acceptedServiceTerms) throw signUpError(400, "Read and accept the Terms of Service.");
 
     return {
+        firstName,
+        lastName,
         legalName,
         displayName,
         email,
@@ -391,7 +405,10 @@ function parseSignUpPayload(body = {}) {
         country,
         dateOfBirth,
         accountType,
-        password
+        password,
+        termsVersion: ACCOUNT_TERMS_VERSION,
+        termsAcceptedAt: acceptedAt,
+        informationConfirmedAt: acceptedAt
     };
 }
 
@@ -1851,6 +1868,8 @@ async function ensureSignUpTables(client = dbPool) {
     await client.query(`
         create table if not exists profile_verifications (
           profile_id uuid primary key references profiles(id) on delete cascade,
+          first_name text,
+          last_name text,
           legal_name text not null,
           phone text not null,
           country text not null,
@@ -1860,9 +1879,19 @@ async function ensureSignUpTables(client = dbPool) {
           phone_status text not null default 'pending',
           identity_status text not null default 'pending',
           risk_status text not null default 'pending',
+          terms_version text not null default '${ACCOUNT_TERMS_VERSION}',
+          terms_accepted_at timestamptz,
+          information_confirmed_at timestamptz,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         );
+
+        alter table if exists profile_verifications
+          add column if not exists first_name text,
+          add column if not exists last_name text,
+          add column if not exists terms_version text not null default '${ACCOUNT_TERMS_VERSION}',
+          add column if not exists terms_accepted_at timestamptz,
+          add column if not exists information_confirmed_at timestamptz;
 
         create table if not exists verification_codes (
           id uuid primary key default gen_random_uuid(),
@@ -1951,11 +1980,24 @@ async function createDatabaseAccount(signUp) {
 
         await client.query(`
             insert into profile_verifications (
-              profile_id, legal_name, phone, country, date_of_birth, account_type,
-              email_status, phone_status, identity_status, risk_status
+              profile_id, first_name, last_name, legal_name, phone, country, date_of_birth, account_type,
+              email_status, phone_status, identity_status, risk_status, terms_version, terms_accepted_at,
+              information_confirmed_at
             )
-            values ($1, $2, $3, $4, $5, $6, 'pending', 'pending', 'pending', 'pending')
-        `, [profile.id, signUp.legalName, signUp.phone, signUp.country, signUp.dateOfBirth, signUp.accountType]);
+            values ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', 'pending', 'pending', 'pending', $9, $10, $11)
+        `, [
+            profile.id,
+            signUp.firstName,
+            signUp.lastName,
+            signUp.legalName,
+            signUp.phone,
+            signUp.country,
+            signUp.dateOfBirth,
+            signUp.accountType,
+            signUp.termsVersion,
+            signUp.termsAcceptedAt,
+            signUp.informationConfirmedAt
+        ]);
 
         const verificationCodes = [
             createVerificationCodeRecord("email", signUp.email),
@@ -2046,6 +2088,8 @@ function createJsonAccount(signUp) {
             passwordUpdatedAt: now
         },
         verification: {
+            firstName: signUp.firstName,
+            lastName: signUp.lastName,
             legalName: signUp.legalName,
             phone: signUp.phone,
             country: signUp.country,
@@ -2053,7 +2097,10 @@ function createJsonAccount(signUp) {
             accountType: signUp.accountType,
             emailStatus: "pending",
             phoneStatus: "pending",
-            identityStatus: "pending"
+            identityStatus: "pending",
+            termsVersion: signUp.termsVersion,
+            termsAcceptedAt: signUp.termsAcceptedAt,
+            informationConfirmedAt: signUp.informationConfirmedAt
         }
     };
 
