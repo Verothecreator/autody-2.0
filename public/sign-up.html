@@ -74,8 +74,8 @@
           <input name="acceptedServiceTerms" id="accepted-service-terms" type="checkbox" required />
           <span>I have read the <button class="auth-link-button" type="button" id="open-terms-button">Terms of Service</button>.</span>
         </div>
-        <div class="auth-captcha" data-turnstile-widget>
-          <div data-turnstile-container></div>
+        <div class="auth-captcha" data-recaptcha-widget>
+          <div data-recaptcha-container></div>
           <p data-captcha-message>Loading human verification.</p>
         </div>
 
@@ -144,7 +144,7 @@
     </section>
   </div>
 
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+  <script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
   <script src="auth-captcha.js"></script>
   <script src="sign-up.js"></script>
 </body>

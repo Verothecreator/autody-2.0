@@ -18,13 +18,13 @@ function captchaConfig() {
   return captchaConfigPromise;
 }
 
-function waitForTurnstile(timeoutMs = 8000) {
+function waitForRecaptcha(timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const timer = setInterval(() => {
-      if (window.turnstile?.render) {
+      if (window.grecaptcha?.render) {
         clearInterval(timer);
-        resolve(window.turnstile);
+        resolve(window.grecaptcha);
         return;
       }
       if (Date.now() - startedAt > timeoutMs) {
@@ -38,7 +38,7 @@ function waitForTurnstile(timeoutMs = 8000) {
 async function renderCaptcha(widget) {
   if (!widget || captchaWidgets.has(widget)) return;
 
-  const container = widget.querySelector("[data-turnstile-container]");
+  const container = widget.querySelector("[data-recaptcha-container]");
   if (!container) return;
 
   const config = await captchaConfig();
@@ -49,11 +49,10 @@ async function renderCaptcha(widget) {
   }
 
   try {
-    const turnstile = await waitForTurnstile();
-    const widgetId = turnstile.render(container, {
+    const recaptcha = await waitForRecaptcha();
+    const widgetId = recaptcha.render(container, {
       sitekey: config.siteKey,
       theme: "dark",
-      size: "normal",
       callback(token) {
         widget.dataset.captchaToken = token || "";
         captchaMessage(widget, "Human verification complete.", "success");
@@ -78,32 +77,36 @@ async function renderCaptcha(widget) {
 }
 
 function formCaptchaWidget(form) {
-  return form?.querySelector("[data-turnstile-widget]") || document.querySelector("[data-turnstile-widget]");
+  return form?.querySelector("[data-recaptcha-widget]") || document.querySelector("[data-recaptcha-widget]");
 }
 
 function captchaPayload(form) {
   const widget = formCaptchaWidget(form);
+  const widgetId = widget ? captchaWidgets.get(widget) : null;
+  const token = widgetId !== null && widgetId !== undefined && window.grecaptcha?.getResponse
+    ? window.grecaptcha.getResponse(widgetId)
+    : widget?.dataset.captchaToken || "";
   return {
-    turnstileToken: widget?.dataset.captchaToken || ""
+    recaptchaToken: token
   };
 }
 
 function captchaIsComplete(form) {
-  return Boolean(captchaPayload(form).turnstileToken);
+  return Boolean(captchaPayload(form).recaptchaToken);
 }
 
 function refreshCaptcha(form) {
   const widget = formCaptchaWidget(form);
   const widgetId = widget ? captchaWidgets.get(widget) : null;
   widget?.removeAttribute("data-captcha-token");
-  if (widgetId && window.turnstile?.reset) {
-    window.turnstile.reset(widgetId);
+  if (widgetId !== null && widgetId !== undefined && window.grecaptcha?.reset) {
+    window.grecaptcha.reset(widgetId);
   }
   if (widget) captchaMessage(widget, "");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("[data-turnstile-widget]").forEach((widget) => {
+  document.querySelectorAll("[data-recaptcha-widget]").forEach((widget) => {
     renderCaptcha(widget);
   });
 });

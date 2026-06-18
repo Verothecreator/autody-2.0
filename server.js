@@ -72,9 +72,9 @@ const LIVE_CHART_REFRESH_RANGES = Array.from(new Set((process.env.LIVE_CHART_REF
     .map((range) => normalizeChartRange(range.trim().toLowerCase()))
     .filter(Boolean)));
 const MARKET_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
-const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || "";
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || "";
-const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const RECAPTCHA_SITE_KEY = process.env.RECAPTCHA_SITE_KEY || process.env.GOOGLE_RECAPTCHA_SITE_KEY || process.env.CAPTCHA_SITE_KEY || "";
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY || process.env.GOOGLE_RECAPTCHA_SECRET_KEY || process.env.CAPTCHA_SECRET_KEY || "";
+const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
 const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
@@ -360,17 +360,17 @@ function captchaClientIp(req) {
 
 async function verifyCaptcha(body = {}, req) {
     if (!CAPTCHA_REQUIRED) return true;
-    const token = normalizeText(body.turnstileToken || body.captchaToken || body["cf-turnstile-response"]);
-    if (!TURNSTILE_SECRET_KEY || !token) return false;
+    const token = normalizeText(body.recaptchaToken || body.captchaToken || body["g-recaptcha-response"]);
+    if (!RECAPTCHA_SECRET_KEY || !token) return false;
 
     const params = new URLSearchParams();
-    params.append("secret", TURNSTILE_SECRET_KEY);
+    params.append("secret", RECAPTCHA_SECRET_KEY);
     params.append("response", token);
     const remoteIp = captchaClientIp(req);
     if (remoteIp) params.append("remoteip", remoteIp);
 
     try {
-        const response = await fetch(TURNSTILE_VERIFY_URL, {
+        const response = await fetch(RECAPTCHA_VERIFY_URL, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: params
@@ -378,7 +378,7 @@ async function verifyCaptcha(body = {}, req) {
         const result = await response.json().catch(() => ({}));
         return Boolean(response.ok && result.success);
     } catch (err) {
-        console.error("CAPTCHA verification failed:", err.message || err);
+        console.error("reCAPTCHA verification failed:", err.message || err);
         return false;
     }
 }
@@ -5048,9 +5048,9 @@ app.get("/api/news", async (req, res) => {
 app.get("/api/auth/captcha-config", (req, res) => {
   return res.json({
     success: true,
-    provider: "cloudflare-turnstile",
-    configured: Boolean(TURNSTILE_SITE_KEY),
-    siteKey: TURNSTILE_SITE_KEY
+    provider: "google-recaptcha-v2",
+    configured: Boolean(RECAPTCHA_SITE_KEY),
+    siteKey: RECAPTCHA_SITE_KEY
   });
 });
 

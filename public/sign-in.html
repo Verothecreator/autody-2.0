@@ -37,8 +37,8 @@
           Password
           <input name="password" type="password" autocomplete="current-password" required />
         </label>
-        <div class="auth-captcha" data-turnstile-widget>
-          <div data-turnstile-container></div>
+        <div class="auth-captcha" data-recaptcha-widget>
+          <div data-recaptcha-container></div>
           <p data-captcha-message>Loading human verification.</p>
         </div>
         <p class="auth-error" id="sign-in-error" role="alert" hidden></p>
@@ -58,7 +58,7 @@
     </aside>
   </main>
 
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+  <script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
   <script src="auth-captcha.js"></script>
   <script src="sign-in.js"></script>
 </body>
