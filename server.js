@@ -72,6 +72,8 @@ const LIVE_CHART_REFRESH_RANGES = Array.from(new Set((process.env.LIVE_CHART_REF
     .map((range) => normalizeChartRange(range.trim().toLowerCase()))
     .filter(Boolean)));
 const MARKET_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+const HUMAN_CHALLENGE_TTL_MS = Number(process.env.HUMAN_CHALLENGE_TTL_MS || 5 * 60 * 1000);
+const humanChallenges = new Map();
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
@@ -349,6 +351,72 @@ function truthyFormValue(value) {
     return value === true || value === "true" || value === "on" || value === 1 || value === "1";
 }
 
+const HUMAN_CHALLENGE_GROUPS = [
+    { key: "chart", prompt: "market chart tiles", mark: "CH", labels: ["Chart", "Trend", "Candles", "Volume"] },
+    { key: "wallet", prompt: "wallet tiles", mark: "WL", labels: ["Wallet", "Vault", "Funds", "Balance"] },
+    { key: "coin", prompt: "coin tiles", mark: "CN", labels: ["Coin", "Token", "Crypto", "AU"] },
+    { key: "security", prompt: "security tiles", mark: "SC", labels: ["Lock", "Shield", "Key", "Safe"] },
+    { key: "card", prompt: "card tiles", mark: "CD", labels: ["Card", "ACH", "Wire", "Bank"] },
+    { key: "news", prompt: "news tiles", mark: "NW", labels: ["News", "Brief", "Story", "Update"] }
+];
+
+function shuffleItems(items = []) {
+    return [...items].sort(() => Math.random() - 0.5);
+}
+
+function cleanupHumanChallenges() {
+    const now = Date.now();
+    for (const [id, challenge] of humanChallenges.entries()) {
+        if (challenge.expiresAt <= now) humanChallenges.delete(id);
+    }
+}
+
+function createHumanChallenge() {
+    cleanupHumanChallenges();
+    const target = HUMAN_CHALLENGE_GROUPS[Math.floor(Math.random() * HUMAN_CHALLENGE_GROUPS.length)];
+    const targetTiles = shuffleItems(target.labels).slice(0, 3).map((label) => ({
+        id: crypto.randomBytes(6).toString("hex"),
+        label,
+        mark: target.mark,
+        target: true
+    }));
+    const decoyTiles = shuffleItems(HUMAN_CHALLENGE_GROUPS
+        .filter((group) => group.key !== target.key)
+        .flatMap((group) => group.labels.map((label) => ({
+            id: crypto.randomBytes(6).toString("hex"),
+            label,
+            mark: group.mark,
+            target: false
+        }))))
+        .slice(0, 6);
+    const items = shuffleItems([...targetTiles, ...decoyTiles]);
+    const id = crypto.randomBytes(18).toString("hex");
+    humanChallenges.set(id, {
+        answerIds: new Set(targetTiles.map((item) => item.id)),
+        expiresAt: Date.now() + HUMAN_CHALLENGE_TTL_MS
+    });
+
+    return {
+        id,
+        prompt: `Select all ${target.prompt}.`,
+        items: items.map(({ id: itemId, label, mark }) => ({ id: itemId, label, mark }))
+    };
+}
+
+function verifyHumanChallenge(body = {}) {
+    cleanupHumanChallenges();
+    const id = normalizeText(body.humanChallengeId);
+    const selected = Array.isArray(body.humanChallengeAnswers)
+        ? body.humanChallengeAnswers.map((item) => normalizeText(item)).filter(Boolean)
+        : [];
+    const challenge = humanChallenges.get(id);
+    if (!challenge || !selected.length) return false;
+
+    humanChallenges.delete(id);
+    if (selected.length !== challenge.answerIds.size) return false;
+    return selected.every((item) => challenge.answerIds.has(item));
+}
+
 function passwordValidationMessage(password = "") {
     const value = String(password || "");
     if (value.length < 8) return "Password must be at least 8 characters.";
@@ -384,7 +452,7 @@ function parseSignUpPayload(body = {}) {
     const password = String(body.password || "");
     const acceptedAccuracy = truthyFormValue(body.acceptedAccuracy ?? body.acceptedTerms);
     const acceptedServiceTerms = truthyFormValue(body.acceptedServiceTerms ?? body.termsAccepted);
-    const humanCheck = truthyFormValue(body.humanCheck);
+    const humanVerified = verifyHumanChallenge(body);
     const acceptedAt = new Date().toISOString();
 
     if (firstName.length < 1 || lastName.length < 1) throw signUpError(400, "Enter your first and last name.");
@@ -398,7 +466,7 @@ function parseSignUpPayload(body = {}) {
     if (passwordMessage) throw signUpError(400, passwordMessage);
     if (!acceptedAccuracy) throw signUpError(400, "Confirm that the account information is accurate.");
     if (!acceptedServiceTerms) throw signUpError(400, "Read and accept the Terms of Service.");
-    if (!humanCheck) throw signUpError(400, "Confirm that you are not a robot.");
+    if (!humanVerified) throw signUpError(400, "Complete the human verification challenge.");
 
     return {
         firstName,
@@ -5013,6 +5081,13 @@ app.get("/api/news", async (req, res) => {
   return res.json(await fetchNewsData());
 });
 
+app.get("/api/auth/human-challenge", (req, res) => {
+  return res.json({
+    success: true,
+    challenge: createHumanChallenge()
+  });
+});
+
 app.post("/api/auth/sign-up", async (req, res) => {
   try {
     const signUp = parseSignUpPayload(parseJsonBody(req));
@@ -5057,10 +5132,10 @@ app.post("/api/auth/sign-in", async (req, res) => {
     const body = parseJsonBody(req);
     const email = normalizeEmail(body.email);
     const password = String(body.password || "");
-    if (!truthyFormValue(body.humanCheck)) {
+    if (!verifyHumanChallenge(body)) {
       return res.status(400).json({
         success: false,
-        error: "Confirm that you are not a robot."
+        error: "Complete the human verification challenge."
       });
     }
     const databaseSignIn = await signInFromDatabase(email, password).catch((err) => {

@@ -37,10 +37,14 @@
           Password
           <input name="password" type="password" autocomplete="current-password" required />
         </label>
-        <label class="auth-check auth-human-check">
-          <input name="humanCheck" type="checkbox" required />
-          <span>I'm not a robot.</span>
-        </label>
+        <div class="auth-challenge" data-human-challenge>
+          <div class="auth-challenge-top">
+            <strong>Human verification</strong>
+            <button type="button" data-refresh-challenge>New challenge</button>
+          </div>
+          <p data-challenge-prompt>Loading verification challenge.</p>
+          <div class="auth-challenge-grid" data-challenge-grid></div>
+        </div>
         <p class="auth-error" id="sign-in-error" role="alert" hidden></p>
         <button class="btn btn-large" id="sign-in-button" type="submit">Sign In</button>
       </form>
@@ -58,6 +62,7 @@
     </aside>
   </main>
 
+  <script src="auth-human.js"></script>
   <script src="sign-in.js"></script>
 </body>
 </html>

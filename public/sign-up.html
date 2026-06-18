@@ -74,10 +74,14 @@
           <input name="acceptedServiceTerms" id="accepted-service-terms" type="checkbox" required />
           <span>I have read the <button class="auth-link-button" type="button" id="open-terms-button">Terms of Service</button>.</span>
         </div>
-        <label class="auth-check auth-human-check">
-          <input name="humanCheck" type="checkbox" required />
-          <span>I'm not a robot.</span>
-        </label>
+        <div class="auth-challenge" data-human-challenge>
+          <div class="auth-challenge-top">
+            <strong>Human verification</strong>
+            <button type="button" data-refresh-challenge>New challenge</button>
+          </div>
+          <p data-challenge-prompt>Loading verification challenge.</p>
+          <div class="auth-challenge-grid" data-challenge-grid></div>
+        </div>
 
         <p class="auth-error" id="sign-up-error" role="alert" hidden></p>
         <p class="auth-success" id="sign-up-success" role="status" hidden></p>
@@ -144,6 +148,7 @@
     </section>
   </div>
 
+  <script src="auth-human.js"></script>
   <script src="sign-up.js"></script>
 </body>
 </html>

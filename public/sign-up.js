@@ -290,7 +290,7 @@ function signUpPayload(form) {
     password: form.get("password"),
     acceptedAccuracy: form.get("acceptedAccuracy") === "on",
     acceptedServiceTerms: form.get("acceptedServiceTerms") === "on",
-    humanCheck: form.get("humanCheck") === "on"
+    ...window.AutodyHumanChallenge.payload(signUpForm)
   };
 }
 
@@ -323,8 +323,8 @@ signUpForm?.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (form.get("humanCheck") !== "on") {
-    setSignUpMessage("error", "Confirm that you are not a robot.");
+  if (!window.AutodyHumanChallenge.isComplete(signUpForm)) {
+    setSignUpMessage("error", "Complete the human verification challenge.");
     return;
   }
 
@@ -353,6 +353,7 @@ signUpForm?.addEventListener("submit", async (event) => {
     }, 800);
   } catch (err) {
     setSignUpMessage("error", err.message || "Sign up failed.");
+    window.AutodyHumanChallenge.refresh(signUpForm);
   } finally {
     if (signUpButton) {
       signUpButton.disabled = false;

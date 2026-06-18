@@ -22,11 +22,11 @@ signInForm?.addEventListener("submit", async (event) => {
   const payload = {
     email: form.get("email"),
     password: form.get("password"),
-    humanCheck: form.get("humanCheck") === "on"
+    ...window.AutodyHumanChallenge.payload(signInForm)
   };
 
-  if (!payload.humanCheck) {
-    setError("Confirm that you are not a robot.");
+  if (!window.AutodyHumanChallenge.isComplete(signInForm)) {
+    setError("Complete the human verification challenge.");
     return;
   }
 
@@ -52,6 +52,7 @@ signInForm?.addEventListener("submit", async (event) => {
     location.href = nextPage();
   } catch (err) {
     setError(err.message || "Sign in failed.");
+    window.AutodyHumanChallenge.refresh(signInForm);
   } finally {
     if (signInButton) {
       signInButton.disabled = false;
