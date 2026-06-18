@@ -22,11 +22,11 @@ signInForm?.addEventListener("submit", async (event) => {
   const payload = {
     email: form.get("email"),
     password: form.get("password"),
-    ...window.AutodyHumanChallenge.payload(signInForm)
+    ...window.AutodyCaptcha.payload(signInForm)
   };
 
-  if (!window.AutodyHumanChallenge.isComplete(signInForm)) {
-    setError("Complete the human verification challenge.");
+  if (!window.AutodyCaptcha.isComplete(signInForm)) {
+    setError("Complete the human verification.");
     return;
   }
 
@@ -52,7 +52,7 @@ signInForm?.addEventListener("submit", async (event) => {
     location.href = nextPage();
   } catch (err) {
     setError(err.message || "Sign in failed.");
-    window.AutodyHumanChallenge.refresh(signInForm);
+    window.AutodyCaptcha.refresh(signInForm);
   } finally {
     if (signInButton) {
       signInButton.disabled = false;

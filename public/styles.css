@@ -3902,78 +3902,29 @@ body.modal-open {
   font-weight: 800;
 }
 
-.auth-challenge {
+.auth-captcha {
   display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid rgba(91, 95, 239, 0.44);
-  border-radius: 8px;
-  background: rgba(91, 95, 239, 0.08);
-}
-
-.auth-challenge-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.auth-challenge-top button {
-  min-height: 36px;
-  padding: 0 12px;
+  gap: 10px;
+  min-height: 84px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--muted);
-  font: inherit;
-  font-weight: 900;
-  cursor: pointer;
+  background: rgba(255, 255, 255, 0.035);
 }
 
-.auth-challenge p {
+.auth-captcha p {
   margin: 0;
   color: var(--muted);
+  font-size: 0.92rem;
   font-weight: 800;
 }
 
-.auth-challenge-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+.auth-captcha p[data-status="success"] {
+  color: var(--positive);
 }
 
-.auth-challenge-tile {
-  min-height: 74px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.auth-challenge-tile span,
-.auth-challenge-tile strong {
-  display: block;
-}
-
-.auth-challenge-tile span {
-  margin-bottom: 8px;
-  color: var(--primary);
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-}
-
-.auth-challenge-tile strong {
-  font-size: 0.95rem;
-}
-
-.auth-challenge-tile[aria-pressed="true"] {
-  border-color: var(--primary);
-  background: rgba(91, 95, 239, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(91, 95, 239, 0.4);
+.auth-captcha p[data-status="error"] {
+  color: var(--negative);
 }
 
 .auth-side-panel {
