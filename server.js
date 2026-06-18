@@ -76,6 +76,12 @@ const RECAPTCHA_SITE_KEY = process.env.RECAPTCHA_SITE_KEY || process.env.GOOGLE_
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY || process.env.GOOGLE_RECAPTCHA_SECRET_KEY || process.env.CAPTCHA_SECRET_KEY || "";
 const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
 const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
+const APP_BASE_URL = process.env.APP_BASE_URL || "";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
+const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
@@ -314,6 +320,16 @@ function publicUser(user) {
     return safeUser;
 }
 
+function accountNextPage(user) {
+    const verification = user?.verification || {};
+    const emailStatus = verification.email || verification.emailStatus;
+    const phoneStatus = verification.phone || verification.phoneStatus;
+    const email = encodeURIComponent(user?.email || "");
+    if (emailStatus && emailStatus !== "verified") return `verify-email.html?email=${email}`;
+    if (phoneStatus && phoneStatus !== "verified") return `verify-phone.html?email=${email}`;
+    return "account.html";
+}
+
 function parseJsonBody(req) {
     const raw = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
     return raw ? JSON.parse(raw) : {};
@@ -321,6 +337,25 @@ function parseJsonBody(req) {
 
 function normalizeEmail(email) {
     return String(email || "").trim().toLowerCase();
+}
+
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+    "10minutemail.com",
+    "guerrillamail.com",
+    "mailinator.com",
+    "tempmail.com",
+    "temp-mail.org",
+    "throwawaymail.com",
+    "yopmail.com"
+]);
+
+function emailDomain(email = "") {
+    return normalizeEmail(email).split("@").pop() || "";
+}
+
+function disposableEmail(email = "") {
+    const domain = emailDomain(email);
+    return DISPOSABLE_EMAIL_DOMAINS.has(domain);
 }
 
 function hashPassword(password, salt) {
@@ -337,6 +372,12 @@ function verifyPassword(password, auth) {
 
 function normalizePhone(phone = "") {
     return String(phone || "").trim().replace(/[^\d+]/g, "");
+}
+
+function sameHashValue(left = "", right = "") {
+    const a = Buffer.from(String(left || ""), "hex");
+    const b = Buffer.from(String(right || ""), "hex");
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 function normalizeText(value = "") {
@@ -423,6 +464,7 @@ function parseSignUpPayload(body = {}) {
     if (firstName.length < 1 || lastName.length < 1) throw signUpError(400, "Enter your first and last name.");
     if (legalName.length < 2) throw signUpError(400, "Enter your legal name.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw signUpError(400, "Enter a valid email address.");
+    if (disposableEmail(email)) throw signUpError(400, "Use a permanent email address for your Autody account.");
     if (phone.replace(/\D/g, "").length < 7) throw signUpError(400, "Enter a valid phone number.");
     if (country.length < 2) throw signUpError(400, "Enter your country of residence.");
     if (!isAdultDate(dateOfBirth)) throw signUpError(400, "Autody accounts require a valid date of birth for an adult user.");
@@ -454,16 +496,94 @@ function verificationCodeHash(code, salt) {
 }
 
 function createVerificationCodeRecord(channel, destination) {
-    const code = String(crypto.randomInt(100000, 1000000));
+    const code = channel === "email" ? crypto.randomBytes(24).toString("hex") : String(crypto.randomInt(100000, 1000000));
     const salt = crypto.randomBytes(16).toString("hex");
+    const ttlMs = channel === "email" ? 1000 * 60 * 60 * 24 : 1000 * 60 * 10;
     return {
         channel,
         destination,
         code,
         salt,
         hash: verificationCodeHash(code, salt),
-        expiresAt: new Date(Date.now() + 1000 * 60 * 10).toISOString()
+        expiresAt: new Date(Date.now() + ttlMs).toISOString()
     };
+}
+
+function appBaseUrl(req) {
+    if (APP_BASE_URL) return APP_BASE_URL.replace(/\/+$/, "");
+    const protocol = String(req?.headers?.["x-forwarded-proto"] || req?.protocol || "https").split(",")[0];
+    const host = req?.get?.("host") || req?.headers?.host || "localhost:3000";
+    return `${protocol}://${host}`;
+}
+
+function emailVerificationUrl(req, email, token) {
+    const params = new URLSearchParams({ email, token });
+    return `${appBaseUrl(req)}/verify-email.html?${params.toString()}`;
+}
+
+async function sendVerificationEmail(email, token, req) {
+    const verifyUrl = emailVerificationUrl(req, email, token);
+    const subject = "Verify your Autody account";
+    const text = `Welcome to Autody.\n\nVerify your email address to continue setting up your account:\n${verifyUrl}\n\nIf you did not create an Autody account, you can ignore this email.`;
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+          <h1 style="margin:0 0 12px">Verify your Autody account</h1>
+          <p>Welcome to Autody. Confirm your email address to continue setting up your account.</p>
+          <p><a href="${verifyUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">Verify email</a></p>
+          <p style="color:#4b5563">If the button does not work, copy and paste this link into your browser:</p>
+          <p style="word-break:break-all">${verifyUrl}</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody email verification link for", email, verifyUrl);
+        return { delivered: false, provider: "console", verifyUrl };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: EMAIL_FROM,
+            to: email,
+            subject,
+            html,
+            text
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Email delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+async function sendPhoneVerificationCode(phone, code) {
+    const message = `Your Autody verification code is ${code}. It expires in 10 minutes.`;
+
+    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
+        console.log("Autody phone verification code for", phone, code);
+        return { delivered: false, provider: "console" };
+    }
+
+    const params = new URLSearchParams({
+        To: phone,
+        From: TWILIO_FROM_NUMBER,
+        Body: message
+    });
+    const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
+        method: "POST",
+        headers: {
+            Authorization: `Basic ${auth}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: params
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "SMS delivery failed.");
+    return { delivered: true, provider: "twilio" };
 }
 
 function createDemoSession(db, userId) {
@@ -2090,7 +2210,11 @@ async function createDatabaseAccount(signUp) {
                 }
             },
             session,
-            source: "supabase"
+            source: "supabase",
+            verificationDelivery: {
+                emailToken: verificationCodes.find((item) => item.channel === "email")?.code || "",
+                phoneCode: verificationCodes.find((item) => item.channel === "phone")?.code || ""
+            }
         };
     } catch (err) {
         await client.query("rollback").catch(() => {});
@@ -2218,8 +2342,177 @@ function createJsonAccount(signUp) {
     return {
         user: publicUser(user),
         session,
-        source: "json"
+        source: "json",
+        verificationDelivery: {
+            emailToken: verificationCodes.find((item) => item.channel === "email")?.code || "",
+            phoneCode: verificationCodes.find((item) => item.channel === "phone")?.code || ""
+        }
     };
+}
+
+async function databaseProfileVerification(email) {
+    if (!databaseConfigured()) return null;
+    await ensureSignUpTables();
+    const result = await dbPool.query(`
+        select
+            p.id,
+            p.email,
+            p.display_name,
+            p.created_at,
+            pv.phone,
+            pv.email_status,
+            pv.phone_status,
+            pv.identity_status
+        from profiles p
+        join profile_verifications pv on pv.profile_id = p.id
+        where lower(p.email) = lower($1)
+        limit 1
+    `, [email]);
+    return result.rows[0] || null;
+}
+
+function databasePublicUser(row) {
+    if (!row) return null;
+    return {
+        id: row.id,
+        name: row.display_name,
+        email: row.email,
+        mode: "live",
+        currency: "USD",
+        createdAt: row.created_at,
+        verification: {
+            email: row.email_status || "pending",
+            phone: row.phone_status || "pending",
+            identity: row.identity_status || "pending"
+        }
+    };
+}
+
+async function createDatabaseVerificationCode(email, channel) {
+    const profile = await databaseProfileVerification(email);
+    if (!profile) return null;
+
+    const destination = channel === "email" ? profile.email : profile.phone;
+    const item = createVerificationCodeRecord(channel, destination);
+    await dbPool.query(`
+        update verification_codes
+        set status = 'replaced'
+        where profile_id = $1 and channel = $2 and status = 'pending'
+    `, [profile.id, channel]);
+    await dbPool.query(`
+        insert into verification_codes (profile_id, channel, destination, purpose, code_salt, code_hash, expires_at)
+        values ($1, $2, $3, 'sign_up', $4, $5, $6)
+    `, [profile.id, channel, destination, item.salt, item.hash, item.expiresAt]);
+
+    return { profile, code: item.code, destination };
+}
+
+async function verifyDatabaseCode(email, channel, code) {
+    if (!databaseConfigured()) return null;
+    const profile = await databaseProfileVerification(email);
+    if (!profile) return null;
+    if (channel === "phone" && profile.email_status !== "verified") {
+        return { success: false, error: "Verify your email before confirming your phone number." };
+    }
+
+    const result = await dbPool.query(`
+        select id, code_salt, code_hash, expires_at, attempts
+        from verification_codes
+        where profile_id = $1 and channel = $2 and status = 'pending'
+        order by created_at desc
+        limit 1
+    `, [profile.id, channel]);
+    const record = result.rows[0];
+    if (!record) return { success: false, error: "No active verification code found." };
+    if (Date.parse(record.expires_at) <= Date.now()) {
+        await dbPool.query("update verification_codes set status = 'expired' where id = $1", [record.id]);
+        return { success: false, error: "Verification code expired. Request a new one." };
+    }
+    if (Number(record.attempts || 0) >= 5) {
+        return { success: false, error: "Too many verification attempts. Request a new code." };
+    }
+
+    const suppliedHash = verificationCodeHash(code, record.code_salt);
+    if (!sameHashValue(suppliedHash, record.code_hash)) {
+        await dbPool.query("update verification_codes set attempts = attempts + 1 where id = $1", [record.id]);
+        return { success: false, error: "Verification code is incorrect." };
+    }
+
+    await dbPool.query("update verification_codes set status = 'verified', verified_at = now() where id = $1", [record.id]);
+    const statusColumn = channel === "email" ? "email_status" : "phone_status";
+    await dbPool.query(`
+        update profile_verifications
+        set ${statusColumn} = 'verified', updated_at = now()
+        where profile_id = $1
+    `, [profile.id]);
+
+    const updated = await databaseProfileVerification(email);
+    return { success: true, profile: updated };
+}
+
+function jsonUserByEmail(db, email) {
+    return (db.users || []).find((user) => normalizeEmail(user.email) === normalizeEmail(email));
+}
+
+function createJsonVerificationCode(email, channel) {
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    if (!user) return null;
+
+    const destination = channel === "email" ? user.email : user.verification?.phone;
+    const item = createVerificationCodeRecord(channel, destination);
+    db.verificationCodes = db.verificationCodes || {};
+    db.verificationCodes[user.id] = (db.verificationCodes[user.id] || []).map((record) => (
+        record.channel === channel && record.status === "pending" ? { ...record, status: "replaced" } : record
+    ));
+    db.verificationCodes[user.id].push({
+        channel: item.channel,
+        destination: item.destination,
+        salt: item.salt,
+        hash: item.hash,
+        expiresAt: item.expiresAt,
+        status: "pending",
+        attempts: 0,
+        createdAt: new Date().toISOString()
+    });
+    saveDemoDb(db);
+    return { user, code: item.code, destination };
+}
+
+function verifyJsonCode(email, channel, code) {
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    if (!user) return { success: false, error: "Account not found." };
+    if (channel === "phone" && user.verification?.emailStatus !== "verified") {
+        return { success: false, error: "Verify your email before confirming your phone number." };
+    }
+
+    const records = db.verificationCodes?.[user.id] || [];
+    const record = [...records].reverse().find((item) => item.channel === channel && item.status === "pending");
+    if (!record) return { success: false, error: "No active verification code found." };
+    if (Date.parse(record.expiresAt) <= Date.now()) {
+        record.status = "expired";
+        saveDemoDb(db);
+        return { success: false, error: "Verification code expired. Request a new one." };
+    }
+    if (Number(record.attempts || 0) >= 5) {
+        return { success: false, error: "Too many verification attempts. Request a new code." };
+    }
+
+    const suppliedHash = verificationCodeHash(code, record.salt);
+    if (!sameHashValue(suppliedHash, record.hash)) {
+        record.attempts = Number(record.attempts || 0) + 1;
+        saveDemoDb(db);
+        return { success: false, error: "Verification code is incorrect." };
+    }
+
+    record.status = "verified";
+    record.verifiedAt = new Date().toISOString();
+    user.verification = user.verification || {};
+    if (channel === "email") user.verification.emailStatus = "verified";
+    if (channel === "phone") user.verification.phoneStatus = "verified";
+    saveDemoDb(db);
+    return { success: true, user };
 }
 
 async function signInFromDatabase(email, password) {
@@ -2231,11 +2524,15 @@ async function signInFromDatabase(email, password) {
             p.email,
             p.display_name,
             p.created_at,
+            pv.email_status,
+            pv.phone_status,
+            pv.identity_status,
             pc.password_algorithm,
             pc.password_salt,
             pc.password_hash
         from profiles p
         join profile_credentials pc on pc.profile_id = p.id
+        left join profile_verifications pv on pv.profile_id = p.id
         where lower(p.email) = lower($1)
         limit 1
     `, [email]);
@@ -2255,9 +2552,14 @@ async function signInFromDatabase(email, password) {
             id: row.profile_id,
             name: row.display_name,
             email: row.email,
-            mode: "paper",
+            mode: "live",
             currency: "USD",
-            createdAt: row.created_at
+            createdAt: row.created_at,
+            verification: {
+                email: row.email_status || "pending",
+                phone: row.phone_status || "pending",
+                identity: row.identity_status || "pending"
+            }
         },
         session
     };
@@ -5054,6 +5356,151 @@ app.get("/api/auth/captcha-config", (req, res) => {
   });
 });
 
+app.get("/api/auth/verification-status", async (req, res) => {
+  try {
+    const email = normalizeEmail(req.query.email);
+    if (!email) return res.status(400).json({ success: false, error: "Email is required." });
+
+    const databaseProfile = await databaseProfileVerification(email).catch(() => null);
+    if (databaseProfile) {
+      return res.json({
+        success: true,
+        email: databaseProfile.email,
+        phone: databaseProfile.phone,
+        verification: {
+          email: databaseProfile.email_status || "pending",
+          phone: databaseProfile.phone_status || "pending",
+          identity: databaseProfile.identity_status || "pending"
+        }
+      });
+    }
+
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    if (!user) return res.status(404).json({ success: false, error: "Account not found." });
+    return res.json({
+      success: true,
+      email: user.email,
+      phone: user.verification?.phone || "",
+      verification: {
+        email: user.verification?.emailStatus || "pending",
+        phone: user.verification?.phoneStatus || "pending",
+        identity: user.verification?.identityStatus || "pending"
+      }
+    });
+  } catch (err) {
+    console.error("Verification status failed:", err);
+    return res.status(500).json({ success: false, error: "Verification status unavailable." });
+  }
+});
+
+app.post("/api/auth/resend-email", async (req, res) => {
+  try {
+    const email = normalizeEmail(parseJsonBody(req).email);
+    if (!email) return res.status(400).json({ success: false, error: "Email is required." });
+
+    const databaseCode = await createDatabaseVerificationCode(email, "email").catch(() => null);
+    const created = databaseCode || createJsonVerificationCode(email, "email");
+    if (!created) return res.status(404).json({ success: false, error: "Account not found." });
+
+    const delivery = await sendVerificationEmail(email, created.code, req).catch((err) => {
+      console.error("Verification email resend failed:", err.message || err);
+      return { delivered: false, provider: "error", error: err.message || "Email delivery failed" };
+    });
+    return res.json({
+      success: true,
+      delivery: delivery.delivered ? "Verification email sent." : "Verification link created. Delivery provider is not fully connected yet."
+    });
+  } catch (err) {
+    console.error("Resend email failed:", err);
+    return res.status(500).json({ success: false, error: "Could not resend verification email." });
+  }
+});
+
+app.post("/api/auth/verify-email", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    const token = normalizeText(body.token);
+    if (!email || !token) return res.status(400).json({ success: false, error: "Verification link is incomplete." });
+
+    const databaseResult = await verifyDatabaseCode(email, "email", token).catch(() => null);
+    const result = databaseResult?.success || databaseResult?.error ? databaseResult : verifyJsonCode(email, "email", token);
+    if (!result.success) return res.status(400).json(result);
+
+    const phoneCode = await createDatabaseVerificationCode(email, "phone").catch(() => null) || createJsonVerificationCode(email, "phone");
+    if (phoneCode?.destination && phoneCode?.code) {
+      await sendPhoneVerificationCode(phoneCode.destination, phoneCode.code).catch((err) => {
+        console.error("Phone verification delivery failed:", err.message || err);
+      });
+    }
+
+    return res.json({
+      success: true,
+      next: `verify-phone.html?email=${encodeURIComponent(email)}`,
+      message: "Email verified. Phone verification code sent."
+    });
+  } catch (err) {
+    console.error("Email verification failed:", err);
+    return res.status(500).json({ success: false, error: "Email verification unavailable." });
+  }
+});
+
+app.post("/api/auth/resend-phone", async (req, res) => {
+  try {
+    const email = normalizeEmail(parseJsonBody(req).email);
+    if (!email) return res.status(400).json({ success: false, error: "Email is required." });
+
+    const databaseProfile = await databaseProfileVerification(email).catch(() => null);
+    const jsonUser = databaseProfile ? null : jsonUserByEmail(loadDemoDb(), email);
+    const emailVerified = databaseProfile
+      ? databaseProfile.email_status === "verified"
+      : jsonUser?.verification?.emailStatus === "verified";
+    if (!emailVerified) return res.status(400).json({ success: false, error: "Verify your email before requesting a phone code." });
+
+    const phoneCode = await createDatabaseVerificationCode(email, "phone").catch(() => null) || createJsonVerificationCode(email, "phone");
+    if (!phoneCode) return res.status(404).json({ success: false, error: "Account not found." });
+    const delivery = await sendPhoneVerificationCode(phoneCode.destination, phoneCode.code).catch((err) => {
+      console.error("Phone verification resend failed:", err.message || err);
+      return { delivered: false, provider: "error", error: err.message || "SMS delivery failed" };
+    });
+    return res.json({
+      success: true,
+      delivery: delivery.delivered ? "Phone code sent." : "Phone code created. SMS provider is not fully connected yet."
+    });
+  } catch (err) {
+    console.error("Resend phone failed:", err);
+    return res.status(500).json({ success: false, error: "Could not resend phone code." });
+  }
+});
+
+app.post("/api/auth/verify-phone", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    const code = normalizeText(body.code).replace(/\D/g, "");
+    if (!email || code.length < 4) return res.status(400).json({ success: false, error: "Enter the phone verification code." });
+
+    const databaseResult = await verifyDatabaseCode(email, "phone", code).catch(() => null);
+    if (databaseResult?.success) {
+      const session = await createDatabaseSession(databaseResult.profile.id);
+      const user = databasePublicUser(databaseResult.profile);
+      return res.json({ success: true, user, session, next: "account.html", source: "supabase" });
+    }
+    if (databaseResult?.error) return res.status(400).json(databaseResult);
+
+    const jsonResult = verifyJsonCode(email, "phone", code);
+    if (!jsonResult.success) return res.status(400).json(jsonResult);
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    const session = createDemoSession(db, user.id);
+    return res.json({ success: true, user: publicUser(user), session, next: "account.html", source: "json" });
+  } catch (err) {
+    console.error("Phone verification failed:", err);
+    return res.status(500).json({ success: false, error: "Phone verification unavailable." });
+  }
+});
+
 app.post("/api/auth/sign-up", async (req, res) => {
   try {
     const body = parseJsonBody(req);
@@ -5079,16 +5526,21 @@ app.post("/api/auth/sign-up", async (req, res) => {
       created = createJsonAccount(signUp);
     }
 
+    const emailDelivery = await sendVerificationEmail(signUp.email, created.verificationDelivery?.emailToken || "", req)
+      .catch((err) => {
+        console.error("Verification email delivery failed:", err.message || err);
+        return { delivered: false, provider: "error", error: err.message || "Email delivery failed" };
+      });
+
     return res.status(201).json({
       success: true,
       user: created.user,
-      session: created.session,
-      next: "account.html",
+      next: `verify-email.html?email=${encodeURIComponent(signUp.email)}`,
       verification: {
         email: "pending",
         phone: "pending",
         identity: "pending",
-        delivery: "Codes are generated and stored. Delivery provider connection comes next."
+        delivery: emailDelivery.delivered ? "Verification email sent." : "Verification link created. Delivery provider is not fully connected yet."
       },
       source: created.source || "json"
     });
@@ -5118,11 +5570,12 @@ app.post("/api/auth/sign-in", async (req, res) => {
     });
 
     if (databaseSignIn) {
+      const next = accountNextPage(databaseSignIn.user);
       return res.json({
         success: true,
         user: databaseSignIn.user,
         session: databaseSignIn.session,
-        next: "account.html",
+        next,
         source: "supabase"
       });
     }
@@ -5138,11 +5591,12 @@ app.post("/api/auth/sign-in", async (req, res) => {
     }
 
     const session = createDemoSession(db, user.id);
+    const safeUser = publicUser(user);
     return res.json({
       success: true,
-      user: publicUser(user),
+      user: safeUser,
       session,
-      next: "account.html",
+      next: accountNextPage(safeUser),
       source: "json"
     });
   } catch (err) {

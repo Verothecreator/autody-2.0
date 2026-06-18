@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody | Verify Email</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main navigation">
+      <a href="index.html" class="brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div class="nav-actions">
+        <a href="sign-in.html" class="btn btn-ghost">Sign In</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="auth-shell auth-shell-single">
+    <section class="auth-panel">
+      <div class="auth-copy">
+        <p class="eyebrow">Email verification</p>
+        <h1>Check your email</h1>
+        <p id="verify-email-copy">We sent an Autody verification link to your email address. Open that message and click the link to continue.</p>
+      </div>
+
+      <div class="auth-form auth-verify-card">
+        <div class="auth-verify-row">
+          <span>Email</span>
+          <strong id="verify-email-address">Pending</strong>
+        </div>
+        <p class="auth-error" id="verify-email-error" role="alert" hidden></p>
+        <p class="auth-success" id="verify-email-success" role="status" hidden></p>
+        <button class="btn btn-large" id="resend-email-button" type="button">Send Email Again</button>
+        <a href="sign-up.html" class="auth-inline-link">Use a different email</a>
+      </div>
+    </section>
+  </main>
+
+  <script src="verify-email.js"></script>
+</body>
+</html>

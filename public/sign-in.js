@@ -47,6 +47,12 @@ signInForm?.addEventListener("submit", async (event) => {
       throw new Error(data.error || "Sign in failed.");
     }
 
+    if (data.next && data.next.startsWith("verify-")) {
+      sessionStorage.setItem("autodyPendingEmail", String(payload.email || ""));
+      location.href = data.next;
+      return;
+    }
+
     localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
     localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
     location.href = nextPage();

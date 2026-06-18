@@ -345,9 +345,8 @@ signUpForm?.addEventListener("submit", async (event) => {
       throw new Error(data.error || "Sign up failed.");
     }
 
-    localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
-    localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
-    setSignUpMessage("success", "Account created. Opening your Autody account.");
+    sessionStorage.setItem("autodyPendingEmail", String(form.get("email") || ""));
+    setSignUpMessage("success", "Account created. Check your email to verify your account.");
     setTimeout(() => {
       location.href = data.next || signUpNextPage();
     }, 800);

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody | Verify Phone</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main navigation">
+      <a href="index.html" class="brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div class="nav-actions">
+        <a href="sign-in.html" class="btn btn-ghost">Sign In</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="auth-shell auth-shell-single">
+    <section class="auth-panel">
+      <div class="auth-copy">
+        <p class="eyebrow">Phone verification</p>
+        <h1>Enter your code</h1>
+        <p id="verify-phone-copy">We sent a verification code to the phone number on your Autody account.</p>
+      </div>
+
+      <form class="auth-form auth-verify-card" id="verify-phone-form">
+        <div class="auth-verify-row">
+          <span>Account</span>
+          <strong id="verify-phone-email">Pending</strong>
+        </div>
+        <label>
+          Verification code
+          <input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required />
+        </label>
+        <p class="auth-error" id="verify-phone-error" role="alert" hidden></p>
+        <p class="auth-success" id="verify-phone-success" role="status" hidden></p>
+        <button class="btn btn-large" id="verify-phone-button" type="submit">Verify Phone</button>
+        <button class="btn btn-ghost btn-large" id="resend-phone-button" type="button">Send Code Again</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="verify-phone.js"></script>
+</body>
+</html>
