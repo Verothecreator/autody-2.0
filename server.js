@@ -554,6 +554,43 @@ async function sendVerificationEmail(email, token, req) {
     return { delivered: true, provider: "resend" };
 }
 
+async function sendWelcomeEmail(email, req) {
+    const accountUrl = `${appBaseUrl(req)}/account.html`;
+    const subject = "Welcome to Autody";
+    const text = `Welcome to Autody.\n\nYour email is verified and your account workspace is ready:\n${accountUrl}\n\nYou can use demo mode while live funding, custody, and verification features continue to grow.`;
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+          <h1 style="margin:0 0 12px">Welcome to Autody</h1>
+          <p>Your email is verified and your Autody account workspace is ready.</p>
+          <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">Open account</a></p>
+          <p style="color:#4b5563">Demo mode is available while live funding, custody, and verification features continue to grow.</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody welcome email for", email, accountUrl);
+        return { delivered: false, provider: "console", accountUrl };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: EMAIL_FROM,
+            to: email,
+            subject,
+            html,
+            text
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Welcome email delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
 function createDemoSession(db, userId) {
     const token = crypto.randomBytes(32).toString("hex");
     const now = new Date();
@@ -5363,8 +5400,31 @@ app.post("/api/auth/resend-email", async (req, res) => {
     const email = normalizeEmail(parseJsonBody(req).email);
     if (!email) return res.status(400).json({ success: false, error: "Email is required." });
 
-    const databaseCode = await createDatabaseVerificationCode(email, "email").catch(() => null);
-    const created = databaseCode || createJsonVerificationCode(email, "email");
+    const databaseProfile = await databaseProfileVerification(email).catch(() => null);
+    if (databaseProfile?.email_status === "verified") {
+      return res.status(409).json({
+        success: false,
+        verified: true,
+        next: "account.html",
+        error: "This email is already verified."
+      });
+    }
+
+    const databaseCode = databaseProfile
+      ? await createDatabaseVerificationCode(email, "email").catch(() => null)
+      : null;
+    const db = loadDemoDb();
+    const jsonUser = jsonUserByEmail(db, email);
+    if (!databaseCode && jsonUser?.verification?.emailStatus === "verified") {
+      return res.status(409).json({
+        success: false,
+        verified: true,
+        next: "account.html",
+        error: "This email is already verified."
+      });
+    }
+
+    const created = databaseCode || (jsonUser ? createJsonVerificationCode(email, "email") : null);
     if (!created) return res.status(404).json({ success: false, error: "Account not found." });
 
     const delivery = await sendVerificationEmail(email, created.code, req).catch((err) => {
@@ -5388,10 +5448,23 @@ app.post("/api/auth/verify-email", async (req, res) => {
     const token = normalizeText(body.token);
     if (!email || !token) return res.status(400).json({ success: false, error: "Verification link is incomplete." });
 
+    const databaseProfile = await databaseProfileVerification(email).catch(() => null);
+    if (databaseProfile?.email_status === "verified") {
+      return res.status(409).json({
+        success: false,
+        verified: true,
+        next: "account.html",
+        error: "This email is already verified."
+      });
+    }
+
     const databaseResult = await verifyDatabaseCode(email, "email", token).catch(() => null);
     if (databaseResult?.success) {
       const session = await createDatabaseSession(databaseResult.profile.id);
       const user = databasePublicUser(databaseResult.profile);
+      await sendWelcomeEmail(user.email, req).catch((err) => {
+        console.error("Welcome email delivery failed:", err.message || err);
+      });
       return res.json({
         success: true,
         user,
@@ -5403,11 +5476,25 @@ app.post("/api/auth/verify-email", async (req, res) => {
     }
     if (databaseResult?.error) return res.status(400).json(databaseResult);
 
+    const jsonStatusDb = loadDemoDb();
+    const jsonStatusUser = jsonUserByEmail(jsonStatusDb, email);
+    if (jsonStatusUser?.verification?.emailStatus === "verified") {
+      return res.status(409).json({
+        success: false,
+        verified: true,
+        next: "account.html",
+        error: "This email is already verified."
+      });
+    }
+
     const jsonResult = verifyJsonCode(email, "email", token);
     if (!jsonResult.success) return res.status(400).json(jsonResult);
     const db = loadDemoDb();
     const user = jsonUserByEmail(db, email);
     const session = createDemoSession(db, user.id);
+    await sendWelcomeEmail(user.email, req).catch((err) => {
+      console.error("Welcome email delivery failed:", err.message || err);
+    });
 
     return res.json({
       success: true,

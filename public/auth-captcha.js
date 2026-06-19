@@ -55,7 +55,7 @@ async function renderCaptcha(widget) {
       theme: "dark",
       callback(token) {
         widget.dataset.captchaToken = token || "";
-        captchaMessage(widget, "Human verification complete.", "success");
+        captchaMessage(widget, "");
       },
       "expired-callback"() {
         widget.dataset.captchaToken = "";

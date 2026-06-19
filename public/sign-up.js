@@ -3,6 +3,7 @@ const signUpError = document.getElementById("sign-up-error");
 const signUpSuccess = document.getElementById("sign-up-success");
 const signUpButton = document.getElementById("sign-up-button");
 const countryCodeSelect = document.getElementById("country-code");
+const countryResidenceSelect = document.getElementById("country-residence");
 const termsModal = document.getElementById("terms-modal");
 const openTermsButton = document.getElementById("open-terms-button");
 
@@ -251,10 +252,17 @@ ZW|+263|Zimbabwe
 `.trim().split("\n").map((row) => row.split("|"));
 
 function populateCountryCodes() {
-  if (!countryCodeSelect) return;
-  countryCodeSelect.innerHTML = countryCallingCodes
-    .map(([iso, code, country]) => `<option value="${code}" title="${country}" ${iso === "US" ? "selected" : ""}>${iso} ${code}</option>`)
-    .join("");
+  if (countryCodeSelect) {
+    countryCodeSelect.innerHTML = countryCallingCodes
+      .map(([iso, code, country]) => `<option value="${code}" title="${country}" ${iso === "US" ? "selected" : ""}>${iso} ${code}</option>`)
+      .join("");
+  }
+
+  if (countryResidenceSelect) {
+    countryResidenceSelect.innerHTML = countryCallingCodes
+      .map(([iso, , country]) => `<option value="${country}" ${iso === "US" ? "selected" : ""}>${country}</option>`)
+      .join("");
+  }
 }
 
 function setSignUpMessage(type, message) {
@@ -346,10 +354,7 @@ signUpForm?.addEventListener("submit", async (event) => {
     }
 
     sessionStorage.setItem("autodyPendingEmail", String(form.get("email") || ""));
-    setSignUpMessage("success", "Account created. Check your email to verify your account.");
-    setTimeout(() => {
-      location.href = data.next || signUpNextPage();
-    }, 800);
+    location.href = data.next || signUpNextPage();
   } catch (err) {
     setSignUpMessage("error", err.message || "Sign up failed.");
     window.AutodyCaptcha.refresh(signUpForm);

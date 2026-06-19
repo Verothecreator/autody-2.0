@@ -4327,14 +4327,22 @@ body.modal-open {
   }
 
   .app-sidebar {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 80;
     height: auto;
     align-items: stretch;
-    padding: 16px;
+    gap: 12px;
+    overflow: visible;
+    padding: 12px 14px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    background: rgba(11, 13, 18, 0.96);
+    backdrop-filter: blur(18px);
   }
 
   .sidebar-header {
-    justify-content: flex-start;
+    justify-content: space-between;
   }
 
   .sidebar-collapse-toggle {
@@ -4345,9 +4353,18 @@ body.modal-open {
     display: flex;
     gap: 8px;
     overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .app-nav a {
+    flex: 0 0 auto;
+    border-color: var(--line);
+    background: rgba(255, 255, 255, 0.035);
     white-space: nowrap;
   }
 
@@ -4423,8 +4440,30 @@ body.modal-open {
     margin-top: 0;
   }
 
+  .sidebar-profile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 0;
+    padding: 10px 12px;
+  }
+
+  .sidebar-profile span,
+  .sidebar-profile strong {
+    display: inline;
+  }
+
+  .sidebar-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sidebar-actions .btn {
+    min-height: 40px;
+  }
+
   .sidebar-actions .btn-ghost {
-    display: none;
+    display: flex;
   }
 
   .app-topbar,
@@ -4504,6 +4543,10 @@ body.modal-open {
   .app-topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .app-topbar .topbar-actions {
+    width: 100%;
   }
 }
 
@@ -4604,6 +4647,45 @@ body.modal-open {
     padding: 18px 14px;
   }
 
+  .app-sidebar {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .app-brand {
+    padding: 0;
+  }
+
+  .app-brand span {
+    font-size: 1rem;
+  }
+
+  .app-nav a {
+    min-height: 42px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+  }
+
+  .sidebar-profile {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .sidebar-actions {
+    gap: 8px;
+  }
+
+  .sidebar-actions .btn {
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 0.95rem;
+  }
+
+  .app-topbar h1 {
+    font-size: clamp(2.4rem, 12vw, 3rem);
+  }
+
   .topbar-actions {
     width: 100%;
   }
@@ -4618,6 +4700,27 @@ body.modal-open {
 
   .asset-table-row {
     min-width: 680px;
+  }
+
+  .holdings-card .asset-table,
+  .live-holdings-table,
+  .overview-activity-table {
+    overflow-x: visible;
+  }
+
+  .holdings-card .asset-table-row,
+  .live-holdings-table .asset-table-row,
+  .overview-activity-table .asset-table-row {
+    grid-template-columns: 1fr;
+    min-width: 0;
+    gap: 8px;
+    align-items: start;
+  }
+
+  .holdings-card .asset-table-row.head,
+  .live-holdings-table .asset-table-row.head,
+  .overview-activity-table .asset-table-row.head {
+    display: none;
   }
 
   .market-search-box {
