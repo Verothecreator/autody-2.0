@@ -34,10 +34,12 @@ async function verifyEmailLink() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) throw new Error(data.error || "Email verification failed.");
 
-    setVerifyEmailMessage("success", "Email verified. Opening phone verification.");
-    sessionStorage.setItem("autodyPendingEmail", verifyEmail);
+    if (data.session) localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
+    if (data.user) localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
+    sessionStorage.removeItem("autodyPendingEmail");
+    setVerifyEmailMessage("success", "Email verified. Opening your Autody account.");
     setTimeout(() => {
-      location.href = data.next || `verify-phone.html?email=${encodeURIComponent(verifyEmail)}`;
+      location.href = data.next || "account.html";
     }, 900);
   } catch (err) {
     setVerifyEmailMessage("error", err.message || "Email verification failed.");

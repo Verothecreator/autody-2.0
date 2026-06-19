@@ -79,9 +79,6 @@ const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
 const APP_BASE_URL = process.env.APP_BASE_URL || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
-const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
@@ -323,10 +320,8 @@ function publicUser(user) {
 function accountNextPage(user) {
     const verification = user?.verification || {};
     const emailStatus = verification.email || verification.emailStatus;
-    const phoneStatus = verification.phone || verification.phoneStatus;
     const email = encodeURIComponent(user?.email || "");
     if (emailStatus && emailStatus !== "verified") return `verify-email.html?email=${email}`;
-    if (phoneStatus && phoneStatus !== "verified") return `verify-phone.html?email=${email}`;
     return "account.html";
 }
 
@@ -557,33 +552,6 @@ async function sendVerificationEmail(email, token, req) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Email delivery failed.");
     return { delivered: true, provider: "resend" };
-}
-
-async function sendPhoneVerificationCode(phone, code) {
-    const message = `Your Autody verification code is ${code}. It expires in 10 minutes.`;
-
-    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
-        console.log("Autody phone verification code for", phone, code);
-        return { delivered: false, provider: "console" };
-    }
-
-    const params = new URLSearchParams({
-        To: phone,
-        From: TWILIO_FROM_NUMBER,
-        Body: message
-    });
-    const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
-        method: "POST",
-        headers: {
-            Authorization: `Basic ${auth}`,
-            "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: params
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result?.message || "SMS delivery failed.");
-    return { delivered: true, provider: "twilio" };
 }
 
 function createDemoSession(db, userId) {
@@ -2141,7 +2109,7 @@ async function createDatabaseAccount(signUp) {
               email_status, phone_status, identity_status, risk_status, terms_version, terms_accepted_at,
               information_confirmed_at
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', 'pending', 'pending', 'pending', $9, $10, $11)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', 'not_required', 'pending', 'pending', $9, $10, $11)
         `, [
             profile.id,
             signUp.firstName,
@@ -2157,8 +2125,7 @@ async function createDatabaseAccount(signUp) {
         ]);
 
         const verificationCodes = [
-            createVerificationCodeRecord("email", signUp.email),
-            createVerificationCodeRecord("phone", signUp.phone)
+            createVerificationCodeRecord("email", signUp.email)
         ];
         for (const item of verificationCodes) {
             await client.query(`
@@ -2205,15 +2172,14 @@ async function createDatabaseAccount(signUp) {
                 createdAt: profile.created_at,
                 verification: {
                     email: "pending",
-                    phone: "pending",
+                    phone: "not_required",
                     identity: "pending"
                 }
             },
             session,
             source: "supabase",
             verificationDelivery: {
-                emailToken: verificationCodes.find((item) => item.channel === "email")?.code || "",
-                phoneCode: verificationCodes.find((item) => item.channel === "phone")?.code || ""
+                emailToken: verificationCodes.find((item) => item.channel === "email")?.code || ""
             }
         };
     } catch (err) {
@@ -2257,7 +2223,7 @@ function createJsonAccount(signUp) {
             dateOfBirth: signUp.dateOfBirth,
             accountType: signUp.accountType,
             emailStatus: "pending",
-            phoneStatus: "pending",
+            phoneStatus: "not_required",
             identityStatus: "pending",
             termsVersion: signUp.termsVersion,
             termsAcceptedAt: signUp.termsAcceptedAt,
@@ -2322,8 +2288,7 @@ function createJsonAccount(signUp) {
     };
 
     const verificationCodes = [
-        createVerificationCodeRecord("email", signUp.email),
-        createVerificationCodeRecord("phone", signUp.phone)
+        createVerificationCodeRecord("email", signUp.email)
     ];
     db.verificationCodes = db.verificationCodes || {};
     db.verificationCodes[userId] = verificationCodes.map((item) => ({
@@ -2344,8 +2309,7 @@ function createJsonAccount(signUp) {
         session,
         source: "json",
         verificationDelivery: {
-            emailToken: verificationCodes.find((item) => item.channel === "email")?.code || "",
-            phoneCode: verificationCodes.find((item) => item.channel === "phone")?.code || ""
+            emailToken: verificationCodes.find((item) => item.channel === "email")?.code || ""
         }
     };
 }
@@ -5425,79 +5389,37 @@ app.post("/api/auth/verify-email", async (req, res) => {
     if (!email || !token) return res.status(400).json({ success: false, error: "Verification link is incomplete." });
 
     const databaseResult = await verifyDatabaseCode(email, "email", token).catch(() => null);
-    const result = databaseResult?.success || databaseResult?.error ? databaseResult : verifyJsonCode(email, "email", token);
-    if (!result.success) return res.status(400).json(result);
-
-    const phoneCode = await createDatabaseVerificationCode(email, "phone").catch(() => null) || createJsonVerificationCode(email, "phone");
-    if (phoneCode?.destination && phoneCode?.code) {
-      await sendPhoneVerificationCode(phoneCode.destination, phoneCode.code).catch((err) => {
-        console.error("Phone verification delivery failed:", err.message || err);
-      });
-    }
-
-    return res.json({
-      success: true,
-      next: `verify-phone.html?email=${encodeURIComponent(email)}`,
-      message: "Email verified. Phone verification code sent."
-    });
-  } catch (err) {
-    console.error("Email verification failed:", err);
-    return res.status(500).json({ success: false, error: "Email verification unavailable." });
-  }
-});
-
-app.post("/api/auth/resend-phone", async (req, res) => {
-  try {
-    const email = normalizeEmail(parseJsonBody(req).email);
-    if (!email) return res.status(400).json({ success: false, error: "Email is required." });
-
-    const databaseProfile = await databaseProfileVerification(email).catch(() => null);
-    const jsonUser = databaseProfile ? null : jsonUserByEmail(loadDemoDb(), email);
-    const emailVerified = databaseProfile
-      ? databaseProfile.email_status === "verified"
-      : jsonUser?.verification?.emailStatus === "verified";
-    if (!emailVerified) return res.status(400).json({ success: false, error: "Verify your email before requesting a phone code." });
-
-    const phoneCode = await createDatabaseVerificationCode(email, "phone").catch(() => null) || createJsonVerificationCode(email, "phone");
-    if (!phoneCode) return res.status(404).json({ success: false, error: "Account not found." });
-    const delivery = await sendPhoneVerificationCode(phoneCode.destination, phoneCode.code).catch((err) => {
-      console.error("Phone verification resend failed:", err.message || err);
-      return { delivered: false, provider: "error", error: err.message || "SMS delivery failed" };
-    });
-    return res.json({
-      success: true,
-      delivery: delivery.delivered ? "Phone code sent." : "Phone code created. SMS provider is not fully connected yet."
-    });
-  } catch (err) {
-    console.error("Resend phone failed:", err);
-    return res.status(500).json({ success: false, error: "Could not resend phone code." });
-  }
-});
-
-app.post("/api/auth/verify-phone", async (req, res) => {
-  try {
-    const body = parseJsonBody(req);
-    const email = normalizeEmail(body.email);
-    const code = normalizeText(body.code).replace(/\D/g, "");
-    if (!email || code.length < 4) return res.status(400).json({ success: false, error: "Enter the phone verification code." });
-
-    const databaseResult = await verifyDatabaseCode(email, "phone", code).catch(() => null);
     if (databaseResult?.success) {
       const session = await createDatabaseSession(databaseResult.profile.id);
       const user = databasePublicUser(databaseResult.profile);
-      return res.json({ success: true, user, session, next: "account.html", source: "supabase" });
+      return res.json({
+        success: true,
+        user,
+        session,
+        next: "account.html",
+        message: "Email verified. Opening your Autody account.",
+        source: "supabase"
+      });
     }
     if (databaseResult?.error) return res.status(400).json(databaseResult);
 
-    const jsonResult = verifyJsonCode(email, "phone", code);
+    const jsonResult = verifyJsonCode(email, "email", token);
     if (!jsonResult.success) return res.status(400).json(jsonResult);
     const db = loadDemoDb();
     const user = jsonUserByEmail(db, email);
     const session = createDemoSession(db, user.id);
-    return res.json({ success: true, user: publicUser(user), session, next: "account.html", source: "json" });
+
+    return res.json({
+      success: true,
+      user: publicUser(user),
+      session,
+      next: "account.html",
+      message: "Email verified. Opening your Autody account.",
+      source: "json"
+    });
   } catch (err) {
-    console.error("Phone verification failed:", err);
-    return res.status(500).json({ success: false, error: "Phone verification unavailable." });
+    console.error("Email verification failed:", err);
+    return res.status(500).json({ success: false, error: "Email verification unavailable." });
   }
 });
 
@@ -5538,7 +5460,7 @@ app.post("/api/auth/sign-up", async (req, res) => {
       next: `verify-email.html?email=${encodeURIComponent(signUp.email)}`,
       verification: {
         email: "pending",
-        phone: "pending",
+        phone: "not_required",
         identity: "pending",
         delivery: emailDelivery.delivered ? "Verification email sent." : "Verification link created. Delivery provider is not fully connected yet."
       },
