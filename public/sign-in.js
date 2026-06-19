@@ -22,6 +22,7 @@ signInForm?.addEventListener("submit", async (event) => {
   const payload = {
     email: form.get("email"),
     password: form.get("password"),
+    rememberDevice: form.get("rememberDevice") === "on",
     ...window.AutodyCaptcha.payload(signInForm)
   };
 
@@ -45,6 +46,13 @@ signInForm?.addEventListener("submit", async (event) => {
 
     if (!response.ok || !data.success) {
       throw new Error(data.error || "Sign in failed.");
+    }
+
+    if (data.requiresEmailCode || (data.next && data.next.startsWith("verify-login"))) {
+      sessionStorage.setItem("autodyPendingEmail", String(payload.email || ""));
+      sessionStorage.setItem("autodyRememberDevice", payload.rememberDevice ? "true" : "false");
+      location.href = data.next || `verify-login.html?email=${encodeURIComponent(payload.email || "")}`;
+      return;
     }
 
     if (data.next && data.next.startsWith("verify-")) {

@@ -3901,6 +3901,12 @@ body.modal-open {
   font-weight: 700;
 }
 
+.auth-check-compact {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .auth-check input {
   min-height: auto;
   width: 18px;
@@ -3927,6 +3933,33 @@ body.modal-open {
 .auth-link-button:hover,
 .auth-link-button:focus-visible {
   text-decoration: underline;
+}
+
+.auth-verification-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.auth-verification-target span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.auth-verification-target strong {
+  color: var(--text);
+}
+
+.auth-code-input {
+  text-align: center;
+  font-size: 1.35rem !important;
+  font-weight: 900 !important;
 }
 
 .auth-form button:disabled {

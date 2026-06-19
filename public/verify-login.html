@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody | Verify Sign In</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main navigation">
+      <a href="index.html" class="brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div class="nav-actions">
+        <a href="sign-in.html" class="btn btn-ghost">Sign In</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="auth-shell">
+    <section class="auth-panel">
+      <div class="auth-copy">
+        <p class="eyebrow">Email authentication</p>
+        <h1>Enter your sign-in code</h1>
+        <p id="verify-login-copy">We sent a 6-digit Autody sign-in code to your email. Enter it to open your account.</p>
+      </div>
+
+      <form class="auth-form" id="verify-login-form">
+        <div class="auth-verification-target">
+          <span>Email</span>
+          <strong id="verify-login-email">Pending</strong>
+        </div>
+        <label>
+          Sign-in code
+          <input class="auth-code-input" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required />
+        </label>
+        <label class="auth-check auth-check-compact">
+          <input name="rememberDevice" id="verify-login-remember" type="checkbox" />
+          <span>Remember me on this device</span>
+        </label>
+        <p class="auth-error" id="verify-login-error" role="alert" hidden></p>
+        <button class="btn btn-large" id="verify-login-button" type="submit">Verify Sign In</button>
+        <a href="sign-in.html" class="auth-inline-link">Use a different account</a>
+      </form>
+    </section>
+
+    <aside class="auth-side-panel">
+      <span class="status-pill">Protected access</span>
+      <h2>Email code required</h2>
+      <p>Autody asks for a fresh email code before opening the account session. Remember me keeps this device signed in longer after the code is confirmed.</p>
+      <div class="auth-stat-grid">
+        <div><span>Code</span><strong>10 min</strong></div>
+        <div><span>Session</span><strong>Secure</strong></div>
+        <div><span>Device</span><strong>Optional</strong></div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="verify-login.js"></script>
+</body>
+</html>

@@ -43,6 +43,9 @@ alter table if exists profile_verifications
   add column if not exists terms_accepted_at timestamptz,
   add column if not exists information_confirmed_at timestamptz;
 
+create unique index if not exists profile_verifications_phone_unique_idx
+  on profile_verifications (phone);
+
 create table if not exists verification_codes (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references profiles(id) on delete cascade,
@@ -60,6 +63,9 @@ create table if not exists verification_codes (
 
 create index if not exists verification_codes_profile_status_idx
   on verification_codes (profile_id, channel, status, created_at desc);
+
+create index if not exists verification_codes_profile_purpose_status_idx
+  on verification_codes (profile_id, channel, purpose, status, created_at desc);
 
 create table if not exists account_modes (
   id uuid primary key default gen_random_uuid(),

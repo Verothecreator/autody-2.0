@@ -79,6 +79,11 @@ const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
 const APP_BASE_URL = process.env.APP_BASE_URL || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
+const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
+const REMEMBER_SESSION_HOURS = Number(process.env.REMEMBER_SESSION_HOURS || 24 * 30);
+const EMAIL_VERIFICATION_TTL_MS = Number(process.env.EMAIL_VERIFICATION_TTL_MS || 1000 * 60 * 60 * 24);
+const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 1000 * 60 * 10);
+const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
@@ -490,10 +495,13 @@ function verificationCodeHash(code, salt) {
     return crypto.createHash("sha256").update(`${salt}:${code}`).digest("hex");
 }
 
-function createVerificationCodeRecord(channel, destination) {
-    const code = channel === "email" ? crypto.randomBytes(24).toString("hex") : String(crypto.randomInt(100000, 1000000));
+function createVerificationCodeRecord(channel, destination, options = {}) {
+    const numericCode = options.codeMode === "numeric";
+    const code = numericCode || channel !== "email"
+        ? String(crypto.randomInt(100000, 1000000))
+        : crypto.randomBytes(24).toString("hex");
     const salt = crypto.randomBytes(16).toString("hex");
-    const ttlMs = channel === "email" ? 1000 * 60 * 60 * 24 : 1000 * 60 * 10;
+    const ttlMs = Number(options.ttlMs || (channel === "email" ? EMAIL_VERIFICATION_TTL_MS : 1000 * 60 * 10));
     return {
         channel,
         destination,
@@ -519,12 +527,13 @@ function emailVerificationUrl(req, email, token) {
 async function sendVerificationEmail(email, token, req) {
     const verifyUrl = emailVerificationUrl(req, email, token);
     const subject = "Verify your Autody account";
-    const text = `Welcome to Autody.\n\nVerify your email address to continue setting up your account:\n${verifyUrl}\n\nIf you did not create an Autody account, you can ignore this email.`;
+    const text = `Welcome to Autody.\n\nVerify your email address within 24 hours to continue setting up your account:\n${verifyUrl}\n\nIf the link expires, return to Autody and request a new verification email. If you did not create an Autody account, you can ignore this email.`;
     const html = `
         <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
           <h1 style="margin:0 0 12px">Verify your Autody account</h1>
-          <p>Welcome to Autody. Confirm your email address to continue setting up your account.</p>
+          <p>Welcome to Autody. Confirm your email address within 24 hours to continue setting up your account.</p>
           <p><a href="${verifyUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">Verify email</a></p>
+          <p style="color:#4b5563">If the link expires, return to Autody and request a new verification email.</p>
           <p style="color:#4b5563">If the button does not work, copy and paste this link into your browser:</p>
           <p style="word-break:break-all">${verifyUrl}</p>
         </div>
@@ -555,21 +564,23 @@ async function sendVerificationEmail(email, token, req) {
 }
 
 async function sendWelcomeEmail(email, req) {
-    const accountUrl = `${appBaseUrl(req)}/account.html`;
     const subject = "Welcome to Autody";
-    const text = `Welcome to Autody.\n\nYour email is verified and your account workspace is ready:\n${accountUrl}\n\nYou can use demo mode while live funding, custody, and verification features continue to grow.`;
+    const text = `Welcome to Autody.\n\nYour email is verified and your account workspace is ready.\n\nAutody brings live market information, crypto, stocks, ETFs, commodities, wallet views, orders, watchlists, and research into one account experience. Demo mode gives you practice funds to learn the platform before using live funding. Live mode is where verified balances, deposits, sends, receives, and future custody features will continue to grow.\n\nAutody AU is part of the long-term platform vision: a gold-backed utility token intended to support future exchange, payment, and account-use cases beyond simple buy-low/sell-high speculation.\n\nKeep your password private, review market risks before every order, and use the research and watchlist tools before making account decisions.\n\nWelcome aboard,\nThe Autody Team`;
     const html = `
         <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
           <h1 style="margin:0 0 12px">Welcome to Autody</h1>
-          <p>Your email is verified and your Autody account workspace is ready.</p>
-          <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">Open account</a></p>
-          <p style="color:#4b5563">Demo mode is available while live funding, custody, and verification features continue to grow.</p>
+          <p>Your email is verified and your account workspace is ready.</p>
+          <p>Autody brings live market information, crypto, stocks, ETFs, commodities, wallet views, orders, watchlists, and research into one account experience.</p>
+          <p>Demo mode gives you practice funds to learn the platform before using live funding. Live mode is where verified balances, deposits, sends, receives, and future custody features will continue to grow.</p>
+          <p>Autody AU is part of the long-term platform vision: a gold-backed utility token intended to support future exchange, payment, and account-use cases beyond simple buy-low/sell-high speculation.</p>
+          <p style="color:#4b5563">Keep your password private, review market risks before every order, and use the research and watchlist tools before making account decisions.</p>
+          <p>Welcome aboard,<br>The Autody Team</p>
         </div>
     `;
 
     if (!RESEND_API_KEY) {
-        console.log("Autody welcome email for", email, accountUrl);
-        return { delivered: false, provider: "console", accountUrl };
+        console.log("Autody welcome email for", email);
+        return { delivered: false, provider: "console" };
     }
 
     const response = await fetch("https://api.resend.com/emails", {
@@ -591,10 +602,46 @@ async function sendWelcomeEmail(email, req) {
     return { delivered: true, provider: "resend" };
 }
 
-function createDemoSession(db, userId) {
+async function sendLoginCodeEmail(email, code) {
+    const subject = "Your Autody sign-in code";
+    const text = `Your Autody sign-in code is ${code}.\n\nThis code expires in 10 minutes. If you did not try to sign in, change your password and contact Autody support.`;
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+          <h1 style="margin:0 0 12px">Your Autody sign-in code</h1>
+          <p>Enter this code to finish signing in:</p>
+          <p style="font-size:32px;font-weight:800;margin:18px 0">${code}</p>
+          <p style="color:#4b5563">This code expires in 10 minutes. If you did not try to sign in, change your password and contact Autody support.</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody login code for", email, code);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: EMAIL_FROM,
+            to: email,
+            subject,
+            html,
+            text
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Login code delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+function createDemoSession(db, userId, sessionHours = SESSION_HOURS) {
     const token = crypto.randomBytes(32).toString("hex");
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 8);
+    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * sessionHours);
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
     db.sessions = (db.sessions || [])
@@ -1999,10 +2046,10 @@ async function removeLiveWatchlistSymbol(symbol) {
     return removeWatchlistSymbol(symbol, "live");
 }
 
-async function createDatabaseSessionWithClient(client, profileId) {
+async function createDatabaseSessionWithClient(client, profileId, sessionHours = SESSION_HOURS) {
     const token = crypto.randomBytes(32).toString("hex");
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 8);
+    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * sessionHours);
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
     await client.query(`
@@ -2022,8 +2069,8 @@ async function createDatabaseSessionWithClient(client, profileId) {
     };
 }
 
-async function createDatabaseSession(profileId) {
-    return createDatabaseSessionWithClient(dbPool, profileId);
+async function createDatabaseSession(profileId, sessionHours = SESSION_HOURS) {
+    return createDatabaseSessionWithClient(dbPool, profileId, sessionHours);
 }
 
 async function ensureSignUpTables(client = dbPool) {
@@ -2055,6 +2102,9 @@ async function ensureSignUpTables(client = dbPool) {
           add column if not exists terms_accepted_at timestamptz,
           add column if not exists information_confirmed_at timestamptz;
 
+        create unique index if not exists profile_verifications_phone_unique_idx
+          on profile_verifications (phone);
+
         create table if not exists verification_codes (
           id uuid primary key default gen_random_uuid(),
           profile_id uuid not null references profiles(id) on delete cascade,
@@ -2072,6 +2122,9 @@ async function ensureSignUpTables(client = dbPool) {
 
         create index if not exists verification_codes_profile_status_idx
           on verification_codes (profile_id, channel, status, created_at desc);
+
+        create index if not exists verification_codes_profile_purpose_status_idx
+          on verification_codes (profile_id, channel, purpose, status, created_at desc);
     `);
 }
 
@@ -2121,11 +2174,19 @@ async function createDatabaseAccount(signUp) {
     try {
         await client.query("begin");
         await ensureSignUpTables(client);
+        await cleanupExpiredDatabasePendingAccounts(client).catch((err) => {
+            console.error("Pending account cleanup failed:", err.message || err);
+        });
 
         const existing = await client.query(`
             select id from profiles where lower(email) = lower($1) limit 1
         `, [signUp.email]);
         if (existing.rows[0]) throw signUpError(409, "An Autody account already exists for this email.");
+
+        const existingPhone = await client.query(`
+            select 1 from profile_verifications where phone = $1 limit 1
+        `, [signUp.phone]);
+        if (existingPhone.rows[0]) throw signUpError(409, "This phone number is already connected to an Autody account.");
 
         const profileResult = await client.query(`
             insert into profiles (email, display_name)
@@ -2194,7 +2255,6 @@ async function createDatabaseAccount(signUp) {
             `, [profile.id, topic]);
         }
 
-        const session = await createDatabaseSessionWithClient(client, profile.id);
         await client.query("commit");
 
         console.log("Autody verification codes created for", signUp.email, verificationCodes.map((item) => `${item.channel}:${item.code}`).join(" "));
@@ -2213,7 +2273,6 @@ async function createDatabaseAccount(signUp) {
                     identity: "pending"
                 }
             },
-            session,
             source: "supabase",
             verificationDelivery: {
                 emailToken: verificationCodes.find((item) => item.channel === "email")?.code || ""
@@ -2227,10 +2286,44 @@ async function createDatabaseAccount(signUp) {
     }
 }
 
+function cleanupExpiredJsonPendingAccounts(db) {
+    if (!UNVERIFIED_ACCOUNT_RETENTION_DAYS) return false;
+    const cutoff = Date.now() - UNVERIFIED_ACCOUNT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const removedIds = new Set();
+
+    db.users = (db.users || []).filter((user) => {
+        if (user.id === PRACTICE_USER_ID) return true;
+        const emailVerified = user.verification?.emailStatus === "verified";
+        const createdAt = Date.parse(user.createdAt || "");
+        if (!emailVerified && Number.isFinite(createdAt) && createdAt < cutoff) {
+            removedIds.add(user.id);
+            return false;
+        }
+        return true;
+    });
+
+    if (!removedIds.size) return false;
+
+    for (const id of removedIds) {
+        delete db.wallets?.[id];
+        delete db.orders?.[id];
+        delete db.watchlists?.[id];
+        delete db.researchPreferences?.[id];
+        delete db.performance?.[id];
+        delete db.settings?.[id];
+        delete db.verificationCodes?.[id];
+    }
+    db.sessions = (db.sessions || []).filter((session) => !removedIds.has(session.userId));
+    return true;
+}
+
 function createJsonAccount(signUp) {
     const db = loadDemoDb();
+    cleanupExpiredJsonPendingAccounts(db);
     const existing = (db.users || []).find((user) => normalizeEmail(user.email) === signUp.email);
     if (existing) throw signUpError(409, "An Autody account already exists for this email.");
+    const phoneOwner = (db.users || []).find((user) => user.id !== PRACTICE_USER_ID && normalizePhone(user.verification?.phone) === signUp.phone);
+    if (phoneOwner) throw signUpError(409, "This phone number is already connected to an Autody account.");
 
     const userId = crypto.randomUUID();
     const passwordSalt = crypto.randomBytes(16).toString("hex");
@@ -2338,12 +2431,11 @@ function createJsonAccount(signUp) {
         createdAt: now
     }));
 
-    const session = createDemoSession(db, userId);
+    saveDemoDb(db);
     console.log("Autody local verification codes created for", signUp.email, verificationCodes.map((item) => `${item.channel}:${item.code}`).join(" "));
 
     return {
         user: publicUser(user),
-        session,
         source: "json",
         verificationDelivery: {
             emailToken: verificationCodes.find((item) => item.channel === "email")?.code || ""
@@ -2372,6 +2464,19 @@ async function databaseProfileVerification(email) {
     return result.rows[0] || null;
 }
 
+async function cleanupExpiredDatabasePendingAccounts(client = dbPool) {
+    if (!databaseConfigured() || !UNVERIFIED_ACCOUNT_RETENTION_DAYS) return;
+    await ensureSignUpTables(client);
+    const cutoff = new Date(Date.now() - UNVERIFIED_ACCOUNT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    await client.query(`
+        delete from profiles p
+        using profile_verifications pv
+        where pv.profile_id = p.id
+          and coalesce(pv.email_status, 'pending') <> 'verified'
+          and p.created_at < $1
+    `, [cutoff]);
+}
+
 function databasePublicUser(row) {
     if (!row) return null;
     return {
@@ -2389,26 +2494,26 @@ function databasePublicUser(row) {
     };
 }
 
-async function createDatabaseVerificationCode(email, channel) {
+async function createDatabaseVerificationCode(email, channel, purpose = "sign_up", options = {}) {
     const profile = await databaseProfileVerification(email);
     if (!profile) return null;
 
     const destination = channel === "email" ? profile.email : profile.phone;
-    const item = createVerificationCodeRecord(channel, destination);
+    const item = createVerificationCodeRecord(channel, destination, options);
     await dbPool.query(`
         update verification_codes
         set status = 'replaced'
-        where profile_id = $1 and channel = $2 and status = 'pending'
-    `, [profile.id, channel]);
+        where profile_id = $1 and channel = $2 and purpose = $3 and status = 'pending'
+    `, [profile.id, channel, purpose]);
     await dbPool.query(`
         insert into verification_codes (profile_id, channel, destination, purpose, code_salt, code_hash, expires_at)
-        values ($1, $2, $3, 'sign_up', $4, $5, $6)
-    `, [profile.id, channel, destination, item.salt, item.hash, item.expiresAt]);
+        values ($1, $2, $3, $4, $5, $6, $7)
+    `, [profile.id, channel, destination, purpose, item.salt, item.hash, item.expiresAt]);
 
     return { profile, code: item.code, destination };
 }
 
-async function verifyDatabaseCode(email, channel, code) {
+async function verifyDatabaseCode(email, channel, code, purpose = "sign_up", options = {}) {
     if (!databaseConfigured()) return null;
     const profile = await databaseProfileVerification(email);
     if (!profile) return null;
@@ -2419,10 +2524,10 @@ async function verifyDatabaseCode(email, channel, code) {
     const result = await dbPool.query(`
         select id, code_salt, code_hash, expires_at, attempts
         from verification_codes
-        where profile_id = $1 and channel = $2 and status = 'pending'
+        where profile_id = $1 and channel = $2 and purpose = $3 and status = 'pending'
         order by created_at desc
         limit 1
-    `, [profile.id, channel]);
+    `, [profile.id, channel, purpose]);
     const record = result.rows[0];
     if (!record) return { success: false, error: "No active verification code found." };
     if (Date.parse(record.expires_at) <= Date.now()) {
@@ -2440,12 +2545,14 @@ async function verifyDatabaseCode(email, channel, code) {
     }
 
     await dbPool.query("update verification_codes set status = 'verified', verified_at = now() where id = $1", [record.id]);
-    const statusColumn = channel === "email" ? "email_status" : "phone_status";
-    await dbPool.query(`
-        update profile_verifications
-        set ${statusColumn} = 'verified', updated_at = now()
-        where profile_id = $1
-    `, [profile.id]);
+    if (options.markProfileVerified !== false) {
+        const statusColumn = channel === "email" ? "email_status" : "phone_status";
+        await dbPool.query(`
+            update profile_verifications
+            set ${statusColumn} = 'verified', updated_at = now()
+            where profile_id = $1
+        `, [profile.id]);
+    }
 
     const updated = await databaseProfileVerification(email);
     return { success: true, profile: updated };
@@ -2455,19 +2562,20 @@ function jsonUserByEmail(db, email) {
     return (db.users || []).find((user) => normalizeEmail(user.email) === normalizeEmail(email));
 }
 
-function createJsonVerificationCode(email, channel) {
+function createJsonVerificationCode(email, channel, purpose = "sign_up", options = {}) {
     const db = loadDemoDb();
     const user = jsonUserByEmail(db, email);
     if (!user) return null;
 
     const destination = channel === "email" ? user.email : user.verification?.phone;
-    const item = createVerificationCodeRecord(channel, destination);
+    const item = createVerificationCodeRecord(channel, destination, options);
     db.verificationCodes = db.verificationCodes || {};
     db.verificationCodes[user.id] = (db.verificationCodes[user.id] || []).map((record) => (
-        record.channel === channel && record.status === "pending" ? { ...record, status: "replaced" } : record
+        record.channel === channel && (record.purpose || "sign_up") === purpose && record.status === "pending" ? { ...record, status: "replaced" } : record
     ));
     db.verificationCodes[user.id].push({
         channel: item.channel,
+        purpose,
         destination: item.destination,
         salt: item.salt,
         hash: item.hash,
@@ -2480,7 +2588,7 @@ function createJsonVerificationCode(email, channel) {
     return { user, code: item.code, destination };
 }
 
-function verifyJsonCode(email, channel, code) {
+function verifyJsonCode(email, channel, code, purpose = "sign_up", options = {}) {
     const db = loadDemoDb();
     const user = jsonUserByEmail(db, email);
     if (!user) return { success: false, error: "Account not found." };
@@ -2489,7 +2597,7 @@ function verifyJsonCode(email, channel, code) {
     }
 
     const records = db.verificationCodes?.[user.id] || [];
-    const record = [...records].reverse().find((item) => item.channel === channel && item.status === "pending");
+    const record = [...records].reverse().find((item) => item.channel === channel && (item.purpose || "sign_up") === purpose && item.status === "pending");
     if (!record) return { success: false, error: "No active verification code found." };
     if (Date.parse(record.expiresAt) <= Date.now()) {
         record.status = "expired";
@@ -2509,14 +2617,16 @@ function verifyJsonCode(email, channel, code) {
 
     record.status = "verified";
     record.verifiedAt = new Date().toISOString();
-    user.verification = user.verification || {};
-    if (channel === "email") user.verification.emailStatus = "verified";
-    if (channel === "phone") user.verification.phoneStatus = "verified";
+    if (options.markProfileVerified !== false) {
+        user.verification = user.verification || {};
+        if (channel === "email") user.verification.emailStatus = "verified";
+        if (channel === "phone") user.verification.phoneStatus = "verified";
+    }
     saveDemoDb(db);
     return { success: true, user };
 }
 
-async function signInFromDatabase(email, password) {
+async function signInFromDatabase(email, password, options = {}) {
     if (!databaseConfigured()) return null;
 
     const result = await dbPool.query(`
@@ -2547,7 +2657,9 @@ async function signInFromDatabase(email, password) {
     };
     if (!verifyPassword(password, auth)) return null;
 
-    const session = await createDatabaseSession(row.profile_id);
+    const session = options.createSession === false
+        ? null
+        : await createDatabaseSession(row.profile_id, options.sessionHours || SESSION_HOURS);
     return {
         user: {
             id: row.profile_id,
@@ -5567,24 +5679,40 @@ app.post("/api/auth/sign-in", async (req, res) => {
     const body = parseJsonBody(req);
     const email = normalizeEmail(body.email);
     const password = String(body.password || "");
+    const rememberDevice = truthyFormValue(body.rememberDevice);
     if (!await verifyCaptcha(body, req)) {
       return res.status(400).json({
         success: false,
         error: "Complete the human verification."
       });
     }
-    const databaseSignIn = await signInFromDatabase(email, password).catch((err) => {
+    const databaseSignIn = await signInFromDatabase(email, password, { createSession: false }).catch((err) => {
       console.error("Supabase sign in failed, using JSON fallback:", err);
       return null;
     });
 
     if (databaseSignIn) {
       const next = accountNextPage(databaseSignIn.user);
+      if (next.startsWith("verify-email")) {
+        return res.json({
+          success: true,
+          next,
+          source: "supabase"
+        });
+      }
+      const loginCode = await createDatabaseVerificationCode(email, "email", "sign_in", {
+        codeMode: "numeric",
+        ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+      });
+      const delivery = await sendLoginCodeEmail(email, loginCode.code).catch((err) => {
+        console.error("Login code delivery failed:", err.message || err);
+        throw signUpError(502, "Could not send the sign-in code. Try again.");
+      });
       return res.json({
         success: true,
-        user: databaseSignIn.user,
-        session: databaseSignIn.session,
-        next,
+        requiresEmailCode: true,
+        next: `verify-login.html?email=${encodeURIComponent(email)}&remember=${rememberDevice ? "1" : "0"}`,
+        delivery: delivery.delivered ? "Sign-in code sent." : "Sign-in code created. Email delivery provider is not fully connected yet.",
         source: "supabase"
       });
     }
@@ -5599,18 +5727,82 @@ app.post("/api/auth/sign-in", async (req, res) => {
       });
     }
 
-    const session = createDemoSession(db, user.id);
     const safeUser = publicUser(user);
+    const next = accountNextPage(safeUser);
+    if (next.startsWith("verify-email")) {
+      return res.json({
+        success: true,
+        next,
+        source: "json"
+      });
+    }
+    const loginCode = createJsonVerificationCode(email, "email", "sign_in", {
+      codeMode: "numeric",
+      ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+    });
+    const delivery = await sendLoginCodeEmail(email, loginCode.code).catch((err) => {
+      console.error("Login code delivery failed:", err.message || err);
+      throw signUpError(502, "Could not send the sign-in code. Try again.");
+    });
     return res.json({
       success: true,
-      user: safeUser,
-      session,
-      next: accountNextPage(safeUser),
+      requiresEmailCode: true,
+      next: `verify-login.html?email=${encodeURIComponent(email)}&remember=${rememberDevice ? "1" : "0"}`,
+      delivery: delivery.delivered ? "Sign-in code sent." : "Sign-in code created. Email delivery provider is not fully connected yet.",
       source: "json"
     });
   } catch (err) {
     console.error("Sign in error:", err);
-    return res.status(500).json({ success: false, error: "Sign in unavailable" });
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Sign in unavailable" });
+  }
+});
+
+app.post("/api/auth/verify-login", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    const code = normalizeText(body.code).replace(/\s+/g, "");
+    const rememberDevice = truthyFormValue(body.rememberDevice);
+    const sessionHours = rememberDevice ? REMEMBER_SESSION_HOURS : SESSION_HOURS;
+    if (!email || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ success: false, error: "Enter the 6-digit sign-in code." });
+    }
+
+    const databaseResult = await verifyDatabaseCode(email, "email", code, "sign_in", { markProfileVerified: false }).catch(() => null);
+    if (databaseResult?.success) {
+      if (databaseResult.profile.email_status !== "verified") {
+        return res.status(403).json({ success: false, error: "Verify your email before signing in." });
+      }
+      const user = databasePublicUser(databaseResult.profile);
+      const session = await createDatabaseSession(databaseResult.profile.id, sessionHours);
+      return res.json({
+        success: true,
+        user,
+        session,
+        next: "account.html",
+        source: "supabase"
+      });
+    }
+    if (databaseResult?.error) return res.status(400).json(databaseResult);
+
+    const jsonResult = verifyJsonCode(email, "email", code, "sign_in", { markProfileVerified: false });
+    if (!jsonResult.success) return res.status(400).json(jsonResult);
+    if (jsonResult.user.verification?.emailStatus !== "verified") {
+      return res.status(403).json({ success: false, error: "Verify your email before signing in." });
+    }
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    const session = createDemoSession(db, user.id, sessionHours);
+    return res.json({
+      success: true,
+      user: publicUser(user),
+      session,
+      next: "account.html",
+      source: "json"
+    });
+  } catch (err) {
+    console.error("Login code verification failed:", err);
+    return res.status(500).json({ success: false, error: "Could not verify the sign-in code." });
   }
 });
 
