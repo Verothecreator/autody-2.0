@@ -43,7 +43,7 @@ alter table if exists profile_verifications
   add column if not exists terms_accepted_at timestamptz,
   add column if not exists information_confirmed_at timestamptz;
 
-create unique index if not exists profile_verifications_phone_unique_idx
+create index if not exists profile_verifications_phone_idx
   on profile_verifications (phone);
 
 create table if not exists verification_codes (

@@ -79,6 +79,7 @@ const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
 const APP_BASE_URL = process.env.APP_BASE_URL || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
+const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || "";
 const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
 const REMEMBER_SESSION_HOURS = Number(process.env.REMEMBER_SESSION_HOURS || 24 * 30);
 const EMAIL_VERIFICATION_TTL_MS = Number(process.env.EMAIL_VERIFICATION_TTL_MS || 1000 * 60 * 60 * 24);
@@ -2102,7 +2103,7 @@ async function ensureSignUpTables(client = dbPool) {
           add column if not exists terms_accepted_at timestamptz,
           add column if not exists information_confirmed_at timestamptz;
 
-        create unique index if not exists profile_verifications_phone_unique_idx
+        create index if not exists profile_verifications_phone_idx
           on profile_verifications (phone);
 
         create table if not exists verification_codes (
@@ -2461,7 +2462,29 @@ async function databaseProfileVerification(email) {
         where lower(p.email) = lower($1)
         limit 1
     `, [email]);
-    return result.rows[0] || null;
+    return syncDatabaseEmailStatusFromVerifiedCode(result.rows[0] || null);
+}
+
+async function syncDatabaseEmailStatusFromVerifiedCode(profile, client = dbPool) {
+    if (!profile || profile.email_status === "verified") return profile;
+    const profileId = profile.id || profile.profile_id;
+    if (!profileId) return profile;
+    const verifiedCode = await client.query(`
+        select 1
+        from verification_codes
+        where profile_id = $1
+          and channel = 'email'
+          and purpose = 'sign_up'
+          and status = 'verified'
+        limit 1
+    `, [profileId]);
+    if (!verifiedCode.rows[0]) return profile;
+    await client.query(`
+        update profile_verifications
+        set email_status = 'verified', updated_at = now()
+        where profile_id = $1
+    `, [profileId]);
+    return { ...profile, email_status: "verified" };
 }
 
 async function cleanupExpiredDatabasePendingAccounts(client = dbPool) {
@@ -2475,6 +2498,69 @@ async function cleanupExpiredDatabasePendingAccounts(client = dbPool) {
           and coalesce(pv.email_status, 'pending') <> 'verified'
           and p.created_at < $1
     `, [cutoff]);
+}
+
+function resetJsonAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
+    const db = loadDemoDb();
+    const normalizedKeepEmail = normalizeEmail(keepEmail || PRACTICE_USER_EMAIL);
+    const keepIds = new Set((db.users || [])
+        .filter((user) => normalizeEmail(user.email) === normalizedKeepEmail || user.id === PRACTICE_USER_ID)
+        .map((user) => user.id));
+    if (!keepIds.size) keepIds.add(PRACTICE_USER_ID);
+
+    const before = (db.users || []).length;
+    db.users = (db.users || []).filter((user) => keepIds.has(user.id));
+    db.sessions = (db.sessions || []).filter((session) => keepIds.has(session.userId));
+    for (const key of ["wallets", "orders", "watchlists", "researchPreferences", "performance", "settings", "verificationCodes"]) {
+        if (!db[key] || typeof db[key] !== "object") continue;
+        Object.keys(db[key]).forEach((userId) => {
+            if (!keepIds.has(userId)) delete db[key][userId];
+        });
+    }
+    saveDemoDb(db);
+    return {
+        kept: db.users.map((user) => user.email),
+        deleted: Math.max(0, before - db.users.length)
+    };
+}
+
+async function resetDatabaseAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
+    if (!databaseConfigured()) return { configured: false, deleted: 0, kept: [] };
+    const normalizedKeepEmail = normalizeEmail(keepEmail || PRACTICE_USER_EMAIL);
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        const keptBefore = await client.query(`
+            select email from profiles where lower(email) = lower($1)
+        `, [normalizedKeepEmail]);
+        const deleted = await client.query(`
+            delete from profiles
+            where lower(email) <> lower($1)
+            returning email
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            update profile_verifications
+            set email_status = 'verified', updated_at = now()
+            where profile_id in (
+              select id from profiles where lower(email) = lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            create unique index if not exists profile_verifications_phone_unique_idx
+              on profile_verifications (phone)
+        `);
+        await client.query("commit");
+        return {
+            configured: true,
+            deleted: deleted.rowCount || 0,
+            kept: keptBefore.rows.map((row) => row.email)
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
 }
 
 function databasePublicUser(row) {
@@ -2648,7 +2734,7 @@ async function signInFromDatabase(email, password, options = {}) {
         limit 1
     `, [email]);
 
-    const row = result.rows[0];
+    let row = result.rows[0];
     if (!row) return null;
 
     const auth = {
@@ -2656,6 +2742,7 @@ async function signInFromDatabase(email, password, options = {}) {
         passwordHash: row.password_hash
     };
     if (!verifyPassword(password, auth)) return null;
+    row = await syncDatabaseEmailStatusFromVerifiedCode(row);
 
     const session = options.createSession === false
         ? null
@@ -5504,6 +5591,31 @@ app.get("/api/auth/verification-status", async (req, res) => {
   } catch (err) {
     console.error("Verification status failed:", err);
     return res.status(500).json({ success: false, error: "Verification status unavailable." });
+  }
+});
+
+app.post("/api/admin/reset-accounts", async (req, res) => {
+  try {
+    if (!ADMIN_RESET_KEY) {
+      return res.status(503).json({ success: false, error: "Admin reset is not configured." });
+    }
+    const body = parseJsonBody(req);
+    const providedKey = normalizeText(req.get("x-admin-reset-key") || body.adminKey);
+    if (!providedKey || providedKey !== ADMIN_RESET_KEY) {
+      return res.status(403).json({ success: false, error: "Admin reset is not authorized." });
+    }
+    const keepEmail = normalizeEmail(body.keepEmail || PRACTICE_USER_EMAIL);
+    const database = await resetDatabaseAccountsToEmail(keepEmail);
+    const json = resetJsonAccountsToEmail(keepEmail);
+    return res.json({
+      success: true,
+      keepEmail,
+      database,
+      json
+    });
+  } catch (err) {
+    console.error("Admin account reset failed:", err);
+    return res.status(500).json({ success: false, error: "Could not reset accounts." });
   }
 });
 
