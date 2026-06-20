@@ -3958,7 +3958,7 @@ body.modal-open {
 
 .auth-code-input {
   text-align: center;
-  font-size: 1.35rem !important;
+  font-size: 1.6rem !important;
   font-weight: 900 !important;
 }
 
@@ -3977,6 +3977,28 @@ body.modal-open {
   margin: 0;
   color: var(--positive);
   font-weight: 800;
+}
+
+.auth-mail-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border: 1px solid rgba(91, 95, 239, 0.55);
+  border-radius: 8px;
+  background: rgba(91, 95, 239, 0.12);
+  color: var(--primary);
+  box-shadow: 0 18px 45px rgba(91, 95, 239, 0.2);
+}
+
+.auth-mail-icon svg {
+  width: 36px;
+  height: 36px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .auth-captcha {

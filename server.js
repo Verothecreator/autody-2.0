@@ -2223,14 +2223,17 @@ async function createDatabaseAccount(signUp) {
             signUp.informationConfirmedAt
         ]);
 
+        const emailVerificationCode = createVerificationCodeRecord("email", signUp.email);
+        const emailHandoffCode = createVerificationCodeRecord("email", signUp.email);
         const verificationCodes = [
-            createVerificationCodeRecord("email", signUp.email)
+            { ...emailVerificationCode, purpose: "sign_up" },
+            { ...emailHandoffCode, purpose: "email_handoff" }
         ];
         for (const item of verificationCodes) {
             await client.query(`
                 insert into verification_codes (profile_id, channel, destination, purpose, code_salt, code_hash, expires_at)
-                values ($1, $2, $3, 'sign_up', $4, $5, $6)
-            `, [profile.id, item.channel, item.destination, item.salt, item.hash, item.expiresAt]);
+                values ($1, $2, $3, $4, $5, $6, $7)
+            `, [profile.id, item.channel, item.destination, item.purpose, item.salt, item.hash, item.expiresAt]);
         }
 
         await client.query(`
@@ -2276,7 +2279,8 @@ async function createDatabaseAccount(signUp) {
             },
             source: "supabase",
             verificationDelivery: {
-                emailToken: verificationCodes.find((item) => item.channel === "email")?.code || ""
+                emailToken: emailVerificationCode.code || "",
+                emailHandoffToken: emailHandoffCode.code || ""
             }
         };
     } catch (err) {
@@ -2418,12 +2422,16 @@ function createJsonAccount(signUp) {
         newsAlerts: true
     };
 
+    const emailVerificationCode = createVerificationCodeRecord("email", signUp.email);
+    const emailHandoffCode = createVerificationCodeRecord("email", signUp.email);
     const verificationCodes = [
-        createVerificationCodeRecord("email", signUp.email)
+        { ...emailVerificationCode, purpose: "sign_up" },
+        { ...emailHandoffCode, purpose: "email_handoff" }
     ];
     db.verificationCodes = db.verificationCodes || {};
     db.verificationCodes[userId] = verificationCodes.map((item) => ({
         channel: item.channel,
+        purpose: item.purpose,
         destination: item.destination,
         salt: item.salt,
         hash: item.hash,
@@ -2439,7 +2447,8 @@ function createJsonAccount(signUp) {
         user: publicUser(user),
         source: "json",
         verificationDelivery: {
-            emailToken: verificationCodes.find((item) => item.channel === "email")?.code || ""
+            emailToken: emailVerificationCode.code || "",
+            emailHandoffToken: emailHandoffCode.code || ""
         }
     };
 }
@@ -5734,6 +5743,63 @@ app.post("/api/auth/verify-email", async (req, res) => {
   }
 });
 
+app.post("/api/auth/complete-email-verification", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    const handoffToken = normalizeText(body.handoffToken);
+    if (!email || !handoffToken) {
+      return res.status(400).json({ success: false, error: "Verification session is incomplete." });
+    }
+
+    const databaseProfile = await databaseProfileVerification(email).catch(() => null);
+    if (databaseProfile) {
+      if (databaseProfile.email_status !== "verified") {
+        return res.json({ success: true, verified: false });
+      }
+      const handoff = await verifyDatabaseCode(email, "email", handoffToken, "email_handoff", { markProfileVerified: false }).catch(() => null);
+      if (!handoff?.success) {
+        return res.status(400).json({ success: false, error: handoff?.error || "Verification session expired. Sign in to continue." });
+      }
+      const session = await createDatabaseSession(databaseProfile.id);
+      const user = databasePublicUser(databaseProfile);
+      return res.json({
+        success: true,
+        verified: true,
+        user,
+        session,
+        next: "account.html",
+        source: "supabase"
+      });
+    }
+
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    if (!user) return res.status(404).json({ success: false, error: "Account not found." });
+    if (user.verification?.emailStatus !== "verified") {
+      return res.json({ success: true, verified: false });
+    }
+    const handoff = verifyJsonCode(email, "email", handoffToken, "email_handoff", { markProfileVerified: false });
+    if (!handoff.success) {
+      return res.status(400).json({ success: false, error: handoff.error || "Verification session expired. Sign in to continue." });
+    }
+    const latestDb = loadDemoDb();
+    const latestUser = jsonUserByEmail(latestDb, email);
+    const session = createDemoSession(latestDb, latestUser.id);
+    return res.json({
+      success: true,
+      verified: true,
+      user: publicUser(latestUser),
+      session,
+      next: "account.html",
+      source: "json"
+    });
+  } catch (err) {
+    console.error("Email verification completion failed:", err);
+    return res.status(500).json({ success: false, error: "Could not complete email verification." });
+  }
+});
+
 app.post("/api/auth/sign-up", async (req, res) => {
   try {
     const body = parseJsonBody(req);
@@ -5769,6 +5835,7 @@ app.post("/api/auth/sign-up", async (req, res) => {
       success: true,
       user: created.user,
       next: `verify-email.html?email=${encodeURIComponent(signUp.email)}`,
+      emailHandoffToken: created.verificationDelivery?.emailHandoffToken || "",
       verification: {
         email: "pending",
         phone: "not_required",

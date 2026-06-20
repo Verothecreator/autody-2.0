@@ -7,6 +7,9 @@ const resendEmailButton = document.getElementById("resend-email-button");
 const verifyEmailParams = new URLSearchParams(location.search);
 const verifyEmail = verifyEmailParams.get("email") || sessionStorage.getItem("autodyPendingEmail") || "";
 const verifyEmailToken = verifyEmailParams.get("token") || "";
+const verifyEmailHandoff = verifyEmailParams.get("handoff") || sessionStorage.getItem("autodyEmailHandoff") || "";
+let verificationPoll = null;
+let verificationCompletionStarted = false;
 
 function storedSessionMatchesEmail(email) {
   try {
@@ -52,13 +55,64 @@ function redirectVerifiedAccount(message = "Email already verified. Opening your
   }, 800);
 }
 
+function storeVerifiedSession(data) {
+  if (data.session) localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
+  if (data.user) localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
+  sessionStorage.removeItem("autodyPendingEmail");
+  sessionStorage.removeItem("autodyEmailHandoff");
+}
+
+async function completeVerificationFromWaitingPage() {
+  if (verificationCompletionStarted) return true;
+  if (storedSessionMatchesEmail(verifyEmail)) {
+    redirectVerifiedAccount("Email verified. Opening your Autody account.");
+    return true;
+  }
+  if (!verifyEmailHandoff) {
+    setVerifyEmailMessage("success", "Email verified. Sign in to open your account.");
+    lockResendButton();
+    return true;
+  }
+
+  verificationCompletionStarted = true;
+  try {
+    const response = await fetch("/api/auth/complete-email-verification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: verifyEmail, handoffToken: verifyEmailHandoff })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data?.verified) {
+      storeVerifiedSession(data);
+      lockResendButton();
+      setVerifyEmailMessage("success", "Email verified. Opening your Autody account.");
+      setTimeout(() => {
+        location.href = data.next || "account.html";
+      }, 700);
+      return true;
+    }
+    if (!response.ok) {
+      setVerifyEmailMessage("error", data.error || "Could not open the verified account yet.");
+      verificationCompletionStarted = false;
+      return response.status >= 400 && response.status < 500;
+    }
+    verificationCompletionStarted = false;
+    return false;
+  } catch (err) {
+    verificationCompletionStarted = false;
+    setVerifyEmailMessage("error", err.message || "Could not open the verified account.");
+    return false;
+  }
+}
+
 async function checkVerificationStatus() {
   if (!verifyEmail || verifyEmailToken) return;
   try {
     const response = await fetch(`/api/auth/verification-status?email=${encodeURIComponent(verifyEmail)}`);
     const data = await response.json().catch(() => ({}));
     if (response.ok && data?.verification?.email === "verified") {
-      redirectVerifiedAccount();
+      const completed = await completeVerificationFromWaitingPage();
+      if (completed && verificationPoll) clearInterval(verificationPoll);
     }
   } catch {
     // Keep the resend flow available if status cannot be checked.
@@ -83,9 +137,7 @@ async function verifyEmailLink() {
     }
     if (!response.ok || !data.success) throw new Error(data.error || "Email verification failed.");
 
-    if (data.session) localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
-    if (data.user) localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
-    sessionStorage.removeItem("autodyPendingEmail");
+    storeVerifiedSession(data);
     lockResendButton();
     setVerifyEmailMessage("success", "Email verified. Opening your Autody account.");
     setTimeout(() => {
@@ -131,4 +183,7 @@ if (verifyEmailCopy && verifyEmail) {
 }
 
 checkVerificationStatus();
+if (verifyEmail && !verifyEmailToken) {
+  verificationPoll = setInterval(checkVerificationStatus, 3000);
+}
 verifyEmailLink();

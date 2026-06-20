@@ -354,6 +354,11 @@ signUpForm?.addEventListener("submit", async (event) => {
     }
 
     sessionStorage.setItem("autodyPendingEmail", String(form.get("email") || ""));
+    if (data.emailHandoffToken) {
+      sessionStorage.setItem("autodyEmailHandoff", data.emailHandoffToken);
+    } else {
+      sessionStorage.removeItem("autodyEmailHandoff");
+    }
     location.href = data.next || signUpNextPage();
   } catch (err) {
     setSignUpMessage("error", err.message || "Sign up failed.");

@@ -1,9 +1,7 @@
 const verifyLoginForm = document.getElementById("verify-login-form");
-const verifyLoginEmail = document.getElementById("verify-login-email");
 const verifyLoginCopy = document.getElementById("verify-login-copy");
 const verifyLoginError = document.getElementById("verify-login-error");
 const verifyLoginButton = document.getElementById("verify-login-button");
-const verifyLoginRemember = document.getElementById("verify-login-remember");
 
 const verifyLoginParams = new URLSearchParams(location.search);
 const loginEmail = verifyLoginParams.get("email") || sessionStorage.getItem("autodyPendingEmail") || "";
@@ -16,11 +14,9 @@ function setVerifyLoginError(message) {
   verifyLoginError.hidden = !message;
 }
 
-if (verifyLoginEmail) verifyLoginEmail.textContent = loginEmail || "Email missing";
 if (verifyLoginCopy && loginEmail) {
-  verifyLoginCopy.textContent = `We sent a 6-digit Autody sign-in code to ${loginEmail}. Enter it to open your account.`;
+  verifyLoginCopy.textContent = `We sent a 6-digit code to ${loginEmail}. Enter it below to continue.`;
 }
-if (verifyLoginRemember) verifyLoginRemember.checked = rememberFromUrl || rememberFromSession;
 
 verifyLoginForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -45,7 +41,7 @@ verifyLoginForm?.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         email: loginEmail,
         code,
-        rememberDevice: form.get("rememberDevice") === "on"
+        rememberDevice: rememberFromUrl || rememberFromSession
       })
     });
     const data = await response.json().catch(() => ({}));
@@ -61,7 +57,7 @@ verifyLoginForm?.addEventListener("submit", async (event) => {
   } finally {
     if (verifyLoginButton) {
       verifyLoginButton.disabled = false;
-      verifyLoginButton.textContent = "Verify Sign In";
+      verifyLoginButton.textContent = "Confirm";
     }
   }
 });
