@@ -2542,6 +2542,97 @@ async function resetDatabaseAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
         const keptBefore = await client.query(`
             select email from profiles where lower(email) = lower($1)
         `, [normalizedKeepEmail]);
+        const deleteTargets = await client.query(`
+            select id, email
+            from profiles
+            where lower(email) <> lower($1)
+        `, [normalizedKeepEmail]);
+
+        await client.query(`
+            delete from holdings
+            where wallet_id in (
+              select w.id
+              from wallets w
+              join account_modes am on am.id = w.account_mode_id
+              join profiles p on p.id = am.profile_id
+              where lower(p.email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from demo_performance
+            where account_mode_id in (
+              select am.id
+              from account_modes am
+              join profiles p on p.id = am.profile_id
+              where lower(p.email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from orders
+            where account_mode_id in (
+              select am.id
+              from account_modes am
+              join profiles p on p.id = am.profile_id
+              where lower(p.email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from wallets
+            where account_mode_id in (
+              select am.id
+              from account_modes am
+              join profiles p on p.id = am.profile_id
+              where lower(p.email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from account_modes
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from app_sessions
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from verification_codes
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from watchlists
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from research_preferences
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from account_settings
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from profile_credentials
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
+        await client.query(`
+            delete from profile_verifications
+            where profile_id in (
+              select id from profiles where lower(email) <> lower($1)
+            )
+        `, [normalizedKeepEmail]);
         const deleted = await client.query(`
             delete from profiles
             where lower(email) <> lower($1)
@@ -2561,7 +2652,8 @@ async function resetDatabaseAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
         await client.query("commit");
         return {
             configured: true,
-            deleted: deleted.rowCount || 0,
+            deleted: deleteTargets.rowCount || deleted.rowCount || 0,
+            deletedEmails: deleteTargets.rows.map((row) => row.email),
             kept: keptBefore.rows.map((row) => row.email)
         };
     } catch (err) {
@@ -5608,7 +5700,12 @@ app.post("/api/admin/reset-accounts", async (req, res) => {
     if (!ADMIN_RESET_KEY) {
       return res.status(503).json({ success: false, error: "Admin reset is not configured." });
     }
-    const body = parseJsonBody(req);
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
     const providedKey = normalizeText(req.get("x-admin-reset-key") || body.adminKey);
     if (!providedKey || providedKey !== ADMIN_RESET_KEY) {
       return res.status(403).json({ success: false, error: "Admin reset is not authorized." });
@@ -5624,7 +5721,7 @@ app.post("/api/admin/reset-accounts", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin account reset failed:", err);
-    return res.status(500).json({ success: false, error: "Could not reset accounts." });
+    return res.status(500).json({ success: false, error: "Could not reset accounts.", details: err.message || String(err) });
   }
 });
 
