@@ -24,7 +24,7 @@
       <div class="auth-copy">
         <p class="eyebrow">Email code</p>
         <h1>Check your email</h1>
-        <p id="verify-login-copy">We sent a 6-digit code to your email. Enter it below to continue.</p>
+        <p id="verify-login-copy">We sent a 6-digit code to your email. Enter it below to continue. The code expires in 5 minutes.</p>
       </div>
 
       <form class="auth-form" id="verify-login-form">
@@ -32,7 +32,9 @@
           <input class="auth-code-input" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required />
         </label>
         <p class="auth-error" id="verify-login-error" role="alert" hidden></p>
+        <p class="auth-success" id="verify-login-success" role="status" hidden></p>
         <button class="btn btn-large" id="verify-login-button" type="submit">Confirm</button>
+        <button class="auth-link-button auth-resend-button" id="resend-login-code-button" type="button">Resend code</button>
       </form>
     </section>
   </main>

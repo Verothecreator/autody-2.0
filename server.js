@@ -83,7 +83,7 @@ const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || "";
 const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
 const REMEMBER_SESSION_HOURS = Number(process.env.REMEMBER_SESSION_HOURS || 24 * 30);
 const EMAIL_VERIFICATION_TTL_MS = Number(process.env.EMAIL_VERIFICATION_TTL_MS || 1000 * 60 * 60 * 24);
-const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 1000 * 60 * 10);
+const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 1000 * 60 * 5);
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
@@ -175,6 +175,22 @@ const defaultDemoDb = {
                 passwordSalt: "e347422aa66d3ca056c6a13fc341e4c8",
                 passwordHash: "7809fccd8f63f1516a811717074eef89debc3a4f834b21ca822dfdf035b6f8988b2e4c221814c87faa02b5609a03a428fc5b01cba3cb22bf98cfbe572392a06e",
                 passwordUpdatedAt: "2026-06-11T00:00:00.000Z"
+            },
+            verification: {
+                firstName: "Adrian",
+                lastName: "Cole",
+                legalName: "Adrian Cole",
+                phone: "+15550190777",
+                country: "United States",
+                dateOfBirth: "1994-08-16",
+                accountType: "personal",
+                emailStatus: "verified",
+                phoneStatus: "not_required",
+                identityStatus: "pending",
+                riskStatus: "standard",
+                termsVersion: ACCOUNT_TERMS_VERSION,
+                termsAcceptedAt: "2026-06-11T00:00:00.000Z",
+                informationConfirmedAt: "2026-06-11T00:00:00.000Z"
             }
         }
     ],
@@ -248,7 +264,10 @@ function ensureDemoDb() {
 function loadDemoDb() {
     ensureDemoDb();
     const data = JSON.parse(fs.readFileSync(DEMO_DB_STORE, "utf8"));
-    if (normalizeJsonWatchlists(data)) saveDemoDb(data);
+    let changed = false;
+    if (normalizePracticeJsonUser(data)) changed = true;
+    if (normalizeJsonWatchlists(data)) changed = true;
+    if (changed) saveDemoDb(data);
     return data;
 }
 
@@ -268,6 +287,21 @@ function defaultWatchlistForMode(mode = "demo") {
 
 function normalizeWatchlistMode(mode = "demo") {
     return mode === "live" ? "live" : "demo";
+}
+
+function normalizePracticeJsonUser(db) {
+    const user = (db.users || []).find((item) => item.id === PRACTICE_USER_ID || normalizeEmail(item.email) === PRACTICE_USER_EMAIL);
+    if (!user) return false;
+    const expected = defaultDemoDb.users[0].verification;
+    const nextVerification = {
+        ...expected,
+        ...(user.verification || {}),
+        emailStatus: "verified",
+        phoneStatus: "not_required"
+    };
+    const changed = JSON.stringify(user.verification || {}) !== JSON.stringify(nextVerification);
+    if (changed) user.verification = nextVerification;
+    return changed;
 }
 
 function normalizeJsonWatchlists(db) {
@@ -605,13 +639,20 @@ async function sendWelcomeEmail(email, req) {
 
 async function sendLoginCodeEmail(email, code) {
     const subject = "Your Autody sign-in code";
-    const text = `Your Autody sign-in code is ${code}.\n\nThis code expires in 10 minutes. If you did not try to sign in, change your password and contact Autody support.`;
+    const text = `Your Autody sign-in code is ${code}.\n\nThis code expires in 5 minutes. If you did not try to sign in, change your password and contact Autody support.`;
     const html = `
-        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
-          <h1 style="margin:0 0 12px">Your Autody sign-in code</h1>
-          <p>Enter this code to finish signing in:</p>
-          <p style="font-size:32px;font-weight:800;margin:18px 0">${code}</p>
-          <p style="color:#4b5563">This code expires in 10 minutes. If you did not try to sign in, change your password and contact Autody support.</p>
+        <div style="margin:0;padding:0;background:#070a10;font-family:Arial,sans-serif;color:#f8fafc">
+          <div style="max-width:560px;margin:0 auto;padding:34px 20px">
+            <div style="padding:28px;border:1px solid #263044;border-radius:14px;background:#0f151f">
+              <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#6b6cff;font-weight:800">Autody secure sign in</div>
+              <h1 style="margin:18px 0 10px;font-size:30px;line-height:1.1;color:#ffffff">Your sign-in code</h1>
+              <p style="margin:0 0 22px;color:#c7d2fe;font-size:16px;line-height:1.6">Use this one-time code to finish opening your Autody account.</p>
+              <div style="margin:22px 0;padding:20px;border-radius:12px;background:#171d2a;text-align:center;border:1px solid #343b52">
+                <div style="font-size:40px;line-height:1;letter-spacing:8px;font-weight:900;color:#ffffff">${code}</div>
+              </div>
+              <p style="margin:0;color:#b8c2d8;font-size:14px;line-height:1.6">This code expires in <strong style="color:#ffffff">5 minutes</strong>. If you did not try to sign in, change your password and contact Autody support.</p>
+            </div>
+          </div>
         </div>
     `;
 
@@ -2639,12 +2680,45 @@ async function resetDatabaseAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
             returning email
         `, [normalizedKeepEmail]);
         await client.query(`
-            update profile_verifications
-            set email_status = 'verified', updated_at = now()
-            where profile_id in (
-              select id from profiles where lower(email) = lower($1)
+            insert into profile_verifications (
+              profile_id, first_name, last_name, legal_name, phone, country, date_of_birth, account_type,
+              email_status, phone_status, identity_status, risk_status, terms_version, terms_accepted_at,
+              information_confirmed_at
             )
-        `, [normalizedKeepEmail]);
+            select id,
+                   'Adrian',
+                   'Cole',
+                   'Adrian Cole',
+                   '+15550190777',
+                   'United States',
+                   '1994-08-16',
+                   'personal',
+                   'verified',
+                   'not_required',
+                   'pending',
+                   'standard',
+                   $2,
+                   now(),
+                   now()
+            from profiles
+            where lower(email) = lower($1)
+            on conflict (profile_id) do update
+            set first_name = excluded.first_name,
+                last_name = excluded.last_name,
+                legal_name = excluded.legal_name,
+                phone = excluded.phone,
+                country = excluded.country,
+                date_of_birth = excluded.date_of_birth,
+                account_type = excluded.account_type,
+                email_status = 'verified',
+                phone_status = excluded.phone_status,
+                identity_status = excluded.identity_status,
+                risk_status = excluded.risk_status,
+                terms_version = excluded.terms_version,
+                terms_accepted_at = coalesce(profile_verifications.terms_accepted_at, excluded.terms_accepted_at),
+                information_confirmed_at = coalesce(profile_verifications.information_confirmed_at, excluded.information_confirmed_at),
+                updated_at = now()
+        `, [normalizedKeepEmail, ACCOUNT_TERMS_VERSION]);
         await client.query(`
             create unique index if not exists profile_verifications_phone_unique_idx
               on profile_verifications (phone)
@@ -6030,6 +6104,58 @@ app.post("/api/auth/sign-in", async (req, res) => {
   } catch (err) {
     console.error("Sign in error:", err);
     return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Sign in unavailable" });
+  }
+});
+
+app.post("/api/auth/resend-login-code", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    if (!email) return res.status(400).json({ success: false, error: "Email is required." });
+
+    const databaseProfile = await databaseProfileVerification(email).catch(() => null);
+    if (databaseProfile) {
+      if (databaseProfile.email_status !== "verified") {
+        return res.status(403).json({ success: false, error: "Verify your email before signing in." });
+      }
+      const loginCode = await createDatabaseVerificationCode(email, "email", "sign_in", {
+        codeMode: "numeric",
+        ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+      });
+      const delivery = await sendLoginCodeEmail(email, loginCode.code).catch((err) => {
+        console.error("Login code resend failed:", err.message || err);
+        throw signUpError(502, "Could not resend the sign-in code. Try again.");
+      });
+      return res.json({
+        success: true,
+        delivery: delivery.delivered ? "New sign-in code sent." : "New sign-in code created. Email delivery provider is not fully connected yet.",
+        source: "supabase"
+      });
+    }
+
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    if (!user) return res.status(404).json({ success: false, error: "Account not found." });
+    if (user.verification?.emailStatus !== "verified") {
+      return res.status(403).json({ success: false, error: "Verify your email before signing in." });
+    }
+
+    const loginCode = createJsonVerificationCode(email, "email", "sign_in", {
+      codeMode: "numeric",
+      ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+    });
+    const delivery = await sendLoginCodeEmail(email, loginCode.code).catch((err) => {
+      console.error("Login code resend failed:", err.message || err);
+      throw signUpError(502, "Could not resend the sign-in code. Try again.");
+    });
+    return res.json({
+      success: true,
+      delivery: delivery.delivered ? "New sign-in code sent." : "New sign-in code created. Email delivery provider is not fully connected yet.",
+      source: "json"
+    });
+  } catch (err) {
+    console.error("Login code resend failed:", err);
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not resend the sign-in code." });
   }
 });
 
