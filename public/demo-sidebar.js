@@ -104,6 +104,9 @@ function ensureDemoSidebarTools() {
   }
 
   const page = location.pathname.split("/").pop() || "";
+  const isLivePage = page === "account.html" || page.startsWith("account-");
+  const profileHref = isLivePage ? "account-profile.html" : "demo-profile.html";
+  const profileActive = page === "account-profile.html" || page === "demo-profile.html";
   const profileIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>`;
   const settingsIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.36 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.36H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .36-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.36H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>`;
   const brand = sidebar.querySelector(".app-brand");
@@ -117,7 +120,7 @@ function ensureDemoSidebarTools() {
   tools.setAttribute("aria-label", "Account tools");
   tools.innerHTML = `
     <div class="sidebar-icon-row">
-      ${sidebarIconMarkup("demo-profile.html", "Profile", profileIcon, page === "demo-profile.html")}
+      ${sidebarIconMarkup(profileHref, "Profile", profileIcon, profileActive)}
     </div>
     <button type="button" class="sidebar-collapse-toggle" data-sidebar-toggle aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
       <span aria-hidden="true">&lsaquo;&lsaquo;</span>
@@ -179,7 +182,7 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  const signOut = event.target.closest("[data-demo-sign-out]");
+  const signOut = event.target.closest("[data-demo-sign-out], [data-live-sign-out]");
   if (!signOut) return;
   event.preventDefault();
   localStorage.removeItem("autodyDemoSession");

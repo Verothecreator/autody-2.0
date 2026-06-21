@@ -369,9 +369,25 @@ function jsonWatchlistForMode(db, mode = "demo", userId = PRACTICE_USER_ID) {
     return db.watchlists[ownerId][normalizeWatchlistMode(mode)];
 }
 
+function maskPublicPhone(value = "") {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length <= 4) return raw;
+    return `${raw.slice(0, Math.min(raw.length, 4))}...${digits.slice(-4)}`;
+}
+
 function publicUser(user) {
     const { auth, verification, ...safeUser } = user;
     if (verification) {
+        safeUser.profile = {
+            firstName: verification.firstName || "",
+            lastName: verification.lastName || "",
+            legalName: verification.legalName || safeUser.name || "",
+            phone: maskPublicPhone(verification.phone),
+            country: verification.country || "",
+            accountType: verification.accountType || "personal"
+        };
         safeUser.verification = {
             email: verification.emailStatus || verification.email || "pending",
             phone: verification.phoneStatus || verification.phone || "pending",

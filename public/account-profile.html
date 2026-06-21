@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autody Demo Account | Profile</title>
+  <title>Autody Live Account | Profile</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body class="account-body" data-profile-mode="demo">
+<body class="account-body" data-profile-mode="live">
   <div class="app-layout">
     <aside class="app-sidebar">
       <a href="index.html" class="brand app-brand" aria-label="Autody home">
@@ -14,38 +14,38 @@
         <span>Autody</span>
       </a>
       <nav class="app-nav" aria-label="Account navigation">
-        <a href="demo-account.html">Overview</a>
-        <a href="demo-wallet.html">Wallet</a>
-        <a href="demo-markets.html">Markets</a>
-        <a href="demo-orders.html">Orders</a>
-        <a href="demo-watchlist.html">Watchlist</a>
-        <a href="demo-research.html">Research</a>
+        <a href="account.html">Overview</a>
+        <a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html">Markets</a>
+        <a href="account-orders.html">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a>
+        <a href="account-research.html">Research</a>
         <a href="demo-settings.html">Settings</a>
       </nav>
       <div class="sidebar-profile">
-        <span>Demo mode</span>
-        <strong>$50,000 USD</strong>
+        <span>Account balance</span>
+        <strong data-live-balance>$0.00 USD</strong>
       </div>
       <div class="sidebar-actions">
-        <a href="account.html" class="btn sidebar-return">Live Account</a>
-        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-demo-sign-out>Sign Out</a>
+        <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
+        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a>
       </div>
     </aside>
 
     <main class="app-main">
       <header class="app-topbar">
         <div>
-          <p class="eyebrow">Demo profile</p>
+          <p class="eyebrow">Live profile</p>
           <h1>Profile</h1>
-          <p class="app-subtitle">Your signed-in demo identity, practice balances, orders, watchlist, and account status in one place.</p>
+          <p class="app-subtitle">Your live Autody identity, verification status, wallet footprint, and account controls.</p>
         </div>
         <div class="account-mode-stack">
-          <span class="status-pill">Practice user</span>
+          <span class="status-pill">Live account</span>
           <strong id="profile-status">Loading</strong>
         </div>
       </header>
 
-      <section class="profile-hero app-card">
+      <section class="profile-hero app-card profile-hero-live">
         <div class="profile-avatar" aria-hidden="true">
           <img src="Autody-Logo.png" alt="" />
         </div>
@@ -54,34 +54,34 @@
           <h2 id="profile-name">Loading profile</h2>
           <p id="profile-email">Loading account</p>
           <div class="profile-badge-row">
-            <span id="profile-mode-badge">Demo trading</span>
+            <span id="profile-mode-badge">Live mode</span>
             <span id="profile-verification-badge">Checking verification</span>
           </div>
         </div>
         <div class="profile-hero-actions">
-          <a href="demo-settings.html" class="btn btn-small">Settings</a>
-          <a href="demo-wallet.html" class="btn btn-small btn-ghost">Wallet</a>
+          <a href="account-wallet.html" class="btn btn-small">Wallet</a>
+          <a href="account-markets.html" class="btn btn-small btn-ghost">Markets</a>
         </div>
       </section>
 
       <section class="account-kpi-grid">
         <div class="app-card mini-metric">
-          <span class="muted-label">USD funds</span>
-          <strong id="profile-cash">$50,000</strong>
-          <small>Demo buying power</small>
+          <span class="muted-label">Available USD</span>
+          <strong id="profile-cash">$0</strong>
+          <small>Verified funds</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Account value</span>
-          <strong id="profile-total">$50,000</strong>
-          <small>Cash plus holdings</small>
+          <strong id="profile-total">$0</strong>
+          <small>Cash plus live holdings</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Held assets</span>
           <strong id="profile-positions">0</strong>
-          <small>Current positions</small>
+          <small>Current live positions</small>
         </div>
         <div class="app-card mini-metric profit-metric">
-          <span class="muted-label">Demo P/L</span>
+          <span class="muted-label">Live P/L</span>
           <strong id="profile-profit-loss" class="flat">$0.00</strong>
           <small id="profile-return">+0.00% total return</small>
         </div>
@@ -99,7 +99,7 @@
             <div><span>Email</span><strong id="profile-detail-email">Loading account</strong></div>
             <div><span>Legal name</span><strong id="profile-legal-name">Loading</strong></div>
             <div><span>Country</span><strong id="profile-country">Loading</strong></div>
-            <div><span>Account mode</span><strong>Demo trading</strong></div>
+            <div><span>Account mode</span><strong>Live account</strong></div>
             <div><span>Currency</span><strong id="profile-currency">USD</strong></div>
             <div><span>Created</span><strong id="profile-created">Loading</strong></div>
           </div>
@@ -123,8 +123,8 @@
         <div class="app-card settings-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Storage</span>
-              <h2>Database connection</h2>
+              <span class="muted-label">Data record</span>
+              <h2>Live account storage</h2>
             </div>
           </div>
           <div class="settings-list">
@@ -143,10 +143,10 @@
             </div>
           </div>
           <div class="profile-action-list">
-            <a href="demo-wallet.html">Open Wallet</a>
-            <a href="demo-orders.html">Open Orders</a>
-            <a href="demo-watchlist.html">Open Watchlist</a>
-            <a href="demo-research.html">Open Research</a>
+            <a href="account-wallet.html">Open Wallet</a>
+            <a href="account-orders.html">Open Orders</a>
+            <a href="account-watchlist.html">Open Watchlist</a>
+            <a href="account-research.html">Open Research</a>
           </div>
         </div>
       </section>

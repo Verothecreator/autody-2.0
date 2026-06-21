@@ -1,4 +1,9 @@
 const liveCryptoAssets = {
+  AU: {
+    name: "Autody AU",
+    networks: ["Autody custody", "Polygon PoS"],
+    addressPrefix: "au1"
+  },
   BTC: {
     name: "Bitcoin",
     networks: ["Bitcoin"],
@@ -73,6 +78,10 @@ function mockAddress(asset, network) {
 
   if (asset === "DOGE") {
     return `${config.addressPrefix}${hash.slice(0, 33)}`;
+  }
+
+  if (asset === "AU") {
+    return `${config.addressPrefix}${hash.slice(0, 34)}`;
   }
 
   return `${config.addressPrefix}${hash.slice(0, 28)}`;
@@ -178,7 +187,7 @@ document.getElementById("receive-asset")?.addEventListener("change", () => {
   updateReceiveNetworks();
   const addressNode = document.getElementById("receive-address");
   if (addressNode) {
-    addressNode.textContent = "Generate an address to preview the receive flow.";
+    addressNode.textContent = "Generate a deposit address to preview the receive flow.";
     delete addressNode.dataset.address;
   }
 });

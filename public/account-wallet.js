@@ -637,7 +637,7 @@ function openLiveWalletMenu(symbol, menuButton) {
 
 function liveCryptoSelectValue(symbol) {
   const value = String(symbol || selectedLiveWalletSymbol || "BTC").toUpperCase();
-  const cryptoSymbols = new Set(["BTC", "ETH", "USDT", "USDC", "BNB", "BCH", "DOGE"]);
+  const cryptoSymbols = new Set(["AU", "BTC", "ETH", "USDT", "USDC", "BNB", "BCH", "DOGE"]);
   return cryptoSymbols.has(value) ? value : "BTC";
 }
 
@@ -649,7 +649,15 @@ function setLiveTransferTab(mode = "receive") {
   document.querySelectorAll("[data-live-transfer-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.liveTransferPanel !== normalized;
   });
+  document.getElementById("live-crypto")?.setAttribute("data-transfer-mode", normalized);
+  setLiveWalletText("live-transfer-eyebrow", normalized === "send" ? "Crypto withdrawal" : "Crypto deposit");
   setLiveWalletText("live-transfer-title", normalized === "send" ? "Send crypto" : "Receive crypto");
+  setLiveWalletText(
+    "live-transfer-intro",
+    normalized === "send"
+      ? "Prepare a withdrawal preview for the selected crypto asset. Production sends will require security approval."
+      : "Generate a fresh deposit preview for the selected crypto asset and network."
+  );
 }
 
 function openLiveTransferModal(mode = "receive", symbol = selectedLiveWalletSymbol) {
@@ -665,7 +673,7 @@ function openLiveTransferModal(mode = "receive", symbol = selectedLiveWalletSymb
   if (sendSelect) sendSelect.value = assetSymbol;
   const addressNode = document.getElementById("receive-address");
   if (addressNode && receiveSelect?.value === assetSymbol) {
-    addressNode.textContent = "Generate an address to preview the receive flow.";
+    addressNode.textContent = "Generate a deposit address to preview the receive flow.";
     delete addressNode.dataset.address;
   }
   setLiveTransferTab(mode);
