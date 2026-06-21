@@ -2164,6 +2164,10 @@ body.modal-open {
     rgba(14, 18, 26, 0.98);
 }
 
+.live-transfer-panel[hidden] {
+  display: none !important;
+}
+
 .live-panel-heading {
   display: flex;
   align-items: flex-start;
