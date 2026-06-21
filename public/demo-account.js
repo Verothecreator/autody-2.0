@@ -59,7 +59,10 @@ function setOverviewText(id, value) {
 }
 
 async function getOverviewJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: window.AutodyAuth?.headers?.() || {}
+  });
   if (!response.ok) throw new Error(`${url} returned ${response.status}`);
   return response.json();
 }

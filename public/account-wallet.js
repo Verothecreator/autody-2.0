@@ -144,7 +144,7 @@ function showLiveWalletToast(message, tone = "") {
 async function postLiveWalletJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: window.AutodyAuth?.headers?.({ "Content-Type": "application/json" }) || { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
   const data = await response.json().catch(() => ({}));
@@ -592,7 +592,10 @@ function renderLiveWallet() {
 async function loadLiveWallet() {
   renderLiveWallet();
   try {
-    const response = await fetch("/api/markets/catalog?type=all", { cache: "no-store" });
+    const response = await fetch("/api/markets/catalog?type=all", {
+      cache: "no-store",
+      headers: window.AutodyAuth?.headers?.() || {}
+    });
     if (!response.ok) throw new Error(`/api/markets/catalog returned ${response.status}`);
     const data = await response.json();
     if (Array.isArray(data.assets)) {

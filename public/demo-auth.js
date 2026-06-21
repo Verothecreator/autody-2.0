@@ -15,4 +15,15 @@
     const next = encodeURIComponent(location.pathname.split("/").pop() || "demo-wallet.html");
     location.replace(`sign-in.html?next=${next}`);
   }
+
+  window.AutodyAuth = {
+    session() {
+      return session;
+    },
+    headers(extra = {}) {
+      return session?.token
+        ? { ...extra, Authorization: `Bearer ${session.token}` }
+        : { ...extra };
+    }
+  };
 })();

@@ -14,6 +14,22 @@ function nextPage() {
   return next.startsWith("demo-") || next === "account.html" || next.startsWith("account-") ? next : "account.html";
 }
 
+function trustedDeviceForEmail(email) {
+  try {
+    const stored = JSON.parse(localStorage.getItem("autodyTrustedDevice") || "null");
+    const expiresAt = Date.parse(stored?.expiresAt || "");
+    if (!stored?.token || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      localStorage.removeItem("autodyTrustedDevice");
+      return "";
+    }
+    if (String(stored.email || "").toLowerCase() !== String(email || "").toLowerCase()) return "";
+    return stored.token;
+  } catch (err) {
+    localStorage.removeItem("autodyTrustedDevice");
+    return "";
+  }
+}
+
 signInForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   setError("");
@@ -23,6 +39,7 @@ signInForm?.addEventListener("submit", async (event) => {
     email: form.get("email"),
     password: form.get("password"),
     rememberDevice: form.get("rememberDevice") === "on",
+    trustedDeviceToken: trustedDeviceForEmail(form.get("email")),
     ...window.AutodyCaptcha.payload(signInForm)
   };
 

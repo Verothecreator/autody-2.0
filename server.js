@@ -195,6 +195,7 @@ const defaultDemoDb = {
         }
     ],
     sessions: [],
+    trustedDevices: [],
     wallets: {
         [PRACTICE_USER_ID]: {
             cash: {
@@ -340,9 +341,32 @@ function normalizeJsonWatchlists(db) {
     return changed;
 }
 
-function jsonWatchlistForMode(db, mode = "demo") {
+function jsonWatchlistForMode(db, mode = "demo", userId = PRACTICE_USER_ID) {
     normalizeJsonWatchlists(db);
-    return db.watchlists[PRACTICE_USER_ID][normalizeWatchlistMode(mode)];
+    const ownerId = userId || PRACTICE_USER_ID;
+    db.watchlists = db.watchlists || {};
+    if (!db.watchlists[ownerId]) {
+        db.watchlists[ownerId] = {
+            demo: defaultWatchlistForMode("demo"),
+            live: defaultWatchlistForMode("live")
+        };
+    }
+    const bucket = db.watchlists[ownerId];
+    if (Array.isArray(bucket.crypto) || Array.isArray(bucket.stocks)) {
+        db.watchlists[ownerId] = {
+            demo: {
+                crypto: Array.from(new Set(bucket.crypto || [])),
+                stocks: Array.from(new Set(bucket.stocks || []))
+            },
+            live: defaultWatchlistForMode("live")
+        };
+    }
+    ["demo", "live"].forEach((watchMode) => {
+        db.watchlists[ownerId][watchMode] = db.watchlists[ownerId][watchMode] || defaultWatchlistForMode(watchMode);
+        db.watchlists[ownerId][watchMode].crypto = Array.from(new Set(db.watchlists[ownerId][watchMode].crypto || []));
+        db.watchlists[ownerId][watchMode].stocks = Array.from(new Set(db.watchlists[ownerId][watchMode].stocks || []));
+    });
+    return db.watchlists[ownerId][normalizeWatchlistMode(mode)];
 }
 
 function publicUser(user) {
@@ -641,17 +665,15 @@ async function sendLoginCodeEmail(email, code) {
     const subject = "Your Autody sign-in code";
     const text = `Your Autody sign-in code is ${code}.\n\nThis code expires in 5 minutes. If you did not try to sign in, change your password and contact Autody support.`;
     const html = `
-        <div style="margin:0;padding:0;background:#070a10;font-family:Arial,sans-serif;color:#f8fafc">
-          <div style="max-width:560px;margin:0 auto;padding:34px 20px">
-            <div style="padding:28px;border:1px solid #263044;border-radius:14px;background:#0f151f">
-              <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#6b6cff;font-weight:800">Autody secure sign in</div>
-              <h1 style="margin:18px 0 10px;font-size:30px;line-height:1.1;color:#ffffff">Your sign-in code</h1>
-              <p style="margin:0 0 22px;color:#c7d2fe;font-size:16px;line-height:1.6">Use this one-time code to finish opening your Autody account.</p>
-              <div style="margin:22px 0;padding:20px;border-radius:12px;background:#171d2a;text-align:center;border:1px solid #343b52">
-                <div style="font-size:40px;line-height:1;letter-spacing:8px;font-weight:900;color:#ffffff">${code}</div>
-              </div>
-              <p style="margin:0;color:#b8c2d8;font-size:14px;line-height:1.6">This code expires in <strong style="color:#ffffff">5 minutes</strong>. If you did not try to sign in, change your password and contact Autody support.</p>
+        <div style="margin:0;padding:24px;background:#ffffff;font-family:Arial,sans-serif;color:#111827">
+          <div style="max-width:560px;margin:0 auto">
+            <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody secure sign in</div>
+            <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2;color:#111827">Your sign-in code</h1>
+            <p style="margin:0 0 20px;color:#374151;font-size:16px;line-height:1.55">Use this one-time code to finish opening your Autody account.</p>
+            <div style="margin:20px 0;padding:20px;border-radius:12px;background:#f4f6ff;text-align:center;border:1px solid #d7ddf3">
+              <div style="font-size:40px;line-height:1;letter-spacing:8px;font-weight:900;color:#111827">${code}</div>
             </div>
+            <p style="margin:0;color:#374151;font-size:14px;line-height:1.55">This code expires in <strong style="color:#111827">5 minutes</strong>. If you did not try to sign in, change your password and contact Autody support.</p>
           </div>
         </div>
     `;
@@ -1158,6 +1180,196 @@ async function getPracticeAccountAny() {
     return { ...getPracticeAccount(), source: "json" };
 }
 
+async function getDatabaseAccountByProfileId(profileId, mode = "live") {
+    if (!databaseConfigured() || !profileId) return null;
+    const accountMode = normalizeWatchlistMode(mode);
+
+    let accountResult = await dbPool.query(`
+        select
+            p.id as profile_id,
+            p.email,
+            p.display_name,
+            p.created_at,
+            am.id as account_mode_id,
+            w.id as wallet_id,
+            w.currency,
+            w.cash_balance,
+            w.reserved_cash,
+            w.starting_balance
+        from profiles p
+        join account_modes am on am.profile_id = p.id and am.mode = $2
+        join wallets w on w.account_mode_id = am.id
+        where p.id = $1
+        limit 1
+    `, [profileId, accountMode]);
+
+    if (!accountResult.rows[0]) {
+        await seedAccountWallet(dbPool, profileId, accountMode, accountMode === "demo" ? 50000 : 0);
+        accountResult = await dbPool.query(`
+            select
+                p.id as profile_id,
+                p.email,
+                p.display_name,
+                p.created_at,
+                am.id as account_mode_id,
+                w.id as wallet_id,
+                w.currency,
+                w.cash_balance,
+                w.reserved_cash,
+                w.starting_balance
+            from profiles p
+            join account_modes am on am.profile_id = p.id and am.mode = $2
+            join wallets w on w.account_mode_id = am.id
+            where p.id = $1
+            limit 1
+        `, [profileId, accountMode]);
+    }
+
+    const row = accountResult.rows[0];
+    if (!row) return null;
+
+    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult] = await Promise.all([
+        dbPool.query(`
+            select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at
+            from holdings
+            where wallet_id = $1
+            order by case symbol when 'USD' then 0 when 'AU' then 1 when 'CRYPTO' then 2 when 'STOCKS' then 3 when 'ETFS' then 4 when 'OILMETALS' then 5 else 6 end, symbol
+        `, [row.wallet_id]),
+        dbPool.query(`
+            select id, symbol, asset_type, side, order_type, status, quantity, notional_usd, limit_price, filled_price, created_at, filled_at
+            from orders
+            where account_mode_id = $1
+            order by created_at desc
+            limit 50
+        `, [row.account_mode_id]),
+        dbPool.query(`
+            select symbol, asset_type
+            from watchlists
+            where profile_id = $1
+              and mode = $2
+            order by created_at asc
+        `, [row.profile_id, accountMode]),
+        dbPool.query(`
+            select topic
+            from research_preferences
+            where profile_id = $1
+            order by created_at asc
+        `, [row.profile_id]),
+        dbPool.query(`
+            select portfolio_value, starting_balance, unrealized_profit_loss, realized_profit_loss,
+                   today_profit_loss, today_profit_loss_pct, win_rate_pct, trades_placed
+            from demo_performance
+            where account_mode_id = $1
+            limit 1
+        `, [row.account_mode_id]),
+        dbPool.query(`
+            select default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts
+            from account_settings
+            where profile_id = $1
+            limit 1
+        `, [row.profile_id])
+    ]);
+
+    const holdings = holdingsResult.rows.map(mapDbHolding);
+    const cashHolding = holdings.find((holding) => holding.symbol === "USD");
+    const cashBalance = numberValue(row.cash_balance, cashHolding?.balance || 0);
+    const cash = {
+        symbol: "USD",
+        name: accountMode === "demo" ? "USD Cash" : "USD Funds",
+        balance: cashBalance,
+        valueUsd: cashBalance,
+        status: accountMode === "demo" ? "Available" : cashBalance > 0 ? "Available" : "Awaiting deposit"
+    };
+    const nonCashHoldings = holdings.filter((holding) => holding.symbol !== "USD");
+    const performanceRow = performanceResult.rows[0] || {};
+    const settingsRow = settingsResult.rows[0] || {};
+    const startingBalance = numberValue(row.starting_balance, accountMode === "demo" ? 50000 : 0);
+    const portfolioFallback = cashBalance + nonCashHoldings.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+
+    return {
+        user: {
+            id: row.profile_id,
+            name: row.display_name,
+            email: row.email,
+            mode: accountMode === "demo" ? "paper" : "live",
+            currency: row.currency || "USD",
+            startingBalance,
+            cashBalance,
+            reservedCash: numberValue(row.reserved_cash, 0),
+            createdAt: row.created_at
+        },
+        wallet: { cash, holdings: nonCashHoldings },
+        orders: ordersResult.rows,
+        watchlist: reduceWatchlistRows(watchlistResult.rows),
+        researchPreferences: researchResult.rows.map((item) => item.topic),
+        performance: {
+            portfolioValue: numberValue(performanceRow.portfolio_value, portfolioFallback),
+            startingBalance,
+            unrealizedProfitLoss: numberValue(performanceRow.unrealized_profit_loss, 0),
+            realizedProfitLoss: numberValue(performanceRow.realized_profit_loss, 0),
+            todayProfitLoss: numberValue(performanceRow.today_profit_loss, 0),
+            todayProfitLossPct: numberValue(performanceRow.today_profit_loss_pct, 0),
+            winRatePct: numberValue(performanceRow.win_rate_pct, 0),
+            tradesPlaced: numberValue(performanceRow.trades_placed, 0)
+        },
+        settings: {
+            defaultMode: settingsRow.default_mode || accountMode,
+            currency: settingsRow.currency || "USD",
+            riskLevel: settingsRow.risk_level || (accountMode === "demo" ? "practice" : "standard"),
+            orderConfirmation: settingsRow.order_confirmation ?? true,
+            marketAlerts: settingsRow.market_alerts ?? true,
+            newsAlerts: settingsRow.news_alerts ?? true
+        },
+        source: "supabase"
+    };
+}
+
+function getJsonAccountByUserId(userId, mode = "live") {
+    const db = loadDemoDb();
+    const user = (db.users || []).find((item) => item.id === userId);
+    if (!user) return null;
+    const wallet = db.wallets?.[userId] || {};
+    const liveCash = wallet.liveCash || {
+        symbol: "USD",
+        name: "USD Funds",
+        balance: 0,
+        valueUsd: 0,
+        status: "Awaiting deposit"
+    };
+    const accountMode = normalizeWatchlistMode(mode);
+    const cash = accountMode === "live" ? liveCash : wallet.cash;
+    return {
+        user: {
+            ...user,
+            mode: accountMode === "live" ? "live" : "paper",
+            startingBalance: accountMode === "live" ? 0 : numberValue(user.startingBalance, 50000),
+            cashBalance: numberValue(cash?.balance, 0),
+            reservedCash: numberValue(user.reservedCash, 0)
+        },
+        wallet: {
+            cash,
+            holdings: wallet.holdings || []
+        },
+        orders: db.orders?.[userId] || [],
+        watchlist: jsonWatchlistForMode(db, accountMode, userId),
+        researchPreferences: db.researchPreferences?.[userId] || [],
+        performance: db.performance?.[userId] || {},
+        settings: db.settings?.[userId] || {},
+        source: "json"
+    };
+}
+
+async function getAuthenticatedAccount(req, mode = "live") {
+    const auth = await authenticatedAccountContext(req);
+    if (auth.source === "supabase") {
+        const account = await getDatabaseAccountByProfileId(auth.profileId, mode);
+        if (account) return account;
+    }
+    const account = getJsonAccountByUserId(auth.userId, mode);
+    if (!account) throw demoTradeError(401, "Sign in again to open this account data.");
+    return account;
+}
+
 const WALLET_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS"]);
 
 function walletHoldingUrl(holding) {
@@ -1517,8 +1729,8 @@ function reduceWatchlistRows(rows = []) {
     }, { crypto: [], stocks: [] });
 }
 
-async function getDatabaseWatchlist(mode = "demo") {
-    const context = await getPracticeDbContext();
+async function getDatabaseWatchlist(mode = "demo", profileId = null) {
+    const context = profileId ? { profile_id: profileId } : await getPracticeDbContext();
     const result = await dbPool.query(`
         select symbol, asset_type
         from watchlists
@@ -1984,9 +2196,9 @@ async function placeDemoOrder(body) {
     );
 }
 
-async function addDatabaseWatchlistSymbol(symbol, mode = "demo") {
+async function addDatabaseWatchlistSymbol(symbol, mode = "demo", profileId = null) {
     const asset = await resolveWatchlistAsset(symbol);
-    const context = await getPracticeDbContext();
+    const context = profileId ? { profile_id: profileId } : await getPracticeDbContext();
     const watchlistMode = normalizeWatchlistMode(mode);
     const result = await dbPool.query(`
         insert into watchlists (profile_id, symbol, asset_type, mode)
@@ -1995,8 +2207,10 @@ async function addDatabaseWatchlistSymbol(symbol, mode = "demo") {
         returning symbol
     `, [context.profile_id, asset.symbol, tradeAssetType(asset), watchlistMode]);
 
-    const watchlist = await getDatabaseWatchlist(watchlistMode);
-    const account = await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist add`);
+    const watchlist = await getDatabaseWatchlist(watchlistMode, context.profile_id);
+    const account = profileId
+        ? await getDatabaseAccountByProfileId(profileId, watchlistMode)
+        : await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist add`);
 
     return {
         asset,
@@ -2007,30 +2221,30 @@ async function addDatabaseWatchlistSymbol(symbol, mode = "demo") {
     };
 }
 
-async function addJsonWatchlistSymbol(symbol, mode = "demo") {
+async function addJsonWatchlistSymbol(symbol, mode = "demo", userId = PRACTICE_USER_ID) {
     const asset = await resolveWatchlistAsset(symbol);
     const db = loadDemoDb();
     const watchlistMode = normalizeWatchlistMode(mode);
-    const watchlist = jsonWatchlistForMode(db, watchlistMode);
+    const watchlist = jsonWatchlistForMode(db, watchlistMode, userId);
     const key = ["stock", "etf", "commodity"].includes(tradeAssetType(asset)) ? "stocks" : "crypto";
     const alreadySaved = (watchlist[key] || []).some((item) => normalizeTradeSymbol(item) === asset.symbol);
     watchlist[key] = Array.from(new Set([...(watchlist[key] || []), asset.symbol]));
     saveDemoDb(db);
     return {
         asset,
-        account: { ...getPracticeAccount(), watchlist },
+        account: { ...(getJsonAccountByUserId(userId, watchlistMode) || getPracticeAccount()), watchlist },
         watchlist,
         alreadySaved,
         source: "json"
     };
 }
 
-async function addWatchlistSymbol(symbol, mode = "demo") {
+async function addWatchlistSymbol(symbol, mode = "demo", options = {}) {
     const watchlistMode = normalizeWatchlistMode(mode);
     return withDemoWriteFallback(
         `Supabase ${watchlistMode} watchlist add`,
-        () => addDatabaseWatchlistSymbol(symbol, watchlistMode),
-        () => addJsonWatchlistSymbol(symbol, watchlistMode)
+        () => addDatabaseWatchlistSymbol(symbol, watchlistMode, options.profileId || null),
+        () => addJsonWatchlistSymbol(symbol, watchlistMode, options.userId || PRACTICE_USER_ID)
     );
 }
 
@@ -2038,15 +2252,18 @@ async function addDemoWatchlistSymbol(symbol) {
     return addWatchlistSymbol(symbol, "demo");
 }
 
-async function addLiveWatchlistSymbol(symbol) {
-    return addWatchlistSymbol(symbol, "live");
+async function addLiveWatchlistSymbol(symbol, auth = {}) {
+    return addWatchlistSymbol(symbol, "live", {
+        profileId: auth.source === "supabase" ? auth.profileId : null,
+        userId: auth.userId || PRACTICE_USER_ID
+    });
 }
 
-async function removeDatabaseWatchlistSymbol(symbol, mode = "demo") {
+async function removeDatabaseWatchlistSymbol(symbol, mode = "demo", profileId = null) {
     const lookup = normalizeTradeSymbol(symbol);
     if (!lookup) throw demoTradeError(400, "Choose an asset first.");
 
-    const context = await getPracticeDbContext();
+    const context = profileId ? { profile_id: profileId } : await getPracticeDbContext();
     const watchlistMode = normalizeWatchlistMode(mode);
     await dbPool.query(`
         delete from watchlists
@@ -2054,29 +2271,31 @@ async function removeDatabaseWatchlistSymbol(symbol, mode = "demo") {
           and mode = $3
     `, [context.profile_id, lookup, watchlistMode]);
 
-    const watchlist = await getDatabaseWatchlist(watchlistMode);
-    const account = await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist remove`);
+    const watchlist = await getDatabaseWatchlist(watchlistMode, context.profile_id);
+    const account = profileId
+        ? await getDatabaseAccountByProfileId(profileId, watchlistMode)
+        : await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist remove`);
     return { account: { ...account, watchlist }, watchlist, source: "supabase" };
 }
 
-async function removeJsonWatchlistSymbol(symbol, mode = "demo") {
+async function removeJsonWatchlistSymbol(symbol, mode = "demo", userId = PRACTICE_USER_ID) {
     const lookup = normalizeTradeSymbol(symbol);
     if (!lookup) throw demoTradeError(400, "Choose an asset first.");
 
     const db = loadDemoDb();
-    const watchlist = jsonWatchlistForMode(db, normalizeWatchlistMode(mode));
+    const watchlist = jsonWatchlistForMode(db, normalizeWatchlistMode(mode), userId);
     watchlist.crypto = (watchlist.crypto || []).filter((item) => normalizeTradeSymbol(item) !== lookup);
     watchlist.stocks = (watchlist.stocks || []).filter((item) => normalizeTradeSymbol(item) !== lookup);
     saveDemoDb(db);
-    return { account: { ...getPracticeAccount(), watchlist }, watchlist, source: "json" };
+    return { account: { ...(getJsonAccountByUserId(userId, normalizeWatchlistMode(mode)) || getPracticeAccount()), watchlist }, watchlist, source: "json" };
 }
 
-async function removeWatchlistSymbol(symbol, mode = "demo") {
+async function removeWatchlistSymbol(symbol, mode = "demo", options = {}) {
     const watchlistMode = normalizeWatchlistMode(mode);
     return withDemoWriteFallback(
         `Supabase ${watchlistMode} watchlist remove`,
-        () => removeDatabaseWatchlistSymbol(symbol, watchlistMode),
-        () => removeJsonWatchlistSymbol(symbol, watchlistMode)
+        () => removeDatabaseWatchlistSymbol(symbol, watchlistMode, options.profileId || null),
+        () => removeJsonWatchlistSymbol(symbol, watchlistMode, options.userId || PRACTICE_USER_ID)
     );
 }
 
@@ -2084,8 +2303,11 @@ async function removeDemoWatchlistSymbol(symbol) {
     return removeWatchlistSymbol(symbol, "demo");
 }
 
-async function removeLiveWatchlistSymbol(symbol) {
-    return removeWatchlistSymbol(symbol, "live");
+async function removeLiveWatchlistSymbol(symbol, auth = {}) {
+    return removeWatchlistSymbol(symbol, "live", {
+        profileId: auth.source === "supabase" ? auth.profileId : null,
+        userId: auth.userId || PRACTICE_USER_ID
+    });
 }
 
 async function createDatabaseSessionWithClient(client, profileId, sessionHours = SESSION_HOURS) {
@@ -2108,6 +2330,136 @@ async function createDatabaseSessionWithClient(client, profileId, sessionHours =
         token,
         userId: profileId,
         expiresAt: expiresAt.toISOString()
+    };
+}
+
+function tokenHashValue(token) {
+    return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function requestSessionToken(req) {
+    const authHeader = String(req.get("authorization") || "");
+    const bearer = authHeader.match(/^Bearer\s+(.+)$/i)?.[1];
+    return String(bearer || req.get("x-autody-session") || "").trim();
+}
+
+function createJsonTrustedDevice(db, userId) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * REMEMBER_SESSION_HOURS);
+    db.trustedDevices = (db.trustedDevices || [])
+        .filter((device) => Date.parse(device.expiresAt || "") > Date.now())
+        .filter((device) => device.userId !== userId);
+    db.trustedDevices.push({
+        id: crypto.randomUUID(),
+        userId,
+        tokenHash: tokenHashValue(token),
+        createdAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString()
+    });
+    saveDemoDb(db);
+    return { token, userId, expiresAt: expiresAt.toISOString() };
+}
+
+function verifyJsonTrustedDevice(db, userId, token) {
+    if (!token) return false;
+    const tokenHash = tokenHashValue(token);
+    const now = Date.now();
+    const before = (db.trustedDevices || []).length;
+    db.trustedDevices = (db.trustedDevices || []).filter((device) => Date.parse(device.expiresAt || "") > now);
+    const changed = before !== db.trustedDevices.length;
+    if (changed) saveDemoDb(db);
+    return db.trustedDevices.some((device) => device.userId === userId && device.tokenHash === tokenHash);
+}
+
+async function createDatabaseTrustedDevice(profileId) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * REMEMBER_SESSION_HOURS);
+    await ensureSignUpTables();
+    await dbPool.query(`
+        delete from trusted_devices
+        where profile_id = $1 or expires_at <= now()
+    `, [profileId]);
+    await dbPool.query(`
+        insert into trusted_devices (profile_id, token_hash, created_at, expires_at)
+        values ($1, $2, $3, $4)
+    `, [profileId, tokenHashValue(token), now.toISOString(), expiresAt.toISOString()]);
+    return { token, userId: profileId, expiresAt: expiresAt.toISOString() };
+}
+
+async function verifyDatabaseTrustedDevice(profileId, token) {
+    if (!databaseConfigured() || !profileId || !token) return false;
+    await ensureSignUpTables();
+    await dbPool.query(`delete from trusted_devices where expires_at <= now()`);
+    const result = await dbPool.query(`
+        select 1
+        from trusted_devices
+        where profile_id = $1
+          and token_hash = $2
+          and expires_at > now()
+        limit 1
+    `, [profileId, tokenHashValue(token)]);
+    return Boolean(result.rows[0]);
+}
+
+async function databaseProfileFromSessionToken(token) {
+    if (!databaseConfigured() || !token) return null;
+    const result = await dbPool.query(`
+        select
+            p.id,
+            p.email,
+            p.display_name,
+            p.created_at,
+            pv.email_status,
+            pv.phone_status,
+            pv.identity_status
+        from app_sessions s
+        join profiles p on p.id = s.profile_id
+        left join profile_verifications pv on pv.profile_id = p.id
+        where s.token_hash = $1
+          and s.expires_at > now()
+        limit 1
+    `, [tokenHashValue(token)]);
+    return result.rows[0] || null;
+}
+
+function jsonProfileFromSessionToken(db, token) {
+    if (!token) return null;
+    const tokenHash = tokenHashValue(token);
+    db.sessions = (db.sessions || []).filter((session) => Date.parse(session.expiresAt || "") > Date.now());
+    const session = db.sessions.find((item) => item.tokenHash === tokenHash);
+    if (!session) return null;
+    return (db.users || []).find((user) => user.id === session.userId) || null;
+}
+
+async function authenticatedAccountContext(req) {
+    const token = requestSessionToken(req);
+    if (!token) throw demoTradeError(401, "Sign in again to open this account data.");
+
+    if (databaseConfigured()) {
+        const profile = await databaseProfileFromSessionToken(token).catch((err) => {
+            console.error("Account session lookup failed:", err.message || err);
+            return null;
+        });
+        if (profile) {
+            return {
+                source: "supabase",
+                profileId: profile.id,
+                userId: profile.id,
+                user: databasePublicUser(profile)
+            };
+        }
+    }
+
+    const db = loadDemoDb();
+    const user = jsonProfileFromSessionToken(db, token);
+    if (!user) throw demoTradeError(401, "Sign in again to open this account data.");
+    return {
+        source: "json",
+        profileId: user.id,
+        userId: user.id,
+        user: publicUser(user)
     };
 }
 
@@ -2167,6 +2519,17 @@ async function ensureSignUpTables(client = dbPool) {
 
         create index if not exists verification_codes_profile_purpose_status_idx
           on verification_codes (profile_id, channel, purpose, status, created_at desc);
+
+        create table if not exists trusted_devices (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references profiles(id) on delete cascade,
+          token_hash text not null unique,
+          created_at timestamptz not null default now(),
+          expires_at timestamptz not null
+        );
+
+        create index if not exists trusted_devices_profile_idx
+          on trusted_devices (profile_id, expires_at desc);
     `);
 }
 
@@ -2561,6 +2924,7 @@ function resetJsonAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
     const before = (db.users || []).length;
     db.users = (db.users || []).filter((user) => keepIds.has(user.id));
     db.sessions = (db.sessions || []).filter((session) => keepIds.has(session.userId));
+    db.trustedDevices = (db.trustedDevices || []).filter((device) => keepIds.has(device.userId));
     for (const key of ["wallets", "orders", "watchlists", "researchPreferences", "performance", "settings", "verificationCodes"]) {
         if (!db[key] || typeof db[key] !== "object") continue;
         Object.keys(db[key]).forEach((userId) => {
@@ -6030,6 +6394,7 @@ app.post("/api/auth/sign-in", async (req, res) => {
     const email = normalizeEmail(body.email);
     const password = String(body.password || "");
     const rememberDevice = truthyFormValue(body.rememberDevice);
+    const trustedDeviceToken = normalizeText(body.trustedDeviceToken);
     if (!await verifyCaptcha(body, req)) {
       return res.status(400).json({
         success: false,
@@ -6048,6 +6413,17 @@ app.post("/api/auth/sign-in", async (req, res) => {
           success: true,
           next,
           source: "supabase"
+        });
+      }
+      if (await verifyDatabaseTrustedDevice(databaseSignIn.user.id, trustedDeviceToken)) {
+        const session = await createDatabaseSession(databaseSignIn.user.id, REMEMBER_SESSION_HOURS);
+        return res.json({
+          success: true,
+          user: databaseSignIn.user,
+          session,
+          next,
+          source: "supabase",
+          trustedDevice: true
         });
       }
       const loginCode = await createDatabaseVerificationCode(email, "email", "sign_in", {
@@ -6084,6 +6460,17 @@ app.post("/api/auth/sign-in", async (req, res) => {
         success: true,
         next,
         source: "json"
+      });
+    }
+    if (verifyJsonTrustedDevice(db, user.id, trustedDeviceToken)) {
+      const session = createDemoSession(db, user.id, REMEMBER_SESSION_HOURS);
+      return res.json({
+        success: true,
+        user: safeUser,
+        session,
+        next,
+        source: "json",
+        trustedDevice: true
       });
     }
     const loginCode = createJsonVerificationCode(email, "email", "sign_in", {
@@ -6177,10 +6564,12 @@ app.post("/api/auth/verify-login", async (req, res) => {
       }
       const user = databasePublicUser(databaseResult.profile);
       const session = await createDatabaseSession(databaseResult.profile.id, sessionHours);
+      const trustedDevice = rememberDevice ? await createDatabaseTrustedDevice(databaseResult.profile.id) : null;
       return res.json({
         success: true,
         user,
         session,
+        trustedDevice,
         next: "account.html",
         source: "supabase"
       });
@@ -6195,10 +6584,12 @@ app.post("/api/auth/verify-login", async (req, res) => {
     const db = loadDemoDb();
     const user = jsonUserByEmail(db, email);
     const session = createDemoSession(db, user.id, sessionHours);
+    const trustedDevice = rememberDevice ? createJsonTrustedDevice(db, user.id) : null;
     return res.json({
       success: true,
       user: publicUser(user),
       session,
+      trustedDevice,
       next: "account.html",
       source: "json"
     });
@@ -6327,7 +6718,7 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
 
 app.get("/api/account/wallet", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
+    const account = await getAuthenticatedAccount(req, "live");
     const wallet = buildLiveWalletSnapshot(account);
     return res.json({
       success: true,
@@ -6343,11 +6734,11 @@ app.get("/api/account/wallet", async (req, res) => {
 
 app.get("/api/account/orders", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
+    const account = await getAuthenticatedAccount(req, "live");
     return res.json({
       success: true,
       user: publicUser(account.user),
-      orders: [],
+      orders: account.orders || [],
       source: account.source
     });
   } catch (err) {
@@ -6358,12 +6749,11 @@ app.get("/api/account/orders", async (req, res) => {
 
 app.get("/api/account/watchlist", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
-    const watchlist = await getPracticeWatchlistAny("live");
+    const account = await getAuthenticatedAccount(req, "live");
     return res.json({
       success: true,
       user: publicUser(account.user),
-      watchlist,
+      watchlist: account.watchlist,
       source: account.source
     });
   } catch (err) {
@@ -6375,7 +6765,10 @@ app.get("/api/account/watchlist", async (req, res) => {
 app.post("/api/account/watchlist", async (req, res) => {
   try {
     const body = parseJsonBody(req);
-    const result = await addLiveWatchlistSymbol(body.symbol);
+    const auth = await authenticatedAccountContext(req);
+    const result = auth.source === "supabase"
+      ? await addDatabaseWatchlistSymbol(body.symbol, "live", auth.profileId)
+      : await addJsonWatchlistSymbol(body.symbol, "live", auth.userId);
     return res.json({
       success: true,
       asset: result.asset,
@@ -6392,7 +6785,10 @@ app.post("/api/account/watchlist", async (req, res) => {
 app.delete("/api/account/watchlist/:symbol", async (req, res) => {
   try {
     const symbol = decodeURIComponent(req.params.symbol || "");
-    const result = await removeLiveWatchlistSymbol(symbol);
+    const auth = await authenticatedAccountContext(req);
+    const result = auth.source === "supabase"
+      ? await removeDatabaseWatchlistSymbol(symbol, "live", auth.profileId)
+      : await removeJsonWatchlistSymbol(symbol, "live", auth.userId);
     return res.json({
       success: true,
       watchlist: result.watchlist || result.account.watchlist,

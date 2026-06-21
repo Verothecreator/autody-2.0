@@ -65,6 +65,14 @@ verifyLoginForm?.addEventListener("submit", async (event) => {
 
     localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
     localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
+    if (data.trustedDevice?.token) {
+      localStorage.setItem("autodyTrustedDevice", JSON.stringify({
+        token: data.trustedDevice.token,
+        email: loginEmail,
+        userId: data.trustedDevice.userId || data.user?.id || "",
+        expiresAt: data.trustedDevice.expiresAt
+      }));
+    }
     sessionStorage.removeItem("autodyPendingEmail");
     sessionStorage.removeItem("autodyRememberDevice");
     location.href = data.next || "account.html";

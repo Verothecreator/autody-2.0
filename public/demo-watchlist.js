@@ -119,13 +119,20 @@ function watchLogoMarkup(asset, extraClass = "") {
 }
 
 async function getWatchJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: window.AutodyAuth?.headers?.() || {}
+  });
   if (!response.ok) throw new Error(`${url} returned ${response.status}`);
   return response.json();
 }
 
 async function deleteWatchJson(url) {
-  const response = await fetch(url, { method: "DELETE", cache: "no-store" });
+  const response = await fetch(url, {
+    method: "DELETE",
+    cache: "no-store",
+    headers: window.AutodyAuth?.headers?.() || {}
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
   return data;
