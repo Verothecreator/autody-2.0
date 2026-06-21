@@ -37,7 +37,7 @@ async function loadSettingsPage() {
     document.getElementById("settings-market-alerts").textContent = settingsText(settings.marketAlerts);
     document.getElementById("settings-news-alerts").textContent = settingsText(settings.newsAlerts);
     document.getElementById("settings-currency").textContent = settings.currency || wallet.currency || user.currency || "USD";
-    document.getElementById("settings-email").textContent = user.email || "ontold7@gmail.com";
+    document.getElementById("settings-email").textContent = user.email || "Not available";
     document.getElementById("settings-database").textContent = dbData.configured ? dbData.provider || "Supabase Postgres" : "Local fallback";
   } catch (err) {
     console.warn("Settings page failed:", err);

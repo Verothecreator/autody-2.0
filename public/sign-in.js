@@ -11,7 +11,7 @@ function setError(message) {
 function nextPage() {
   const params = new URLSearchParams(location.search);
   const next = params.get("next") || "account.html";
-  return next.startsWith("demo-") || next === "account.html" || next.startsWith("account-") ? next : "account.html";
+  return next === "account.html" || next.startsWith("account-") ? next : "account.html";
 }
 
 function trustedDeviceForEmail(email) {
@@ -80,7 +80,7 @@ signInForm?.addEventListener("submit", async (event) => {
 
     localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
     localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
-    location.href = nextPage();
+    location.href = data.next && !data.next.startsWith("verify-") ? data.next : nextPage();
   } catch (err) {
     setError(err.message || "Sign in failed.");
     window.AutodyCaptcha.refresh(signInForm);

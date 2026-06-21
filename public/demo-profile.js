@@ -64,8 +64,10 @@ async function loadProfilePage() {
 
     document.getElementById("profile-status").textContent = walletData.source || "Demo active";
     document.getElementById("profile-name").textContent = user.name || "Vero Demo";
-    document.getElementById("profile-email").textContent = user.email || "ontold7@gmail.com";
-    document.getElementById("profile-detail-email").textContent = user.email || "ontold7@gmail.com";
+    const accountEmail = user.email || "Not available";
+    document.getElementById("profile-email").textContent = accountEmail;
+    document.getElementById("profile-detail-email").textContent = accountEmail;
+    document.getElementById("profile-account-email").textContent = accountEmail;
     document.getElementById("profile-cash").textContent = formatProfileMoney(wallet.cashBalance, true);
     document.getElementById("profile-total").textContent = formatProfileMoney(total, true);
     document.getElementById("profile-positions").textContent = String(wallet.positionsCount || 0);
