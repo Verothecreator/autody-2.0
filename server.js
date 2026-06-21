@@ -85,6 +85,8 @@ const REMEMBER_SESSION_HOURS = Number(process.env.REMEMBER_SESSION_HOURS || 24 *
 const EMAIL_VERIFICATION_TTL_MS = Number(process.env.EMAIL_VERIFICATION_TTL_MS || 1000 * 60 * 60 * 24);
 const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 1000 * 60 * 5);
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
+const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
+const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
@@ -213,6 +215,9 @@ const defaultDemoDb = {
         }
     },
     orders: {
+        [PRACTICE_USER_ID]: []
+    },
+    depositRequests: {
         [PRACTICE_USER_ID]: []
     },
     watchlists: {
@@ -1633,6 +1638,259 @@ function demoTradeError(status, message) {
     return err;
 }
 
+const LIVE_DEPOSIT_ASSETS = {
+    AU: { name: "Autody AU", networks: ["Autody custody", "Polygon PoS"] },
+    BTC: { name: "Bitcoin", networks: ["Bitcoin"] },
+    ETH: { name: "Ethereum", networks: ["Ethereum ERC-20", "Base", "Arbitrum One", "Optimism"] },
+    USDT: { name: "Tether USDt", networks: ["Ethereum ERC-20", "Tron TRC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Solana SPL"] },
+    USDC: { name: "USD Coin", networks: ["Ethereum ERC-20", "Base", "Solana SPL", "Polygon PoS", "Arbitrum One"] },
+    BNB: { name: "BNB", networks: ["BNB Smart Chain BEP-20", "BNB Beacon Chain"] },
+    BCH: { name: "Bitcoin Cash", networks: ["Bitcoin Cash"] },
+    DOGE: { name: "Dogecoin", networks: ["Dogecoin"] }
+};
+
+function normalizeDepositAssetSymbol(value) {
+    const symbol = normalizeTradeSymbol(value);
+    if (!LIVE_DEPOSIT_ASSETS[symbol]) {
+        throw demoTradeError(400, "Choose a supported crypto asset for receiving.");
+    }
+    return symbol;
+}
+
+function normalizeDepositNetwork(assetSymbol, value) {
+    const asset = LIVE_DEPOSIT_ASSETS[assetSymbol] || LIVE_DEPOSIT_ASSETS.BTC;
+    const requested = String(value || asset.networks[0] || "").trim();
+    const match = asset.networks.find((network) => network.toLowerCase() === requested.toLowerCase());
+    if (!match) throw demoTradeError(400, `Choose a supported ${assetSymbol} deposit network.`);
+    return match;
+}
+
+function depositEnvKeyPart(value = "") {
+    return String(value || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+}
+
+function treasuryAddressEnvCandidates(assetSymbol, network) {
+    const assetKey = depositEnvKeyPart(assetSymbol);
+    const networkKey = depositEnvKeyPart(network);
+    return [
+        `AUTODY_TREASURY_${assetKey}_${networkKey}_ADDRESS`,
+        `TREASURY_${assetKey}_${networkKey}_ADDRESS`,
+        `AUTODY_TREASURY_${assetKey}_ADDRESS`,
+        `TREASURY_${assetKey}_ADDRESS`
+    ];
+}
+
+function resolveTreasuryDepositRoute(assetSymbol, network) {
+    const envNames = treasuryAddressEnvCandidates(assetSymbol, network);
+    const envName = envNames.find((name) => String(process.env[name] || "").trim());
+    const address = envName ? String(process.env[envName] || "").trim() : "";
+    const provider = DEPOSIT_ROUTE_PROVIDER;
+
+    if (!address) {
+        return {
+            address: "",
+            provider,
+            routeType: "custody_not_connected",
+            status: "route_required",
+            envName: envNames[0],
+            custodyConnected: false,
+            uniqueAddress: false,
+            warnings: [
+                `No treasury address is configured for ${assetSymbol} on ${network}.`,
+                `Add ${envNames[0]} on the server or connect a custody provider before sending real funds.`
+            ]
+        };
+    }
+
+    return {
+        address,
+        provider,
+        routeType: "shared_treasury_manual",
+        status: "address_issued",
+        envName,
+        custodyConnected: false,
+        uniqueAddress: false,
+        warnings: [
+            "This is a shared treasury route for owner/manual testing.",
+            "Public user deposits need unique custody-generated addresses or a deposit-address inventory before automatic crediting."
+        ]
+    };
+}
+
+async function ensureDepositTables(client = dbPool) {
+    await client.query(`
+        create table if not exists crypto_deposit_addresses (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references profiles(id) on delete cascade,
+          asset_symbol text not null,
+          network text not null,
+          address text not null,
+          route_type text not null default 'shared_treasury_manual',
+          provider text not null default 'manual',
+          status text not null default 'active',
+          first_issued_at timestamptz not null default now(),
+          last_issued_at timestamptz not null default now(),
+          metadata jsonb not null default '{}'::jsonb,
+          unique(profile_id, asset_symbol, network, address)
+        );
+
+        create index if not exists crypto_deposit_addresses_profile_idx
+          on crypto_deposit_addresses (profile_id, asset_symbol, network, last_issued_at desc);
+
+        create table if not exists crypto_deposit_requests (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references profiles(id) on delete cascade,
+          account_mode_id uuid references account_modes(id) on delete cascade,
+          address_id uuid references crypto_deposit_addresses(id) on delete set null,
+          asset_symbol text not null,
+          network text not null,
+          address text,
+          provider text not null default 'manual',
+          route_type text not null default 'shared_treasury_manual',
+          status text not null default 'address_issued',
+          requested_fresh boolean not null default true,
+          warnings jsonb not null default '[]'::jsonb,
+          created_at timestamptz not null default now(),
+          expires_at timestamptz,
+          credited_at timestamptz
+        );
+
+        create index if not exists crypto_deposit_requests_profile_idx
+          on crypto_deposit_requests (profile_id, created_at desc);
+
+        create index if not exists crypto_deposit_requests_address_status_idx
+          on crypto_deposit_requests (address, status, created_at desc);
+    `);
+}
+
+async function createDatabaseDepositRequest(auth, body = {}) {
+    const assetSymbol = normalizeDepositAssetSymbol(body.asset);
+    const network = normalizeDepositNetwork(assetSymbol, body.network);
+    const requestedFresh = body.fresh !== false;
+    const route = resolveTreasuryDepositRoute(assetSymbol, network);
+    const client = await dbPool.connect();
+
+    try {
+        await client.query("begin");
+        await ensureDepositTables(client);
+        const context = await getPracticeDbContext(client, auth.profileId, "live");
+        const expiresAt = new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString();
+        let addressId = null;
+
+        if (route.address) {
+            const addressResult = await client.query(`
+                insert into crypto_deposit_addresses (
+                  profile_id, asset_symbol, network, address, route_type, provider, status, metadata
+                )
+                values ($1, $2, $3, $4, $5, $6, 'active', $7::jsonb)
+                on conflict (profile_id, asset_symbol, network, address) do update
+                set last_issued_at = now(),
+                    route_type = excluded.route_type,
+                    provider = excluded.provider,
+                    status = 'active'
+                returning id
+            `, [
+                auth.profileId,
+                assetSymbol,
+                network,
+                route.address,
+                route.routeType,
+                route.provider,
+                JSON.stringify({ envName: route.envName || null, uniqueAddress: route.uniqueAddress })
+            ]);
+            addressId = addressResult.rows[0]?.id || null;
+        }
+
+        const requestResult = await client.query(`
+            insert into crypto_deposit_requests (
+              profile_id, account_mode_id, address_id, asset_symbol, network, address,
+              provider, route_type, status, requested_fresh, warnings, expires_at
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
+            returning id, asset_symbol, network, address, provider, route_type, status, requested_fresh,
+                      warnings, created_at, expires_at
+        `, [
+            auth.profileId,
+            context.account_mode_id,
+            addressId,
+            assetSymbol,
+            network,
+            route.address || null,
+            route.provider,
+            route.routeType,
+            route.status,
+            requestedFresh,
+            JSON.stringify(route.warnings || []),
+            route.address ? expiresAt : null
+        ]);
+
+        await client.query("commit");
+        const row = requestResult.rows[0];
+        return {
+            id: row.id,
+            asset: row.asset_symbol,
+            assetName: LIVE_DEPOSIT_ASSETS[assetSymbol]?.name || assetSymbol,
+            network: row.network,
+            address: row.address || "",
+            provider: row.provider,
+            routeType: row.route_type,
+            status: row.status,
+            requestedFresh: row.requested_fresh,
+            warnings: Array.isArray(row.warnings) ? row.warnings : route.warnings || [],
+            custodyConnected: route.custodyConnected,
+            uniqueAddress: route.uniqueAddress,
+            createdAt: row.created_at,
+            expiresAt: row.expires_at
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+function createJsonDepositRequest(auth, body = {}) {
+    const assetSymbol = normalizeDepositAssetSymbol(body.asset);
+    const network = normalizeDepositNetwork(assetSymbol, body.network);
+    const requestedFresh = body.fresh !== false;
+    const route = resolveTreasuryDepositRoute(assetSymbol, network);
+    const db = loadDemoDb();
+    const now = new Date().toISOString();
+    const expiresAt = route.address
+        ? new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString()
+        : null;
+    const request = {
+        id: crypto.randomUUID(),
+        userId: auth.userId,
+        asset: assetSymbol,
+        assetName: LIVE_DEPOSIT_ASSETS[assetSymbol]?.name || assetSymbol,
+        network,
+        address: route.address || "",
+        provider: route.provider,
+        routeType: route.routeType,
+        status: route.status,
+        requestedFresh,
+        warnings: route.warnings || [],
+        custodyConnected: route.custodyConnected,
+        uniqueAddress: route.uniqueAddress,
+        createdAt: now,
+        expiresAt
+    };
+    db.depositRequests = db.depositRequests || {};
+    db.depositRequests[auth.userId] = [request, ...(db.depositRequests[auth.userId] || [])].slice(0, 50);
+    saveDemoDb(db);
+    return request;
+}
+
+async function createLiveDepositRequest(auth, body = {}) {
+    if (auth.source === "supabase") return createDatabaseDepositRequest(auth, body);
+    return createJsonDepositRequest(auth, body);
+}
+
 function tradeAssetType(asset) {
     if (asset?.symbol === "AU" || asset?.customAsset) return "currency";
     const assetType = String(asset?.assetType || "crypto").toLowerCase();
@@ -2780,6 +3038,7 @@ function cleanupExpiredJsonPendingAccounts(db) {
         delete db.performance?.[id];
         delete db.settings?.[id];
         delete db.verificationCodes?.[id];
+        delete db.depositRequests?.[id];
     }
     db.sessions = (db.sessions || []).filter((session) => !removedIds.has(session.userId));
     return true;
@@ -2857,6 +3116,8 @@ function createJsonAccount(signUp) {
     };
     db.orders = db.orders || {};
     db.orders[userId] = [];
+    db.depositRequests = db.depositRequests || {};
+    db.depositRequests[userId] = [];
     db.watchlists = db.watchlists || {};
     db.watchlists[userId] = {
         demo: defaultWatchlistForMode("demo"),
@@ -2984,7 +3245,7 @@ function resetJsonAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
     db.users = (db.users || []).filter((user) => keepIds.has(user.id));
     db.sessions = (db.sessions || []).filter((session) => keepIds.has(session.userId));
     db.trustedDevices = (db.trustedDevices || []).filter((device) => keepIds.has(device.userId));
-    for (const key of ["wallets", "orders", "watchlists", "researchPreferences", "performance", "settings", "verificationCodes"]) {
+    for (const key of ["wallets", "orders", "watchlists", "researchPreferences", "performance", "settings", "verificationCodes", "depositRequests"]) {
         if (!db[key] || typeof db[key] !== "object") continue;
         Object.keys(db[key]).forEach((userId) => {
             if (!keepIds.has(userId)) delete db[key][userId];
@@ -6792,6 +7053,27 @@ app.get("/api/account/wallet", async (req, res) => {
   } catch (err) {
     console.error("Live wallet API error:", err);
     return sendDemoError(res, err, "Live wallet unavailable");
+  }
+});
+
+app.post("/api/account/deposits/address", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const deposit = await createLiveDepositRequest(auth, body);
+    return res.json({
+      success: true,
+      deposit,
+      treasury: {
+        provider: deposit.provider,
+        routeType: deposit.routeType,
+        custodyConnected: Boolean(deposit.custodyConnected),
+        uniqueAddress: Boolean(deposit.uniqueAddress)
+      }
+    });
+  } catch (err) {
+    console.error("Live deposit address error:", err);
+    return sendDemoError(res, err, "Deposit route could not be created");
   }
 });
 

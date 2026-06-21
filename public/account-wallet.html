@@ -213,7 +213,7 @@
             <div>
               <span class="muted-label" id="live-transfer-eyebrow">Crypto transfer</span>
               <h2 id="live-transfer-title">Receive crypto</h2>
-              <p class="card-intro" id="live-transfer-intro">Select an asset and network to preview a deposit address. Real custody is still pending.</p>
+              <p class="card-intro" id="live-transfer-intro">Select an asset and network to request a server-tracked deposit route.</p>
             </div>
             <button class="asset-more-button" type="button" data-live-transfer-close aria-label="Close transfer panel">x</button>
           </div>
@@ -245,12 +245,12 @@
               <select id="receive-network"></select>
             </label>
             <div class="live-address-box">
-              <span id="receive-address">Generate a deposit address to preview the receive flow.</span>
+              <span id="receive-address">Generate a server-tracked deposit route.</span>
               <button type="button" id="copy-receive-address">Copy</button>
             </div>
             <div class="live-action-row">
-              <button class="btn" type="button" id="generate-receive-address">Generate Address</button>
-              <button class="btn btn-ghost" type="button" data-live-message="Fresh address rotation is planned so repeat deposits do not depend on one static address.">Fresh Address Policy</button>
+              <button class="btn" type="button" id="generate-receive-address">Generate Fresh Address</button>
+              <button class="btn btn-ghost" type="button" data-live-message="Autody records every deposit request on the server. Public launch will use unique custody addresses or approved address inventory; shared treasury routes are owner-testing only.">Fresh Address Policy</button>
             </div>
             <div class="live-transfer-footnote">
               <span>Network accuracy matters</span>

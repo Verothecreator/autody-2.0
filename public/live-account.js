@@ -55,36 +55,19 @@ function showLiveNotice(message, type = "info") {
   }, 5200);
 }
 
-function simpleHash(seed) {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = ((hash << 5) - hash + seed.charCodeAt(i)) >>> 0;
-  }
-  return `${hash.toString(16)}${Date.now().toString(16)}`.padEnd(40, "0");
-}
-
-function mockAddress(asset, network) {
-  const seed = `${asset}-${network}-${Date.now()}-${Math.random()}`;
-  const hash = simpleHash(seed);
-  const config = liveCryptoAssets[asset] || liveCryptoAssets.BTC;
-
-  if (config.addressPrefix === "0x") {
-    return `0x${hash.slice(0, 40)}`;
+async function postLiveAccountJson(url, body) {
+  if (typeof postLiveWalletJson === "function") {
+    return postLiveWalletJson(url, body);
   }
 
-  if (asset === "BCH") {
-    return `${config.addressPrefix}${hash.slice(0, 38)}`;
-  }
-
-  if (asset === "DOGE") {
-    return `${config.addressPrefix}${hash.slice(0, 33)}`;
-  }
-
-  if (asset === "AU") {
-    return `${config.addressPrefix}${hash.slice(0, 34)}`;
-  }
-
-  return `${config.addressPrefix}${hash.slice(0, 28)}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: window.AutodyAuth?.headers?.({ "Content-Type": "application/json" }) || { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
+  return data;
 }
 
 function setFundingTab(tabName) {
@@ -106,16 +89,55 @@ function updateReceiveNetworks() {
   networkSelect.innerHTML = asset.networks.map((network) => `<option value="${network}">${network}</option>`).join("");
 }
 
-function generateReceiveAddress() {
+async function generateReceiveAddress() {
   const assetSelect = document.getElementById("receive-asset");
   const networkSelect = document.getElementById("receive-network");
   const addressNode = document.getElementById("receive-address");
   if (!assetSelect || !networkSelect || !addressNode) return;
 
-  const address = mockAddress(assetSelect.value, networkSelect.value);
-  addressNode.textContent = address;
-  addressNode.dataset.address = address;
-  showLiveNotice(`${assetSelect.value} receive address preview generated. Do not send real funds until production custody is connected.`, "success");
+  const button = document.getElementById("generate-receive-address");
+  const originalText = button?.textContent || "Generate Address";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Requesting...";
+  }
+  addressNode.textContent = "Requesting a server-tracked deposit route...";
+  delete addressNode.dataset.address;
+  delete addressNode.dataset.depositId;
+
+  try {
+    const data = await postLiveAccountJson("/api/account/deposits/address", {
+      asset: assetSelect.value,
+      network: networkSelect.value,
+      fresh: true
+    });
+    const deposit = data.deposit || {};
+    const warnings = Array.isArray(deposit.warnings) ? deposit.warnings : [];
+
+    if (deposit.address) {
+      addressNode.textContent = deposit.address;
+      addressNode.dataset.address = deposit.address;
+      addressNode.dataset.depositId = deposit.id || "";
+      showLiveNotice(
+        deposit.uniqueAddress
+          ? `${deposit.asset} deposit address created and tracked.`
+          : `${deposit.asset} treasury test route created. ${warnings[0] || "Manual reconciliation required."}`,
+        deposit.uniqueAddress ? "success" : "warning"
+      );
+      return;
+    }
+
+    addressNode.textContent = warnings[1] || warnings[0] || "Treasury route is not connected yet.";
+    showLiveNotice(warnings[0] || "Treasury route is not connected yet.", "warning");
+  } catch (err) {
+    addressNode.textContent = "Deposit route could not be created.";
+    showLiveNotice(err.message || "Deposit route could not be created.", "warning");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 async function copyReceiveAddress() {
@@ -187,7 +209,7 @@ document.getElementById("receive-asset")?.addEventListener("change", () => {
   updateReceiveNetworks();
   const addressNode = document.getElementById("receive-address");
   if (addressNode) {
-    addressNode.textContent = "Generate a deposit address to preview the receive flow.";
+    addressNode.textContent = "Generate a server-tracked deposit route.";
     delete addressNode.dataset.address;
   }
 });
