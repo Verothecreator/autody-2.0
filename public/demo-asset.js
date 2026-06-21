@@ -447,7 +447,8 @@ async function loadAsset(options = {}) {
   const requestToken = ++assetRequestToken;
 
   try {
-    const data = await getJson(`/api/markets/asset/${encodeURIComponent(currentSymbol)}?range=${encodeURIComponent(currentRange)}`);
+    const accountMode = IS_LIVE_ASSET_PAGE ? "live" : "demo";
+    const data = await getJson(`/api/markets/asset/${encodeURIComponent(currentSymbol)}?range=${encodeURIComponent(currentRange)}&mode=${encodeURIComponent(accountMode)}`);
     if (!data.success) throw new Error(data.error || "Asset detail failed");
     if (requestToken !== assetRequestToken) return;
     renderAsset(data);

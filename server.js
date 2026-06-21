@@ -1699,23 +1699,53 @@ async function resolveWatchlistAsset(symbol) {
     };
 }
 
-async function getPracticeDbContext(client = dbPool) {
+async function getPracticeDbContext(client = dbPool, profileId = null, mode = "demo") {
     if (!databaseConfigured()) return null;
+    const accountMode = normalizeWatchlistMode(mode);
 
-    const result = await client.query(`
-        select
-            p.id as profile_id,
-            am.id as account_mode_id,
-            w.id as wallet_id,
-            w.cash_balance,
-            w.reserved_cash,
-            w.starting_balance
-        from profiles p
-        join account_modes am on am.profile_id = p.id and am.mode = 'demo'
-        join wallets w on w.account_mode_id = am.id
-        where lower(p.email) = lower($1)
-        limit 1
-    `, [PRACTICE_USER_EMAIL]);
+    const readContext = () => profileId
+        ? client.query(`
+            select
+                p.id as profile_id,
+                am.id as account_mode_id,
+                w.id as wallet_id,
+                w.cash_balance,
+                w.reserved_cash,
+                w.starting_balance
+            from profiles p
+            join account_modes am on am.profile_id = p.id and am.mode = $2
+            join wallets w on w.account_mode_id = am.id
+            where p.id = $1
+            limit 1
+        `, [profileId, accountMode])
+        : client.query(`
+            select
+                p.id as profile_id,
+                am.id as account_mode_id,
+                w.id as wallet_id,
+                w.cash_balance,
+                w.reserved_cash,
+                w.starting_balance
+            from profiles p
+            join account_modes am on am.profile_id = p.id and am.mode = $2
+            join wallets w on w.account_mode_id = am.id
+            where lower(p.email) = lower($1)
+            limit 1
+        `, [PRACTICE_USER_EMAIL, accountMode]);
+
+    let result = await readContext();
+
+    if (!result.rows[0] && profileId) {
+        const seeded = await seedAccountWallet(client, profileId, accountMode, accountMode === "demo" ? 50000 : 0);
+        if (accountMode === "demo") {
+            await client.query(`
+                insert into demo_performance (account_mode_id, portfolio_value, starting_balance)
+                values ($1, 50000, 50000)
+                on conflict (account_mode_id) do nothing
+            `, [seeded.accountModeId]);
+        }
+        result = await readContext();
+    }
 
     if (!result.rows[0]) throw demoTradeError(503, "Practice account is not ready yet.");
     return result.rows[0];
@@ -1963,13 +1993,17 @@ async function refreshDbPerformance(client, context, realizedDelta = 0) {
     ]);
 }
 
-async function placeDatabaseDemoOrder(body) {
+async function placeDatabaseDemoOrder(body, auth = {}) {
     const side = String(body.side || "buy").trim().toLowerCase();
     const client = await dbPool.connect();
 
     try {
         await client.query("begin");
-        const context = await getPracticeDbContext(client);
+        const context = await getPracticeDbContext(
+            client,
+            auth.source === "supabase" ? auth.profileId : null,
+            "demo"
+        );
         let order;
         let realizedDelta = 0;
 
@@ -2035,7 +2069,9 @@ async function placeDatabaseDemoOrder(body) {
 
         await refreshDbPerformance(client, context, realizedDelta);
         await client.query("commit");
-        const account = await getPracticeAccountAfterDatabaseWrite("Supabase demo order");
+        const account = auth.source === "supabase" && auth.profileId
+            ? await getDatabaseAccountByProfileId(auth.profileId, "demo")
+            : await getPracticeAccountAfterDatabaseWrite("Supabase demo order");
         return {
             order,
             account,
@@ -2073,15 +2109,16 @@ function upsertJsonHolding(wallet, asset, quantity, averageCost, price) {
     return nextHolding;
 }
 
-async function placeJsonDemoOrder(body) {
+async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
     const db = loadDemoDb();
-    const user = db.users.find((item) => item.id === PRACTICE_USER_ID);
-    const wallet = db.wallets[PRACTICE_USER_ID];
+    const user = db.users.find((item) => item.id === userId);
+    const wallet = db.wallets[userId];
     const side = String(body.side || "buy").trim().toLowerCase();
     if (!user || !wallet) throw demoTradeError(503, "Practice account is not ready yet.");
 
     const adjustCash = (delta) => {
-        const nextCash = numberValue(user.cashBalance, 50000) + delta;
+        const currentCash = numberValue(wallet.cash?.balance ?? user.cashBalance, 50000);
+        const nextCash = currentCash + delta;
         if (nextCash < -0.005) throw demoTradeError(400, "Not enough demo buying power for this order.");
         user.cashBalance = nextCash;
         wallet.cash = {
@@ -2160,7 +2197,7 @@ async function placeJsonDemoOrder(body) {
         filledAt: new Date().toISOString()
     };
     db.orders = db.orders || {};
-    db.orders[PRACTICE_USER_ID] = [order, ...(db.orders[PRACTICE_USER_ID] || [])].slice(0, 50);
+    db.orders[userId] = [order, ...(db.orders[userId] || [])].slice(0, 50);
 
     const investedValue = (wallet.holdings || [])
         .filter((holding) => !["USD", "CRYPTO", "STOCKS"].includes(normalizeTradeSymbol(holding.symbol)))
@@ -2168,8 +2205,8 @@ async function placeJsonDemoOrder(body) {
     const startingBalance = numberValue(user.startingBalance, 50000);
     const portfolioValue = numberValue(user.cashBalance, 0) + investedValue;
     db.performance = db.performance || {};
-    const existingPerformance = db.performance[PRACTICE_USER_ID] || {};
-    db.performance[PRACTICE_USER_ID] = {
+    const existingPerformance = db.performance[userId] || {};
+    db.performance[userId] = {
         ...existingPerformance,
         portfolioValue,
         startingBalance,
@@ -2183,16 +2220,16 @@ async function placeJsonDemoOrder(body) {
     saveDemoDb(db);
     return {
         order,
-        account: { ...getPracticeAccount(), source: "json" },
+        account: { ...(getJsonAccountByUserId(userId, "demo") || getPracticeAccount()), source: "json" },
         source: "json"
     };
 }
 
-async function placeDemoOrder(body) {
+async function placeDemoOrder(body, auth = {}) {
     return withDemoWriteFallback(
         "Supabase demo order",
-        () => placeDatabaseDemoOrder(body),
-        () => placeJsonDemoOrder(body)
+        () => placeDatabaseDemoOrder(body, auth),
+        () => placeJsonDemoOrder(body, auth.userId || PRACTICE_USER_ID)
     );
 }
 
@@ -2248,8 +2285,11 @@ async function addWatchlistSymbol(symbol, mode = "demo", options = {}) {
     );
 }
 
-async function addDemoWatchlistSymbol(symbol) {
-    return addWatchlistSymbol(symbol, "demo");
+async function addDemoWatchlistSymbol(symbol, auth = {}) {
+    return addWatchlistSymbol(symbol, "demo", {
+        profileId: auth.source === "supabase" ? auth.profileId : null,
+        userId: auth.userId || PRACTICE_USER_ID
+    });
 }
 
 async function addLiveWatchlistSymbol(symbol, auth = {}) {
@@ -2299,8 +2339,11 @@ async function removeWatchlistSymbol(symbol, mode = "demo", options = {}) {
     );
 }
 
-async function removeDemoWatchlistSymbol(symbol) {
-    return removeWatchlistSymbol(symbol, "demo");
+async function removeDemoWatchlistSymbol(symbol, auth = {}) {
+    return removeWatchlistSymbol(symbol, "demo", {
+        profileId: auth.source === "supabase" ? auth.profileId : null,
+        userId: auth.userId || PRACTICE_USER_ID
+    });
 }
 
 async function removeLiveWatchlistSymbol(symbol, auth = {}) {
@@ -5987,6 +6030,7 @@ app.get("/api/markets/asset/:symbol", async (req, res) => {
     maybeKickLiveMarketRefresh("asset-request-stale");
     const symbol = decodeURIComponent(req.params.symbol || "").trim().toUpperCase();
     const range = normalizeChartRange(req.query.range);
+    const accountMode = normalizeWatchlistMode(req.query.mode || "demo");
     const asset = await findMarketAssetBySymbol(symbol);
 
     if (!asset) {
@@ -5995,7 +6039,7 @@ app.get("/api/markets/asset/:symbol", async (req, res) => {
 
     const [chartResult, accountResult] = await Promise.allSettled([
       fetchAssetChartSeries(asset, range),
-      getPracticeAccountAny()
+      getAuthenticatedAccount(req, accountMode)
     ]);
 
     const chart = chartResult.status === "fulfilled"
@@ -6013,8 +6057,8 @@ app.get("/api/markets/asset/:symbol", async (req, res) => {
       asset,
       chart,
       demo: {
-        buyingPower: account?.user?.cashBalance ?? 50000,
-        startingBalance: account?.user?.startingBalance ?? 50000,
+        buyingPower: account?.user?.cashBalance ?? (accountMode === "demo" ? 50000 : 0),
+        startingBalance: account?.user?.startingBalance ?? (accountMode === "demo" ? 50000 : 0),
         holding,
         orders
       }
@@ -6621,7 +6665,7 @@ app.get("/api/demo/practice-user", async (req, res) => {
 
 app.get("/api/demo/wallet", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
+    const account = await getAuthenticatedAccount(req, "demo");
     const wallet = await buildDemoWalletSnapshot(account);
 
     return res.json({
@@ -6638,7 +6682,7 @@ app.get("/api/demo/wallet", async (req, res) => {
 
 app.get("/api/demo/orders", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
+    const account = await getAuthenticatedAccount(req, "demo");
     return res.json({
       success: true,
       user: publicUser(account.user),
@@ -6654,7 +6698,8 @@ app.get("/api/demo/orders", async (req, res) => {
 app.post("/api/demo/orders", async (req, res) => {
   try {
     const body = parseJsonBody(req);
-    const result = await placeDemoOrder(body);
+    const auth = await authenticatedAccountContext(req);
+    const result = await placeDemoOrder(body, auth);
     const wallet = await buildDemoWalletSnapshot(result.account);
 
     return res.json({
@@ -6671,7 +6716,7 @@ app.post("/api/demo/orders", async (req, res) => {
 
 app.get("/api/demo/watchlist", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
+    const account = await getAuthenticatedAccount(req, "demo");
     return res.json({
       success: true,
       user: publicUser(account.user),
@@ -6687,7 +6732,8 @@ app.get("/api/demo/watchlist", async (req, res) => {
 app.post("/api/demo/watchlist", async (req, res) => {
   try {
     const body = parseJsonBody(req);
-    const result = await addDemoWatchlistSymbol(body.symbol);
+    const auth = await authenticatedAccountContext(req);
+    const result = await addDemoWatchlistSymbol(body.symbol, auth);
     return res.json({
       success: true,
       asset: result.asset,
@@ -6704,7 +6750,8 @@ app.post("/api/demo/watchlist", async (req, res) => {
 app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
   try {
     const symbol = decodeURIComponent(req.params.symbol || "");
-    const result = await removeDemoWatchlistSymbol(symbol);
+    const auth = await authenticatedAccountContext(req);
+    const result = await removeDemoWatchlistSymbol(symbol, auth);
     return res.json({
       success: true,
       watchlist: result.watchlist || result.account.watchlist,
@@ -6802,7 +6849,7 @@ app.delete("/api/account/watchlist/:symbol", async (req, res) => {
 
 app.get("/api/demo/performance", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
+    const account = await getAuthenticatedAccount(req, "demo");
     return res.json({
       success: true,
       user: publicUser(account.user),
@@ -6817,7 +6864,7 @@ app.get("/api/demo/performance", async (req, res) => {
 
 app.get("/api/demo/settings", async (req, res) => {
   try {
-    const account = await getPracticeAccountAny();
+    const account = await getAuthenticatedAccount(req, "demo");
     return res.json({
       success: true,
       user: publicUser(account.user),

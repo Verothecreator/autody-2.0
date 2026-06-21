@@ -152,7 +152,10 @@ async function loadDemoSidebarBalance() {
   if (!document.querySelector(".sidebar-profile strong:not([data-static-profile]):not([data-live-balance])")) return;
 
   try {
-    const response = await fetch("/api/demo/wallet", { cache: "no-store" });
+    const response = await fetch("/api/demo/wallet", {
+      cache: "no-store",
+      headers: window.AutodyAuth?.headers?.() || {}
+    });
     if (!response.ok) return;
     const data = await response.json();
     if (data?.success && data.wallet) updateDemoSidebarBalance(data.wallet);

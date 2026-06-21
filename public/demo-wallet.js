@@ -137,7 +137,7 @@ function showWalletToast(message, tone = "") {
 async function postWalletJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: window.AutodyAuth?.headers?.({ "Content-Type": "application/json" }) || { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
   const data = await response.json().catch(() => ({}));
@@ -640,7 +640,10 @@ async function loadWallet(options = {}) {
         return response.json();
       }).catch(() => ({ assets: walletCatalog }));
 
-    const data = await fetch("/api/demo/wallet", { cache: "no-store" }).then((response) => {
+    const data = await fetch("/api/demo/wallet", {
+      cache: "no-store",
+      headers: window.AutodyAuth?.headers?.() || {}
+    }).then((response) => {
       if (!response.ok) throw new Error(`/api/demo/wallet returned ${response.status}`);
       return response.json();
     });
