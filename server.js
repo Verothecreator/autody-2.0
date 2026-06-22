@@ -1672,6 +1672,22 @@ function depositEnvKeyPart(value = "") {
         .replace(/^_+|_+$/g, "");
 }
 
+function looksLikePrivateTreasurySecret(value = "") {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return false;
+    const compact = trimmed.replace(/\s+/g, " ");
+    const lower = compact.toLowerCase();
+    const words = lower.split(" ").filter(Boolean);
+
+    return /^0x[a-f0-9]{64}$/i.test(trimmed)
+        || /^[a-f0-9]{64}$/i.test(trimmed)
+        || /^[5KL][1-9A-HJ-NP-Za-km-z]{50,51}$/.test(trimmed)
+        || /^(xprv|yprv|zprv|tprv)[1-9A-HJ-NP-Za-km-z]{80,}$/.test(trimmed)
+        || /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(trimmed)
+        || /(private[_\s-]?key|seed[_\s-]?phrase|mnemonic|recovery[_\s-]?phrase)/i.test(trimmed)
+        || (words.length >= 12 && words.length <= 24 && /^[a-z]+(?: [a-z]+){11,23}$/.test(lower));
+}
+
 function treasuryAddressEnvCandidates(assetSymbol, network) {
     const assetKey = depositEnvKeyPart(assetSymbol);
     const networkKey = depositEnvKeyPart(network);
@@ -1688,6 +1704,23 @@ function resolveTreasuryDepositRoute(assetSymbol, network) {
     const envName = envNames.find((name) => String(process.env[name] || "").trim());
     const address = envName ? String(process.env[envName] || "").trim() : "";
     const provider = DEPOSIT_ROUTE_PROVIDER;
+
+    if (address && looksLikePrivateTreasurySecret(address)) {
+        console.error(`Rejected treasury deposit route from ${envName}: value looks like a private secret, not a public receiving address.`);
+        return {
+            address: "",
+            provider,
+            routeType: "treasury_secret_rejected",
+            status: "route_rejected",
+            envName,
+            custodyConnected: false,
+            uniqueAddress: false,
+            warnings: [
+                `${envName} does not look like a public receiving address.`,
+                "Use only a public receive address. Never put a seed phrase, private key, recovery phrase, or wallet login in Render."
+            ]
+        };
+    }
 
     if (!address) {
         return {
