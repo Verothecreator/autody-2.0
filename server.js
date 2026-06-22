@@ -99,6 +99,13 @@ const EMAIL_VERIFICATION_TTL_MS = Number(process.env.EMAIL_VERIFICATION_TTL_MS |
 const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 1000 * 60 * 5);
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
+const DEPOSIT_MONITOR_ENABLED = process.env.DEPOSIT_MONITOR_ENABLED === "true";
+const DEPOSIT_MONITOR_INTERVAL_MS = Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 60 * 1000);
+const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS_LIMIT || 80);
+const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CONFIRMATIONS || 3));
+const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 5000);
+const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
+const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
 const DEPOSIT_MNEMONIC = String(
     process.env.AUTODY_DEPOSIT_MNEMONIC
@@ -114,6 +121,8 @@ let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
 let lastChartRefresh = null;
+let depositMonitorTimer = null;
+let depositMonitorInFlight = null;
 let liveMarketAssetCache = { assets: [], bySymbol: new Map(), updatedAt: 0 };
 const marketCatalogCache = new Map();
 const SERVER_STARTED_AT = Date.now();
@@ -1698,6 +1707,123 @@ const LIVE_DEPOSIT_ASSETS = {
     MANA: { name: "Decentraland", networks: ["Ethereum ERC-20", "Polygon PoS"] }
 };
 
+const EVM_DEPOSIT_NETWORK_CONFIGS = {
+    "Ethereum ERC-20": {
+        scannerKey: "ethereum",
+        nativeAssets: ["ETH"],
+        rpcEnv: ["AUTODY_ETHEREUM_RPC_URL", "ETHEREUM_RPC_URL", "ETH_RPC_URL"],
+        publicRpcUrl: "https://ethereum-rpc.publicnode.com"
+    },
+    Base: {
+        scannerKey: "base",
+        nativeAssets: ["ETH"],
+        rpcEnv: ["AUTODY_BASE_RPC_URL", "BASE_RPC_URL"],
+        publicRpcUrl: "https://base-rpc.publicnode.com"
+    },
+    "Arbitrum One": {
+        scannerKey: "arbitrum",
+        nativeAssets: ["ETH"],
+        rpcEnv: ["AUTODY_ARBITRUM_RPC_URL", "ARBITRUM_RPC_URL"],
+        publicRpcUrl: "https://arbitrum-one-rpc.publicnode.com"
+    },
+    Optimism: {
+        scannerKey: "optimism",
+        nativeAssets: ["ETH"],
+        rpcEnv: ["AUTODY_OPTIMISM_RPC_URL", "OPTIMISM_RPC_URL"],
+        publicRpcUrl: "https://optimism-rpc.publicnode.com"
+    },
+    "BNB Smart Chain BEP-20": {
+        scannerKey: "bsc",
+        nativeAssets: ["BNB"],
+        rpcEnv: ["AUTODY_BSC_RPC_URL", "BSC_RPC_URL", "BNB_RPC_URL"],
+        publicRpcUrl: "https://bsc-rpc.publicnode.com"
+    },
+    "Polygon PoS": {
+        scannerKey: "polygon",
+        nativeAssets: ["POL"],
+        rpcEnv: ["AUTODY_POLYGON_RPC_URL", "POLYGON_RPC_URL", "POLYGON_RPC"],
+        publicRpcUrl: "https://polygon-bor-rpc.publicnode.com"
+    },
+    "Avalanche C-Chain": {
+        scannerKey: "avalanche",
+        nativeAssets: ["AVAX"],
+        rpcEnv: ["AUTODY_AVALANCHE_RPC_URL", "AVALANCHE_RPC_URL"],
+        publicRpcUrl: "https://avalanche-c-chain-rpc.publicnode.com"
+    }
+};
+
+const EVM_TOKEN_DEPOSIT_CONTRACTS = {
+    USDT: {
+        "Ethereum ERC-20": { address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
+        "BNB Smart Chain BEP-20": { address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
+        "Polygon PoS": { address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
+        "Arbitrum One": { address: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9", decimals: 6 },
+        Optimism: { address: "0x94b008aa00579c1307B0eF2c499AD98a8ce58e58", decimals: 6 },
+        "Avalanche C-Chain": { address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7", decimals: 6 }
+    },
+    USDC: {
+        "Ethereum ERC-20": { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
+        Base: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
+        "Polygon PoS": { address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6 },
+        "Arbitrum One": { address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6 },
+        Optimism: { address: "0x0b2c639c533813f4aa9d7837caf62653d097ff85", decimals: 6 },
+        "Avalanche C-Chain": { address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", decimals: 6 }
+    },
+    LINK: {
+        "Ethereum ERC-20": { address: "0x514910771AF9Ca656af840dff83E8264EcF986CA", decimals: 18 },
+        "Polygon PoS": { address: "0x53E0bca35eC356BD5ddDFEBbd1Fc0fD03Fabad39", decimals: 18 },
+        "Arbitrum One": { address: "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4", decimals: 18 }
+    },
+    UNI: {
+        "Ethereum ERC-20": { address: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", decimals: 18 },
+        "Polygon PoS": { address: "0xb33EaAd8d922B1083446DC23f610c2567fB5180f", decimals: 18 },
+        "Arbitrum One": { address: "0xfa7f8980b0f1e64a2062791cc3b0871572f1f7f0", decimals: 18 }
+    },
+    AAVE: {
+        "Ethereum ERC-20": { address: "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9", decimals: 18 },
+        "Polygon PoS": { address: "0xD6DF932A45C0f255f85145f286ea0b292B21C90B", decimals: 18 },
+        "Arbitrum One": { address: "0xba5DdD1f9d7F570dc94a51479a000E3BCE967196", decimals: 18 }
+    },
+    ARB: { "Arbitrum One": { address: "0x912CE59144191C1204E64559FE8253a0e49E6548", decimals: 18 } },
+    OP: { Optimism: { address: "0x4200000000000000000000000000000000000042", decimals: 18 } },
+    SHIB: { "Ethereum ERC-20": { address: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE", decimals: 18 } },
+    RENDER: { "Ethereum ERC-20": { address: "0x6De037ef9aD2725EB40118Bb1702EBb27e4Aeb24", decimals: 18 } },
+    PEPE: { "Ethereum ERC-20": { address: "0x6982508145454Ce325dDbE47a25d4ec3d2311933", decimals: 18 } },
+    DAI: {
+        "Ethereum ERC-20": { address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18 },
+        "Polygon PoS": { address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", decimals: 18 },
+        "Arbitrum One": { address: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1", decimals: 18 },
+        Optimism: { address: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1", decimals: 18 }
+    },
+    PYUSD: { "Ethereum ERC-20": { address: "0x6c3ea9036406852006290770BEdFcAbA0e23A0e8", decimals: 6 } },
+    FDUSD: {
+        "Ethereum ERC-20": { address: "0xc5f0f7b66764f6ec8c8dff7ba683102295e16409", decimals: 18 },
+        "BNB Smart Chain BEP-20": { address: "0xc5f0f7b66764f6ec8c8dff7ba683102295e16409", decimals: 18 }
+    },
+    TUSD: {
+        "Ethereum ERC-20": { address: "0x0000000000085d4780B73119b644AE5ecd22b376", decimals: 18 },
+        "BNB Smart Chain BEP-20": { address: "0x14016E85a25aeb13065688cAFB43044C2ef86784", decimals: 18 }
+    },
+    MKR: { "Ethereum ERC-20": { address: "0x9f8F72aA9304c8B593d555F12ef6589cC3A579A2", decimals: 18 } },
+    LDO: {
+        "Ethereum ERC-20": { address: "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32", decimals: 18 },
+        "Arbitrum One": { address: "0x13A7dedb7169a17BE92B0E3C7C2315B46F4772B3", decimals: 18 }
+    },
+    QNT: { "Ethereum ERC-20": { address: "0x4a220E6096B25EADb88358cb44068A3248254675", decimals: 18 } },
+    GRT: {
+        "Ethereum ERC-20": { address: "0xc944E90C64B2c07662A292be6244BDf05Cda44a7", decimals: 18 },
+        "Arbitrum One": { address: "0x9623063377ad1b27544c965ccd7342f7ea7e88c7", decimals: 18 }
+    },
+    CRV: {
+        "Ethereum ERC-20": { address: "0xD533a949740bb3306d119CC777fa900bA034cd52", decimals: 18 },
+        "Arbitrum One": { address: "0x11cdb42b0eb46d95f990bedd4695a6e3fa034978", decimals: 18 }
+    },
+    MANA: {
+        "Ethereum ERC-20": { address: "0x0F5D2fB29fb7d3Cb17dB3aB3b5D7A0277D4bD2", decimals: 18 },
+        "Polygon PoS": { address: "0xA1C57f48F0Deb89f569DfBE6E2B7f46D33606f89", decimals: 18 }
+    }
+};
+
 const EVM_SELF_CUSTODY_NETWORKS = new Set([
     "Ethereum",
     "Ethereum ERC-20",
@@ -1761,6 +1887,86 @@ function depositEnvKeyPart(value = "") {
         .toUpperCase()
         .replace(/[^A-Z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "");
+}
+
+function getDepositRpcUrl(config = {}) {
+    const envName = (config.rpcEnv || []).find((name) => String(process.env[name] || "").trim());
+    return envName ? String(process.env[envName]).trim() : config.publicRpcUrl || "";
+}
+
+function getEvmNetworkConfig(network = "") {
+    const selected = Object.entries(EVM_DEPOSIT_NETWORK_CONFIGS)
+        .find(([name]) => name.toLowerCase() === String(network || "").trim().toLowerCase());
+    if (!selected) return null;
+    return { name: selected[0], ...selected[1] };
+}
+
+function depositTokenContractEnvCandidates(assetSymbol, network) {
+    const assetKey = depositEnvKeyPart(assetSymbol);
+    const networkKey = depositEnvKeyPart(network);
+    return [
+        `AUTODY_TOKEN_CONTRACT_${assetKey}_${networkKey}`,
+        `AUTODY_DEPOSIT_TOKEN_${assetKey}_${networkKey}`,
+        `TOKEN_CONTRACT_${assetKey}_${networkKey}`
+    ];
+}
+
+function depositTokenDecimalsEnvCandidates(assetSymbol, network) {
+    const assetKey = depositEnvKeyPart(assetSymbol);
+    const networkKey = depositEnvKeyPart(network);
+    return [
+        `AUTODY_TOKEN_DECIMALS_${assetKey}_${networkKey}`,
+        `AUTODY_DEPOSIT_TOKEN_DECIMALS_${assetKey}_${networkKey}`,
+        `TOKEN_DECIMALS_${assetKey}_${networkKey}`
+    ];
+}
+
+function getEvmTokenDepositContract(assetSymbol, network) {
+    const envNames = depositTokenContractEnvCandidates(assetSymbol, network);
+    const envName = envNames.find((name) => String(process.env[name] || "").trim());
+    const configured = EVM_TOKEN_DEPOSIT_CONTRACTS[assetSymbol]?.[network] || null;
+    const rawAddress = envName ? String(process.env[envName] || "").trim() : configured?.address;
+    if (!rawAddress) return null;
+
+    try {
+        const decimalsEnvName = depositTokenDecimalsEnvCandidates(assetSymbol, network)
+            .find((name) => String(process.env[name] || "").trim());
+        const decimals = decimalsEnvName
+            ? Number(process.env[decimalsEnvName])
+            : Number(configured?.decimals ?? 18);
+        return {
+            address: ethers.getAddress(rawAddress),
+            decimals: Number.isFinite(decimals) ? decimals : 18,
+            envName: envName || null
+        };
+    } catch (err) {
+        console.error(`Invalid token contract for ${assetSymbol} on ${network}:`, err.message || err);
+        return null;
+    }
+}
+
+function isNativeEvmDepositAsset(assetSymbol, network) {
+    const config = getEvmNetworkConfig(network);
+    return Boolean(config?.nativeAssets?.includes(assetSymbol));
+}
+
+function normalizeEvmAddress(address) {
+    try {
+        return ethers.getAddress(String(address || "").trim());
+    } catch (err) {
+        return "";
+    }
+}
+
+function evmAddressTopic(address) {
+    const normalized = normalizeEvmAddress(address);
+    return normalized ? ethers.zeroPadValue(normalized, 32) : "";
+}
+
+function adminRequestAuthorized(req, body = {}) {
+    if (!ADMIN_RESET_KEY) return false;
+    const providedKey = normalizeText(req.get("x-admin-reset-key") || req.get("x-admin-key") || body.adminKey);
+    return Boolean(providedKey && providedKey === ADMIN_RESET_KEY);
 }
 
 function looksLikePrivateTreasurySecret(value = "") {
@@ -2084,7 +2290,7 @@ async function resolveDatabaseSelfCustodyEvmRoute(client, profileId, assetSymbol
             metadata: { networkFamily: "evm" },
             warnings: [
                 "Self-custody EVM address generation is not configured correctly.",
-                "Check AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
+                `Check ${evmDepositEnvName()} before accepting deposits.`
             ]
         };
     }
@@ -2170,7 +2376,7 @@ function resolveJsonSelfCustodyEvmRoute(db, userId, assetSymbol, network, reques
             metadata: { networkFamily: "evm" },
             warnings: [
                 "Self-custody EVM address generation is not configured correctly.",
-                "Check AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
+                `Check ${evmDepositEnvName()} before accepting deposits.`
             ]
         };
     }
@@ -2395,6 +2601,73 @@ async function ensureDepositTables(client = dbPool) {
 
         create index if not exists crypto_deposit_requests_address_status_idx
           on crypto_deposit_requests (address, status, created_at desc);
+
+        alter table crypto_deposit_requests
+          add column if not exists amount_received numeric(28, 10),
+          add column if not exists amount_usd numeric(18, 2),
+          add column if not exists confirmations integer not null default 0,
+          add column if not exists tx_hash text,
+          add column if not exists updated_at timestamptz not null default now();
+
+        create table if not exists crypto_deposit_events (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references profiles(id) on delete cascade,
+          address_id uuid references crypto_deposit_addresses(id) on delete set null,
+          request_id uuid references crypto_deposit_requests(id) on delete set null,
+          asset_symbol text not null,
+          network text not null,
+          address text not null,
+          tx_hash text not null,
+          log_index integer,
+          block_number numeric(20, 0),
+          amount numeric(28, 10) not null,
+          amount_usd numeric(18, 2),
+          confirmations integer not null default 0,
+          status text not null default 'detected',
+          credited_at timestamptz,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          metadata jsonb not null default '{}'::jsonb
+        );
+
+        create unique index if not exists crypto_deposit_events_unique_idx
+          on crypto_deposit_events (network, tx_hash, asset_symbol, address, (coalesce(log_index, -1)));
+
+        create index if not exists crypto_deposit_events_profile_idx
+          on crypto_deposit_events (profile_id, created_at desc);
+
+        create table if not exists crypto_deposit_scan_state (
+          scan_key text primary key,
+          network text not null,
+          asset_symbol text,
+          scanner text not null,
+          last_scanned_block numeric(20, 0) not null default 0,
+          updated_at timestamptz not null default now()
+        );
+
+        do $$
+        begin
+          if exists (
+            select 1
+            from pg_constraint
+            where conname = 'orders_side_check'
+              and conrelid = 'orders'::regclass
+              and pg_get_constraintdef(oid) not like '%deposit%'
+          ) then
+            alter table orders drop constraint orders_side_check;
+          end if;
+
+          if not exists (
+            select 1
+            from pg_constraint
+            where conname = 'orders_side_check'
+              and conrelid = 'orders'::regclass
+          ) then
+            alter table orders
+              add constraint orders_side_check
+              check (side in ('buy', 'sell', 'swap', 'deposit', 'withdrawal'));
+          end if;
+        end $$;
     `);
 }
 
@@ -2527,6 +2800,529 @@ function createJsonDepositRequest(auth, body = {}) {
 async function createLiveDepositRequest(auth, body = {}) {
     if (auth.source === "supabase") return createDatabaseDepositRequest(auth, body);
     return createJsonDepositRequest(auth, body);
+}
+
+const evmDepositProviderCache = new Map();
+const ERC20_TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+const ERC20_TRANSFER_INTERFACE = new ethers.Interface([
+    "event Transfer(address indexed from, address indexed to, uint256 value)"
+]);
+const STABLE_DEPOSIT_ASSETS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
+
+function getEvmDepositProvider(network) {
+    const config = getEvmNetworkConfig(network);
+    if (!config) return null;
+    const rpcUrl = getDepositRpcUrl(config);
+    if (!rpcUrl) return null;
+    const cacheKey = `${config.scannerKey}:${rpcUrl}`;
+    if (!evmDepositProviderCache.has(cacheKey)) {
+        evmDepositProviderCache.set(cacheKey, new ethers.JsonRpcProvider(rpcUrl));
+    }
+    return {
+        provider: evmDepositProviderCache.get(cacheKey),
+        config,
+        rpcUrl
+    };
+}
+
+async function getDepositScanWindow(client, { scanKey, network, assetSymbol = null, scanner, latestBlock, lookbackBlocks, maxBlocks = null }) {
+    const safeToBlock = Math.max(0, latestBlock - DEPOSIT_MIN_CONFIRMATIONS + 1);
+    if (safeToBlock <= 0) return null;
+
+    const stateResult = await client.query(`
+        select last_scanned_block
+        from crypto_deposit_scan_state
+        where scan_key = $1
+        limit 1
+    `, [scanKey]);
+    const lastScanned = Number(stateResult.rows[0]?.last_scanned_block || 0);
+    let fromBlock = lastScanned > 0
+        ? lastScanned + 1
+        : Math.max(0, safeToBlock - Math.max(1, lookbackBlocks));
+
+    if (maxBlocks && safeToBlock - fromBlock + 1 > maxBlocks) {
+        fromBlock = safeToBlock - maxBlocks + 1;
+    }
+
+    if (fromBlock > safeToBlock) return null;
+
+    return {
+        scanKey,
+        network,
+        assetSymbol,
+        scanner,
+        fromBlock,
+        toBlock: safeToBlock,
+        latestBlock
+    };
+}
+
+async function saveDepositScanState(client, window) {
+    if (!window?.scanKey || window.toBlock == null) return;
+    await client.query(`
+        insert into crypto_deposit_scan_state (scan_key, network, asset_symbol, scanner, last_scanned_block, updated_at)
+        values ($1, $2, $3, $4, $5, now())
+        on conflict (scan_key) do update
+        set last_scanned_block = greatest(crypto_deposit_scan_state.last_scanned_block, excluded.last_scanned_block),
+            updated_at = now()
+    `, [window.scanKey, window.network, window.assetSymbol, window.scanner, window.toBlock]);
+}
+
+async function resolveDepositCreditAsset(symbol, priceHint = null) {
+    const lookup = normalizeTradeSymbol(symbol);
+    const marketAsset = await findMarketAssetBySymbol(lookup).catch(() => null);
+    const stableFallback = STABLE_DEPOSIT_ASSETS.has(lookup) ? 1 : null;
+    const price = firstPositive(marketAsset?.price, priceHint, stableFallback) || 0;
+
+    return {
+        ...(marketAsset || {}),
+        symbol: lookup,
+        name: marketAsset?.name || LIVE_DEPOSIT_ASSETS[lookup]?.name || lookup,
+        assetType: lookup === "AU" ? "currency" : "crypto",
+        price
+    };
+}
+
+async function creditDatabaseDepositHolding(client, addressRow, detection) {
+    const amount = numberValue(detection.amount, 0);
+    if (amount <= 0) throw demoTradeError(400, "Deposit amount must be greater than zero.");
+
+    const context = await getPracticeDbContext(client, addressRow.profile_id, "live");
+    const priceHint = amount > 0 && detection.amountUsd != null
+        ? Number(detection.amountUsd) / amount
+        : null;
+    const asset = await resolveDepositCreditAsset(addressRow.asset_symbol, priceHint);
+    const price = firstPositive(asset.price, priceHint) || 0;
+    const existing = await readDbHoldingForUpdate(client, context.wallet_id, asset.symbol);
+    const currentQuantity = numberValue(existing?.quantity, 0);
+    const currentAverage = firstPositive(existing?.average_cost, existing?.last_price, price) || price;
+    const nextQuantity = currentQuantity + amount;
+    const notionalUsd = price > 0 ? amount * price : numberValue(detection.amountUsd, 0);
+    const nextAverage = nextQuantity > 0
+        ? ((currentQuantity * currentAverage) + Math.max(0, notionalUsd)) / nextQuantity
+        : price;
+
+    await saveDbHolding(client, context.wallet_id, {
+        ...asset,
+        name: existing?.asset_name || asset.name,
+        assetType: existing?.asset_type || asset.assetType
+    }, nextQuantity, nextAverage, price);
+
+    await client.query(`
+        insert into orders (account_mode_id, symbol, asset_type, side, order_type, status, quantity, notional_usd, filled_price, filled_at)
+        values ($1, $2, $3, 'deposit', 'crypto_deposit', 'filled', $4, $5, $6, now())
+    `, [
+        context.account_mode_id,
+        asset.symbol,
+        tradeAssetType(asset),
+        amount,
+        notionalUsd,
+        price || null
+    ]);
+
+    return {
+        walletId: context.wallet_id,
+        accountModeId: context.account_mode_id,
+        amount,
+        price,
+        notionalUsd,
+        nextQuantity
+    };
+}
+
+async function latestDepositRequestForAddress(client, addressRow) {
+    const result = await client.query(`
+        select id
+        from crypto_deposit_requests
+        where address_id = $1
+           or (profile_id = $2 and address = $3 and asset_symbol = $4 and network = $5)
+        order by created_at desc
+        limit 1
+    `, [
+        addressRow.id,
+        addressRow.profile_id,
+        addressRow.address,
+        addressRow.asset_symbol,
+        addressRow.network
+    ]);
+    return result.rows[0]?.id || null;
+}
+
+async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
+    const address = String(addressRow.address || detection.address || "").trim();
+    const requestId = await latestDepositRequestForAddress(client, addressRow);
+    const amount = numberValue(detection.amount, 0);
+    const amountUsd = detection.amountUsd == null ? null : numberValue(detection.amountUsd, 0);
+    const logIndex = detection.logIndex == null ? null : Number(detection.logIndex);
+
+    const eventResult = await client.query(`
+        insert into crypto_deposit_events (
+          profile_id, address_id, request_id, asset_symbol, network, address, tx_hash, log_index,
+          block_number, amount, amount_usd, confirmations, status, metadata, updated_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'detected', $13::jsonb, now())
+        on conflict (network, tx_hash, asset_symbol, address, (coalesce(log_index, -1))) do update
+        set confirmations = greatest(crypto_deposit_events.confirmations, excluded.confirmations),
+            amount_usd = coalesce(crypto_deposit_events.amount_usd, excluded.amount_usd),
+            updated_at = now()
+        returning id, status, credited_at
+    `, [
+        addressRow.profile_id,
+        addressRow.id,
+        requestId,
+        addressRow.asset_symbol,
+        addressRow.network,
+        address,
+        detection.txHash,
+        logIndex,
+        detection.blockNumber || null,
+        amount,
+        amountUsd,
+        Math.max(0, Number(detection.confirmations || 0)),
+        JSON.stringify(detection.metadata || {})
+    ]);
+
+    const event = eventResult.rows[0];
+    if (!event || event.credited_at || event.status === "credited") {
+        return { credited: false, reason: "already credited", eventId: event?.id || null };
+    }
+
+    const credit = await creditDatabaseDepositHolding(client, addressRow, { ...detection, amount, amountUsd });
+    await client.query(`
+        update crypto_deposit_events
+        set status = 'credited',
+            amount_usd = $2,
+            credited_at = now(),
+            updated_at = now()
+        where id = $1
+    `, [event.id, credit.notionalUsd]);
+
+    if (requestId) {
+        await client.query(`
+            update crypto_deposit_requests
+            set status = 'credited',
+                amount_received = $2,
+                amount_usd = $3,
+                confirmations = greatest(confirmations, $4),
+                tx_hash = $5,
+                credited_at = coalesce(credited_at, now()),
+                updated_at = now()
+            where id = $1
+        `, [
+            requestId,
+            amount,
+            credit.notionalUsd,
+            Math.max(0, Number(detection.confirmations || 0)),
+            detection.txHash
+        ]);
+    }
+
+    return {
+        credited: true,
+        eventId: event.id,
+        symbol: addressRow.asset_symbol,
+        network: addressRow.network,
+        amount,
+        amountUsd: credit.notionalUsd,
+        txHash: detection.txHash
+    };
+}
+
+async function creditDetectedDepositWithTransaction(client, addressRow, detection) {
+    await client.query("begin");
+    try {
+        const result = await recordAndCreditDatabaseDeposit(client, addressRow, detection);
+        await client.query("commit");
+        return result;
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    }
+}
+
+function activeDepositAddressGroups(rows = []) {
+    const groups = {
+        evmNative: new Map(),
+        evmToken: new Map(),
+        unsupported: []
+    };
+
+    rows.forEach((row) => {
+        const asset = normalizeTradeSymbol(row.asset_symbol);
+        const network = String(row.network || "").trim();
+        const config = getEvmNetworkConfig(network);
+        if (!config) {
+            groups.unsupported.push(row);
+            return;
+        }
+
+        if (isNativeEvmDepositAsset(asset, network)) {
+            const key = network;
+            groups.evmNative.set(key, [...(groups.evmNative.get(key) || []), row]);
+            return;
+        }
+
+        if (getEvmTokenDepositContract(asset, network)) {
+            const key = `${network}:${asset}`;
+            groups.evmToken.set(key, [...(groups.evmToken.get(key) || []), row]);
+            return;
+        }
+
+        groups.unsupported.push(row);
+    });
+
+    return groups;
+}
+
+async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summary) {
+    const contract = getEvmTokenDepositContract(assetSymbol, network);
+    const providerConfig = getEvmDepositProvider(network);
+    if (!contract || !providerConfig) {
+        summary.skipped.push({ network, asset: assetSymbol, reason: "scanner not configured" });
+        return;
+    }
+
+    const { provider, config } = providerConfig;
+    const latestBlock = await provider.getBlockNumber();
+    const window = await getDepositScanWindow(client, {
+        scanKey: `evm-token:${config.scannerKey}:${assetSymbol}`,
+        network,
+        assetSymbol,
+        scanner: "evm-token",
+        latestBlock,
+        lookbackBlocks: DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS
+    });
+    if (!window) return;
+
+    const rowsByTopic = rows.reduce((map, row) => {
+        const topicAddress = evmAddressTopic(row.address);
+        if (!topicAddress) return map;
+        if (!map.has(topicAddress)) map.set(topicAddress, []);
+        map.get(topicAddress).push(row);
+        return map;
+    }, new Map());
+
+    const addressTopics = Array.from(rowsByTopic.keys());
+    if (!addressTopics.length) return;
+
+    const logs = await provider.getLogs({
+        address: contract.address,
+        fromBlock: window.fromBlock,
+        toBlock: window.toBlock,
+        topics: [ERC20_TRANSFER_TOPIC, null, addressTopics]
+    });
+
+    for (const log of logs) {
+        const parsed = ERC20_TRANSFER_INTERFACE.parseLog(log);
+        const topicAddress = evmAddressTopic(parsed.args.to);
+        const matchingRows = rowsByTopic.get(topicAddress) || [];
+        const amountText = ethers.formatUnits(parsed.args.value, contract.decimals);
+        const amount = numberValue(amountText, 0);
+        if (amount <= 0) continue;
+        const confirmations = Math.max(0, latestBlock - Number(log.blockNumber || 0) + 1);
+        for (const row of matchingRows) {
+            const result = await creditDetectedDepositWithTransaction(client, row, {
+                amount,
+                txHash: log.transactionHash,
+                logIndex: Number(log.index ?? log.logIndex ?? 0),
+                blockNumber: Number(log.blockNumber || 0),
+                confirmations,
+                metadata: {
+                    scanner: "evm-token",
+                    contract: contract.address,
+                    tokenDecimals: contract.decimals,
+                    from: parsed.args.from,
+                    to: parsed.args.to
+                }
+            });
+            if (result.credited) summary.credited.push(result);
+            else summary.duplicates += 1;
+        }
+    }
+
+    await saveDepositScanState(client, window);
+}
+
+async function scanEvmNativeDepositGroup(client, network, rows, summary) {
+    const providerConfig = getEvmDepositProvider(network);
+    if (!providerConfig) {
+        summary.skipped.push({ network, asset: "native", reason: "scanner not configured" });
+        return;
+    }
+
+    const { provider, config } = providerConfig;
+    const latestBlock = await provider.getBlockNumber();
+    const window = await getDepositScanWindow(client, {
+        scanKey: `evm-native:${config.scannerKey}`,
+        network,
+        scanner: "evm-native",
+        latestBlock,
+        lookbackBlocks: DEPOSIT_NATIVE_LOOKBACK_BLOCKS,
+        maxBlocks: DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT
+    });
+    if (!window) return;
+
+    const rowsByAddress = rows.reduce((map, row) => {
+        const address = normalizeEvmAddress(row.address);
+        if (!address) return map;
+        if (!map.has(address)) map.set(address, []);
+        map.get(address).push(row);
+        return map;
+    }, new Map());
+
+    if (!rowsByAddress.size) return;
+
+    for (let blockNumber = window.fromBlock; blockNumber <= window.toBlock; blockNumber += 1) {
+        const block = await provider.getBlock(blockNumber, true);
+        const transactions = Array.isArray(block?.prefetchedTransactions)
+            ? block.prefetchedTransactions
+            : (Array.isArray(block?.transactions) ? block.transactions.filter((tx) => typeof tx === "object") : []);
+        for (const tx of transactions) {
+            const to = normalizeEvmAddress(tx.to);
+            if (!to || !rowsByAddress.has(to)) continue;
+            const amount = numberValue(ethers.formatEther(tx.value || 0), 0);
+            if (amount <= 0) continue;
+            const confirmations = Math.max(0, latestBlock - blockNumber + 1);
+            for (const row of rowsByAddress.get(to)) {
+                const result = await creditDetectedDepositWithTransaction(client, row, {
+                    amount,
+                    txHash: tx.hash,
+                    logIndex: null,
+                    blockNumber,
+                    confirmations,
+                    metadata: {
+                        scanner: "evm-native",
+                        from: tx.from,
+                        to
+                    }
+                });
+                if (result.credited) summary.credited.push(result);
+                else summary.duplicates += 1;
+            }
+        }
+    }
+
+    await saveDepositScanState(client, window);
+}
+
+async function scanDatabaseCryptoDeposits(options = {}) {
+    if (!databaseConfigured()) {
+        return { success: false, configured: false, error: "Database is not configured." };
+    }
+
+    const client = await dbPool.connect();
+    const summary = {
+        success: true,
+        configured: true,
+        scannedAddresses: 0,
+        credited: [],
+        duplicates: 0,
+        skipped: [],
+        errors: []
+    };
+
+    try {
+        await ensureDepositTables(client);
+        const limit = Math.max(1, Number(options.limit || DEPOSIT_MONITOR_ADDRESS_LIMIT));
+        const addressResult = await client.query(`
+            select id, profile_id, asset_symbol, network, address, provider, route_type, status, metadata, last_issued_at
+            from crypto_deposit_addresses
+            where status = 'active'
+              and route_type = 'self_custody_hd'
+              and address is not null
+            order by last_issued_at desc
+            limit $1
+        `, [limit]);
+        const rows = addressResult.rows || [];
+        summary.scannedAddresses = rows.length;
+        const groups = activeDepositAddressGroups(rows);
+        summary.skipped.push(...groups.unsupported.map((row) => ({
+            asset: row.asset_symbol,
+            network: row.network,
+            reason: "automatic watcher not available yet"
+        })));
+
+        for (const [network, groupRows] of groups.evmNative.entries()) {
+            try {
+                await scanEvmNativeDepositGroup(client, network, groupRows, summary);
+            } catch (err) {
+                console.error(`Native deposit scan failed for ${network}:`, err);
+                summary.errors.push({ network, scanner: "evm-native", error: err.message || String(err) });
+            }
+        }
+
+        for (const [key, groupRows] of groups.evmToken.entries()) {
+            const [network, assetSymbol] = key.split(":");
+            try {
+                await scanEvmTokenDepositGroup(client, network, assetSymbol, groupRows, summary);
+            } catch (err) {
+                console.error(`Token deposit scan failed for ${key}:`, err);
+                summary.errors.push({ network, asset: assetSymbol, scanner: "evm-token", error: err.message || String(err) });
+            }
+        }
+
+        return summary;
+    } finally {
+        client.release();
+    }
+}
+
+async function manuallyCreditDatabaseDeposit(body = {}) {
+    if (!databaseConfigured()) {
+        return { success: false, configured: false, error: "Database is not configured." };
+    }
+
+    const email = normalizeEmail(body.email);
+    const profileId = normalizeText(body.profileId);
+    const assetSymbol = normalizeDepositAssetSymbol(body.asset || body.symbol);
+    const network = normalizeDepositNetwork(assetSymbol, body.network);
+    const amount = numberValue(body.amount, 0);
+    const txHash = normalizeText(body.txHash || body.hash || `manual-${crypto.randomUUID()}`);
+
+    if (!email && !profileId) throw demoTradeError(400, "Provide a profileId or email to credit.");
+    if (amount <= 0) throw demoTradeError(400, "Enter a deposit amount greater than zero.");
+
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        await ensureDepositTables(client);
+        const profileResult = profileId
+            ? await client.query("select id from profiles where id = $1 limit 1", [profileId])
+            : await client.query("select id from profiles where lower(email) = lower($1) limit 1", [email]);
+        const profile = profileResult.rows[0];
+        if (!profile) throw demoTradeError(404, "Account not found.");
+
+        const context = await getPracticeDbContext(client, profile.id, "live");
+        const address = normalizeText(body.address) || `manual:${profile.id}:${assetSymbol}:${network}`;
+        const addressResult = await client.query(`
+            insert into crypto_deposit_addresses (
+              profile_id, asset_symbol, network, address, route_type, provider, status, metadata
+            )
+            values ($1, $2, $3, $4, 'manual_admin_credit', 'admin', 'active', '{}'::jsonb)
+            on conflict (profile_id, asset_symbol, network, address) do update
+            set last_issued_at = now()
+            returning id, profile_id, asset_symbol, network, address, provider, route_type, status, metadata
+        `, [profile.id, assetSymbol, network, address]);
+
+        const row = addressResult.rows[0];
+        row.profile_id = profile.id;
+        const result = await recordAndCreditDatabaseDeposit(client, row, {
+            amount,
+            amountUsd: body.amountUsd == null ? null : numberValue(body.amountUsd, 0),
+            txHash,
+            logIndex: body.logIndex == null ? null : Number(body.logIndex),
+            blockNumber: body.blockNumber == null ? null : Number(body.blockNumber),
+            confirmations: body.confirmations == null ? DEPOSIT_MIN_CONFIRMATIONS : Number(body.confirmations),
+            metadata: { scanner: "manual-admin-credit", accountModeId: context.account_mode_id }
+        });
+        await client.query("commit");
+        return { success: true, ...result };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
 }
 
 function tradeAssetType(asset) {
@@ -6760,6 +7556,36 @@ function startLiveDataRefreshLoop() {
   }
 }
 
+function startDepositMonitorLoop() {
+  if (!databaseConfigured()) return;
+  if (!DEPOSIT_MONITOR_ENABLED) return;
+  if (depositMonitorTimer) return;
+
+  const runMonitor = (reason = "deposit-monitor") => {
+    if (depositMonitorInFlight) return depositMonitorInFlight;
+    depositMonitorInFlight = scanDatabaseCryptoDeposits({ reason })
+      .then((result) => {
+        if (result?.credited?.length) {
+          console.log(`Deposit monitor credited ${result.credited.length} deposit(s).`);
+        }
+        return result;
+      })
+      .catch((err) => {
+        console.error("Deposit monitor failed:", err);
+      })
+      .finally(() => {
+        depositMonitorInFlight = null;
+      });
+    return depositMonitorInFlight;
+  };
+
+  const startupTimer = setTimeout(() => runMonitor("startup-deposit-monitor"), 15 * 1000);
+  startupTimer.unref?.();
+
+  depositMonitorTimer = setInterval(() => runMonitor("deposit-monitor-interval"), DEPOSIT_MONITOR_INTERVAL_MS);
+  depositMonitorTimer.unref?.();
+}
+
 app.get("/api/db/status", async (req, res) => {
   if (!databaseConfigured()) {
     return res.json({
@@ -7119,6 +7945,44 @@ app.post("/api/admin/reset-accounts", async (req, res) => {
   } catch (err) {
     console.error("Admin account reset failed:", err);
     return res.status(500).json({ success: false, error: "Could not reset accounts.", details: err.message || String(err) });
+  }
+});
+
+app.post("/api/admin/deposits/scan", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin deposit scan is not authorized." });
+    }
+    const result = await scanDatabaseCryptoDeposits({ limit: body.limit });
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin deposit scan failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Deposit scan failed." });
+  }
+});
+
+app.post("/api/admin/deposits/credit", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin deposit credit is not authorized." });
+    }
+    const result = await manuallyCreditDatabaseDeposit(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin deposit credit failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Deposit credit failed." });
   }
 });
 
@@ -7944,6 +8808,7 @@ async function startServer() {
   app.listen(PORT, () => {
     console.log(`Autody is running at http://localhost:${PORT}`);
     startLiveDataRefreshLoop();
+    startDepositMonitorLoop();
   });
 }
 

@@ -107,7 +107,7 @@ create table if not exists orders (
   account_mode_id uuid not null references account_modes(id) on delete cascade,
   symbol text not null,
   asset_type text not null,
-  side text not null check (side in ('buy', 'sell', 'swap')),
+  side text not null check (side in ('buy', 'sell', 'swap', 'deposit', 'withdrawal')),
   order_type text not null default 'market',
   status text not null default 'draft',
   quantity numeric(28, 10),
@@ -116,6 +116,120 @@ create table if not exists orders (
   filled_price numeric(18, 6),
   created_at timestamptz not null default now(),
   filled_at timestamptz
+);
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'orders_side_check'
+      and conrelid = 'orders'::regclass
+      and pg_get_constraintdef(oid) not like '%deposit%'
+  ) then
+    alter table orders drop constraint orders_side_check;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'orders_side_check'
+      and conrelid = 'orders'::regclass
+  ) then
+    alter table orders
+      add constraint orders_side_check
+      check (side in ('buy', 'sell', 'swap', 'deposit', 'withdrawal'));
+  end if;
+end $$;
+
+create table if not exists crypto_deposit_addresses (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references profiles(id) on delete cascade,
+  asset_symbol text not null,
+  network text not null,
+  address text not null,
+  route_type text not null default 'shared_treasury_manual',
+  provider text not null default 'manual',
+  status text not null default 'active',
+  first_issued_at timestamptz not null default now(),
+  last_issued_at timestamptz not null default now(),
+  metadata jsonb not null default '{}'::jsonb,
+  unique(profile_id, asset_symbol, network, address)
+);
+
+create index if not exists crypto_deposit_addresses_profile_idx
+  on crypto_deposit_addresses (profile_id, asset_symbol, network, last_issued_at desc);
+
+create table if not exists crypto_deposit_requests (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references profiles(id) on delete cascade,
+  account_mode_id uuid references account_modes(id) on delete cascade,
+  address_id uuid references crypto_deposit_addresses(id) on delete set null,
+  asset_symbol text not null,
+  network text not null,
+  address text,
+  provider text not null default 'manual',
+  route_type text not null default 'shared_treasury_manual',
+  status text not null default 'address_issued',
+  requested_fresh boolean not null default true,
+  warnings jsonb not null default '[]'::jsonb,
+  amount_received numeric(28, 10),
+  amount_usd numeric(18, 2),
+  confirmations integer not null default 0,
+  tx_hash text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  expires_at timestamptz,
+  credited_at timestamptz
+);
+
+create index if not exists crypto_deposit_requests_profile_idx
+  on crypto_deposit_requests (profile_id, created_at desc);
+
+create index if not exists crypto_deposit_requests_address_status_idx
+  on crypto_deposit_requests (address, status, created_at desc);
+
+alter table crypto_deposit_requests
+  add column if not exists amount_received numeric(28, 10),
+  add column if not exists amount_usd numeric(18, 2),
+  add column if not exists confirmations integer not null default 0,
+  add column if not exists tx_hash text,
+  add column if not exists updated_at timestamptz not null default now();
+
+create table if not exists crypto_deposit_events (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references profiles(id) on delete cascade,
+  address_id uuid references crypto_deposit_addresses(id) on delete set null,
+  request_id uuid references crypto_deposit_requests(id) on delete set null,
+  asset_symbol text not null,
+  network text not null,
+  address text not null,
+  tx_hash text not null,
+  log_index integer,
+  block_number numeric(20, 0),
+  amount numeric(28, 10) not null,
+  amount_usd numeric(18, 2),
+  confirmations integer not null default 0,
+  status text not null default 'detected',
+  credited_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  metadata jsonb not null default '{}'::jsonb
+);
+
+create unique index if not exists crypto_deposit_events_unique_idx
+  on crypto_deposit_events (network, tx_hash, asset_symbol, address, (coalesce(log_index, -1)));
+
+create index if not exists crypto_deposit_events_profile_idx
+  on crypto_deposit_events (profile_id, created_at desc);
+
+create table if not exists crypto_deposit_scan_state (
+  scan_key text primary key,
+  network text not null,
+  asset_symbol text,
+  scanner text not null,
+  last_scanned_block numeric(20, 0) not null default 0,
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists watchlists (
