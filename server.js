@@ -109,6 +109,7 @@ const DEPOSIT_MONITOR_INTERVAL_MS = Number(process.env.DEPOSIT_MONITOR_INTERVAL_
 const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS_LIMIT || 80);
 const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CONFIRMATIONS || 3));
 const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 5000);
+const DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS = Number(process.env.DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS || 250);
 const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
@@ -1794,6 +1795,7 @@ const EVM_TOKEN_DEPOSIT_CONTRACTS = {
     ARB: { "Arbitrum One": { address: "0x912CE59144191C1204E64559FE8253a0e49E6548", decimals: 18 } },
     OP: { Optimism: { address: "0x4200000000000000000000000000000000000042", decimals: 18 } },
     SHIB: { "Ethereum ERC-20": { address: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE", decimals: 18 } },
+    FET: { "Ethereum ERC-20": { address: "0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85", decimals: 18 } },
     RENDER: { "Ethereum ERC-20": { address: "0x6De037ef9aD2725EB40118Bb1702EBb27e4Aeb24", decimals: 18 } },
     PEPE: { "Ethereum ERC-20": { address: "0x6982508145454Ce325dDbE47a25d4ec3d2311933", decimals: 18 } },
     DAI: {
@@ -2964,7 +2966,45 @@ function getEvmDepositProvider(network) {
     };
 }
 
-async function getDepositScanWindow(client, { scanKey, network, assetSymbol = null, scanner, latestBlock, lookbackBlocks, maxBlocks = null }) {
+function numericBlockOption(value) {
+    if (value == null || value === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : null;
+}
+
+function hasDepositScanBlockOverride(options = {}) {
+    return numericBlockOption(options.fromBlock) != null || numericBlockOption(options.toBlock) != null;
+}
+
+function buildDepositScanWindowOverride({ scanKey, network, assetSymbol = null, scanner, latestBlock, lookbackBlocks, maxBlocks = null, options = {} }) {
+    const safeToBlock = Math.max(0, latestBlock - DEPOSIT_MIN_CONFIRMATIONS + 1);
+    if (safeToBlock <= 0) return null;
+
+    let fromBlock = numericBlockOption(options.fromBlock);
+    let toBlock = numericBlockOption(options.toBlock);
+    if (fromBlock == null) fromBlock = Math.max(0, safeToBlock - Math.max(1, lookbackBlocks));
+    if (toBlock == null) toBlock = safeToBlock;
+    toBlock = Math.min(toBlock, safeToBlock);
+
+    if (maxBlocks && toBlock - fromBlock + 1 > maxBlocks) {
+        fromBlock = Math.max(0, toBlock - maxBlocks + 1);
+    }
+
+    if (fromBlock > toBlock) return null;
+
+    return {
+        scanKey,
+        network,
+        assetSymbol,
+        scanner,
+        fromBlock,
+        toBlock,
+        latestBlock,
+        manualOverride: true
+    };
+}
+
+async function getDepositScanWindow(client, { scanKey, network, assetSymbol = null, scanner, latestBlock, lookbackBlocks, maxBlocks = null, overlapBlocks = 0 }) {
     const safeToBlock = Math.max(0, latestBlock - DEPOSIT_MIN_CONFIRMATIONS + 1);
     if (safeToBlock <= 0) return null;
 
@@ -2976,7 +3016,7 @@ async function getDepositScanWindow(client, { scanKey, network, assetSymbol = nu
     `, [scanKey]);
     const lastScanned = Number(stateResult.rows[0]?.last_scanned_block || 0);
     let fromBlock = lastScanned > 0
-        ? lastScanned + 1
+        ? Math.max(0, lastScanned - Math.max(0, Number(overlapBlocks || 0)) + 1)
         : Math.max(0, safeToBlock - Math.max(1, lookbackBlocks));
 
     if (maxBlocks && safeToBlock - fromBlock + 1 > maxBlocks) {
@@ -3224,7 +3264,7 @@ function activeDepositAddressGroups(rows = []) {
     return groups;
 }
 
-async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summary) {
+async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summary, options = {}) {
     const contract = getEvmTokenDepositContract(assetSymbol, network);
     const providerConfig = getEvmDepositProvider(network);
     if (!contract || !providerConfig) {
@@ -3234,14 +3274,20 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
 
     const { provider, config } = providerConfig;
     const latestBlock = await provider.getBlockNumber();
-    const window = await getDepositScanWindow(client, {
+    const windowParams = {
         scanKey: `evm-token:${config.scannerKey}:${assetSymbol}`,
         network,
         assetSymbol,
         scanner: "evm-token",
         latestBlock,
         lookbackBlocks: DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS
-    });
+    };
+    const window = hasDepositScanBlockOverride(options)
+        ? buildDepositScanWindowOverride({ ...windowParams, options })
+        : await getDepositScanWindow(client, {
+            ...windowParams,
+            overlapBlocks: DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS
+        });
     if (!window) return;
 
     const rowsByTopic = rows.reduce((map, row) => {
@@ -3290,10 +3336,10 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
         }
     }
 
-    await saveDepositScanState(client, window);
+    if (!window.manualOverride) await saveDepositScanState(client, window);
 }
 
-async function scanEvmNativeDepositGroup(client, network, rows, summary) {
+async function scanEvmNativeDepositGroup(client, network, rows, summary, options = {}) {
     const providerConfig = getEvmDepositProvider(network);
     if (!providerConfig) {
         summary.skipped.push({ network, asset: "native", reason: "scanner not configured" });
@@ -3302,14 +3348,20 @@ async function scanEvmNativeDepositGroup(client, network, rows, summary) {
 
     const { provider, config } = providerConfig;
     const latestBlock = await provider.getBlockNumber();
-    const window = await getDepositScanWindow(client, {
+    const windowParams = {
         scanKey: `evm-native:${config.scannerKey}`,
         network,
         scanner: "evm-native",
         latestBlock,
         lookbackBlocks: DEPOSIT_NATIVE_LOOKBACK_BLOCKS,
         maxBlocks: DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT
-    });
+    };
+    const window = hasDepositScanBlockOverride(options)
+        ? buildDepositScanWindowOverride({ ...windowParams, options })
+        : await getDepositScanWindow(client, {
+            ...windowParams,
+            overlapBlocks: DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS
+        });
     if (!window) return;
 
     const rowsByAddress = rows.reduce((map, row) => {
@@ -3352,7 +3404,7 @@ async function scanEvmNativeDepositGroup(client, network, rows, summary) {
         }
     }
 
-    await saveDepositScanState(client, window);
+    if (!window.manualOverride) await saveDepositScanState(client, window);
 }
 
 function normalizeChainAddressForCompare(address = "") {
@@ -3755,15 +3807,35 @@ async function scanDatabaseCryptoDeposits(options = {}) {
     try {
         await ensureDepositTables(client);
         const limit = Math.max(1, Number(options.limit || DEPOSIT_MONITOR_ADDRESS_LIMIT));
+        const filters = [
+            "status = 'active'",
+            "route_type = 'self_custody_hd'",
+            "address is not null"
+        ];
+        const params = [];
+        const requestedAddress = String(options.address || "").trim();
+        const requestedAsset = normalizeTradeSymbol(options.asset || options.symbol || "");
+        const requestedNetwork = String(options.network || "").trim();
+        if (requestedAddress) {
+            params.push(requestedAddress.toLowerCase());
+            filters.push(`lower(address) = $${params.length}`);
+        }
+        if (requestedAsset) {
+            params.push(requestedAsset);
+            filters.push(`upper(asset_symbol) = $${params.length}`);
+        }
+        if (requestedNetwork) {
+            params.push(requestedNetwork.toLowerCase());
+            filters.push(`lower(network) = $${params.length}`);
+        }
+        params.push(limit);
         const addressResult = await client.query(`
             select id, profile_id, asset_symbol, network, address, provider, route_type, status, metadata, last_issued_at
             from crypto_deposit_addresses
-            where status = 'active'
-              and route_type = 'self_custody_hd'
-              and address is not null
+            where ${filters.join("\n              and ")}
             order by last_issued_at desc
-            limit $1
-        `, [limit]);
+            limit $${params.length}
+        `, params);
         const rows = addressResult.rows || [];
         summary.scannedAddresses = rows.length;
         const groups = activeDepositAddressGroups(rows);
@@ -3775,7 +3847,7 @@ async function scanDatabaseCryptoDeposits(options = {}) {
 
         for (const [network, groupRows] of groups.evmNative.entries()) {
             try {
-                await scanEvmNativeDepositGroup(client, network, groupRows, summary);
+                await scanEvmNativeDepositGroup(client, network, groupRows, summary, options);
             } catch (err) {
                 console.error(`Native deposit scan failed for ${network}:`, err);
                 summary.errors.push({ network, scanner: "evm-native", error: err.message || String(err) });
@@ -3785,7 +3857,7 @@ async function scanDatabaseCryptoDeposits(options = {}) {
         for (const [key, groupRows] of groups.evmToken.entries()) {
             const [network, assetSymbol] = key.split(":");
             try {
-                await scanEvmTokenDepositGroup(client, network, assetSymbol, groupRows, summary);
+                await scanEvmTokenDepositGroup(client, network, assetSymbol, groupRows, summary, options);
             } catch (err) {
                 console.error(`Token deposit scan failed for ${key}:`, err);
                 summary.errors.push({ network, asset: assetSymbol, scanner: "evm-token", error: err.message || String(err) });
@@ -8504,7 +8576,14 @@ app.post("/api/admin/deposits/scan", async (req, res) => {
     if (!adminRequestAuthorized(req, body)) {
       return res.status(403).json({ success: false, error: "Admin deposit scan is not authorized." });
     }
-    const result = await scanDatabaseCryptoDeposits({ limit: body.limit });
+    const result = await scanDatabaseCryptoDeposits({
+      limit: body.limit,
+      address: body.address,
+      asset: body.asset || body.symbol,
+      network: body.network,
+      fromBlock: body.fromBlock,
+      toBlock: body.toBlock
+    });
     return res.json(result);
   } catch (err) {
     console.error("Admin deposit scan failed:", err);
