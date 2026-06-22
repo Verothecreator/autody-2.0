@@ -322,9 +322,10 @@ function renderActions(asset) {
   if (IS_LIVE_ASSET_PAGE) {
     const cryptoActions = `
       <a href="${ASSET_ORDERS_PAGE}?side=buy&symbol=${symbol}">Buy</a>
+      <a href="${ASSET_ORDERS_PAGE}?side=sell&symbol=${symbol}">Sell</a>
       <a href="${ASSET_ORDERS_PAGE}?side=swap&symbol=${symbol}">Swap</a>
-      <a href="${ASSET_WALLET_PAGE}?asset=${symbol}&transfer=send#live-crypto">Send</a>
-      <a href="${ASSET_WALLET_PAGE}?asset=${symbol}&transfer=receive#live-crypto">Receive</a>
+      <button type="button" data-live-asset-transfer="receive" data-live-asset-symbol="${symbol}">Receive</button>
+      <button type="button" data-live-asset-transfer="send" data-live-asset-symbol="${symbol}">Send</button>
     `;
     const marketActions = `
       <a href="${ASSET_ORDERS_PAGE}?side=buy&symbol=${symbol}">Buy</a>
@@ -490,6 +491,19 @@ document.addEventListener("click", async (event) => {
   if (blocked) {
     const action = blocked.dataset.demoBlockedAction || "Transfer";
     setAssetMessage(`${action} is disabled in the demo account. Use Buy, Sell, or Swap for demo trading.`, "loss");
+    return;
+  }
+
+  const liveTransfer = event.target.closest("[data-live-asset-transfer]");
+  if (liveTransfer && IS_LIVE_ASSET_PAGE) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const symbol = liveTransfer.dataset.liveAssetSymbol || currentAsset?.symbol || currentSymbol;
+    const mode = liveTransfer.dataset.liveAssetTransfer || "receive";
+    const opened = window.openAutodyLiveTransferModal?.(mode, symbol);
+    if (!opened) {
+      setAssetMessage(`${String(symbol).toUpperCase()} ${mode} is not connected yet.`, "loss");
+    }
     return;
   }
 

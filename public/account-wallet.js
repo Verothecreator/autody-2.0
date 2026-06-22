@@ -637,7 +637,11 @@ function openLiveWalletMenu(symbol, menuButton) {
 
 function liveCryptoSelectValue(symbol) {
   const value = String(symbol || selectedLiveWalletSymbol || "BTC").toUpperCase();
-  const cryptoSymbols = new Set(["AU", "BTC", "ETH", "USDT", "USDC", "BNB", "BCH", "DOGE"]);
+  const cryptoSymbols = new Set([
+    "AU", "BTC", "ETH", "USDT", "USDC", "BNB", "SOL", "XRP", "DOGE", "LTC", "BCH", "XLM", "TRX",
+    "AVAX", "LINK", "POL", "UNI", "AAVE", "ARB", "OP", "SHIB", "FET", "RENDER", "PEPE", "DAI",
+    "PYUSD", "FDUSD", "TUSD", "MKR", "LDO", "QNT", "GRT", "CRV", "MANA"
+  ]);
   return cryptoSymbols.has(value) ? value : "BTC";
 }
 

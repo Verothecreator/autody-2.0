@@ -83,6 +83,11 @@ function defaultLiveCryptoSymbol() {
   return Object.keys(liveCryptoAssets)[0] || "ETH";
 }
 
+function supportedLiveCryptoSymbol(symbol) {
+  const value = String(symbol || "").trim().toUpperCase();
+  return liveCryptoAssets[value] ? value : "";
+}
+
 function showLiveNotice(message, type = "info") {
   if (!liveNotice) return;
   clearTimeout(liveNoticeTimer);
@@ -126,6 +131,71 @@ function updateReceiveNetworks() {
 
   const asset = liveCryptoAssets[assetSelect.value] || liveCryptoAssets[defaultLiveCryptoSymbol()];
   networkSelect.innerHTML = asset.networks.map((network) => `<option value="${network}">${network}</option>`).join("");
+}
+
+function setLiveTransferAsset(symbol) {
+  const assetSymbol = supportedLiveCryptoSymbol(symbol) || defaultLiveCryptoSymbol();
+  const receiveSelect = document.getElementById("receive-asset");
+  const sendSelect = document.getElementById("send-asset");
+
+  if (receiveSelect) {
+    receiveSelect.value = assetSymbol;
+    updateReceiveNetworks();
+  }
+
+  if (sendSelect) {
+    sendSelect.value = assetSymbol;
+  }
+
+  return assetSymbol;
+}
+
+function setAutodyLiveTransferMode(mode = "receive") {
+  const normalized = mode === "send" ? "send" : "receive";
+  document.querySelectorAll("[data-live-transfer-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.liveTransferPanel !== normalized;
+  });
+  document.getElementById("live-crypto")?.setAttribute("data-transfer-mode", normalized);
+
+  const eyebrow = document.getElementById("live-transfer-eyebrow");
+  const title = document.getElementById("live-transfer-title");
+  const intro = document.getElementById("live-transfer-intro");
+  if (eyebrow) eyebrow.textContent = normalized === "send" ? "Crypto withdrawal" : "Crypto deposit";
+  if (title) title.textContent = normalized === "send" ? "Send crypto" : "Receive crypto";
+  if (intro) {
+    intro.textContent = normalized === "send"
+      ? "Prepare a withdrawal preview for the selected crypto asset. Production sends will require security approval."
+      : "If this address is not accepted by your sending platform, generate a new address and try again.";
+  }
+}
+
+function openAutodyLiveTransferModal(mode = "receive", symbol = "") {
+  const modal = document.getElementById("live-crypto");
+  if (!modal) return false;
+
+  const requestedSymbol = String(symbol || "").trim().toUpperCase();
+  if (requestedSymbol && !supportedLiveCryptoSymbol(requestedSymbol)) {
+    showLiveNotice(`${requestedSymbol} receive and send are not connected yet.`, "warning");
+    return false;
+  }
+
+  const assetSymbol = setLiveTransferAsset(requestedSymbol || defaultLiveCryptoSymbol());
+  setAutodyLiveTransferMode(mode);
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+
+  if (mode !== "send") {
+    requestReceiveAddress({ fresh: false, showNotice: false });
+  }
+
+  return Boolean(assetSymbol);
+}
+
+function closeAutodyLiveTransferModal() {
+  const modal = document.getElementById("live-crypto");
+  if (!modal) return;
+  modal.hidden = true;
+  document.body.classList.remove("modal-open");
 }
 
 function receiveRouteKey(asset, network) {
@@ -281,6 +351,22 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const assetTransfer = event.target.closest("[data-live-asset-transfer]");
+  if (assetTransfer) {
+    event.preventDefault();
+    openAutodyLiveTransferModal(
+      assetTransfer.dataset.liveAssetTransfer || "receive",
+      assetTransfer.dataset.liveAssetSymbol || ""
+    );
+    return;
+  }
+
+  if (event.target.closest("[data-live-transfer-close]")) {
+    event.preventDefault();
+    closeAutodyLiveTransferModal();
+    return;
+  }
+
   const signOut = event.target.closest("[data-live-sign-out]");
   if (signOut) {
     event.preventDefault();
@@ -304,13 +390,19 @@ document.getElementById("copy-receive-address")?.addEventListener("click", copyR
 document.getElementById("review-send")?.addEventListener("click", reviewLiveSend);
 
 populateLiveCryptoSelects();
+setLiveTransferAsset(new URLSearchParams(location.search).get("asset") || defaultLiveCryptoSymbol());
 updateReceiveNetworks();
 
 window.ensureLiveReceiveAddress = () => requestReceiveAddress({ fresh: false, showNotice: false });
+window.openAutodyLiveTransferModal = openAutodyLiveTransferModal;
+window.closeAutodyLiveTransferModal = closeAutodyLiveTransferModal;
 
 if (location.hash === "#live-crypto") {
   setFundingTab("crypto");
-  window.ensureLiveReceiveAddress();
+  openAutodyLiveTransferModal(
+    new URLSearchParams(location.search).get("transfer") === "send" ? "send" : "receive",
+    new URLSearchParams(location.search).get("asset") || defaultLiveCryptoSymbol()
+  );
 }
 
 if (location.hash === "#live-funding") {
