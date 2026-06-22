@@ -2214,6 +2214,35 @@ body.modal-open {
   padding: 12px;
 }
 
+.live-receive-code {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(93, 95, 239, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.live-receive-code[hidden] {
+  display: none !important;
+}
+
+.live-receive-code img {
+  width: min(220px, 100%);
+  aspect-ratio: 1;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f7f9ff;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.28);
+}
+
+.live-receive-code span {
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
+}
+
 .live-address-box span {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -2236,6 +2265,10 @@ body.modal-open {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.live-action-row-single {
+  grid-template-columns: 1fr;
 }
 
 .live-notice {

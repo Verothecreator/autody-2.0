@@ -43,6 +43,7 @@ const liveCryptoAssets = {
 
 const liveNotice = document.getElementById("live-notice");
 let liveNoticeTimer = null;
+const receiveRouteCache = new Map();
 
 function showLiveNotice(message, type = "info") {
   if (!liveNotice) return;
@@ -89,48 +90,90 @@ function updateReceiveNetworks() {
   networkSelect.innerHTML = asset.networks.map((network) => `<option value="${network}">${network}</option>`).join("");
 }
 
-async function generateReceiveAddress() {
+function receiveRouteKey(asset, network) {
+  return `${asset || ""}:${network || ""}`;
+}
+
+function setReceiveQr(address) {
+  const qrCard = document.getElementById("receive-qr-card");
+  const qrImage = document.getElementById("receive-qr-code");
+  if (!qrCard || !qrImage) return;
+
+  if (!address) {
+    qrCard.hidden = true;
+    qrImage.removeAttribute("src");
+    return;
+  }
+
+  qrImage.src = `/api/qr?text=${encodeURIComponent(address)}`;
+  qrCard.hidden = false;
+}
+
+function resetReceiveAddress(message = "Loading receive address...") {
+  const addressNode = document.getElementById("receive-address");
+  if (!addressNode) return;
+  addressNode.textContent = message;
+  delete addressNode.dataset.address;
+  delete addressNode.dataset.depositId;
+  setReceiveQr("");
+}
+
+function displayReceiveDeposit(deposit) {
+  const addressNode = document.getElementById("receive-address");
+  if (!addressNode) return false;
+
+  if (!deposit?.address) {
+    const warnings = Array.isArray(deposit?.warnings) ? deposit.warnings : [];
+    resetReceiveAddress(warnings[1] || warnings[0] || "Receive address is not connected yet.");
+    return false;
+  }
+
+  addressNode.textContent = deposit.address;
+  addressNode.dataset.address = deposit.address;
+  addressNode.dataset.depositId = deposit.id || "";
+  setReceiveQr(deposit.address);
+  return true;
+}
+
+async function requestReceiveAddress({ fresh = false, force = false, showNotice = false } = {}) {
   const assetSelect = document.getElementById("receive-asset");
   const networkSelect = document.getElementById("receive-network");
   const addressNode = document.getElementById("receive-address");
   if (!assetSelect || !networkSelect || !addressNode) return;
 
   const button = document.getElementById("generate-receive-address");
-  const originalText = button?.textContent || "Generate Address";
+  const key = receiveRouteKey(assetSelect.value, networkSelect.value);
+  const cached = receiveRouteCache.get(key);
+  if (cached && !force) {
+    displayReceiveDeposit(cached);
+    return;
+  }
+
+  const originalText = button?.textContent || "Generate new address";
   if (button) {
     button.disabled = true;
     button.textContent = "Requesting...";
   }
-  addressNode.textContent = "Requesting a server-tracked deposit route...";
-  delete addressNode.dataset.address;
-  delete addressNode.dataset.depositId;
+  resetReceiveAddress("Loading receive address...");
 
   try {
     const data = await postLiveAccountJson("/api/account/deposits/address", {
       asset: assetSelect.value,
       network: networkSelect.value,
-      fresh: true
+      fresh
     });
     const deposit = data.deposit || {};
     const warnings = Array.isArray(deposit.warnings) ? deposit.warnings : [];
 
-    if (deposit.address) {
-      addressNode.textContent = deposit.address;
-      addressNode.dataset.address = deposit.address;
-      addressNode.dataset.depositId = deposit.id || "";
-      showLiveNotice(
-        deposit.uniqueAddress
-          ? `${deposit.asset} deposit address created and tracked.`
-          : `${deposit.asset} treasury test route created. ${warnings[0] || "Manual reconciliation required."}`,
-        deposit.uniqueAddress ? "success" : "warning"
-      );
+    receiveRouteCache.set(key, deposit);
+    if (displayReceiveDeposit(deposit)) {
+      if (showNotice) showLiveNotice(`${deposit.asset} receive address is ready.`, "success");
       return;
     }
 
-    addressNode.textContent = warnings[1] || warnings[0] || "Treasury route is not connected yet.";
-    showLiveNotice(warnings[0] || "Treasury route is not connected yet.", "warning");
+    if (showNotice) showLiveNotice(warnings[0] || "Receive address is not connected yet.", "warning");
   } catch (err) {
-    addressNode.textContent = "Deposit route could not be created.";
+    resetReceiveAddress("Receive address could not be loaded.");
     showLiveNotice(err.message || "Deposit route could not be created.", "warning");
   } finally {
     if (button) {
@@ -140,11 +183,15 @@ async function generateReceiveAddress() {
   }
 }
 
+function generateReceiveAddress() {
+  return requestReceiveAddress({ fresh: true, force: true, showNotice: true });
+}
+
 async function copyReceiveAddress() {
   const addressNode = document.getElementById("receive-address");
   const address = addressNode?.dataset.address || "";
   if (!address) {
-    showLiveNotice("Generate a receive address first.", "warning");
+    showLiveNotice("Receive address is still loading.", "warning");
     return;
   }
 
@@ -207,11 +254,11 @@ document.addEventListener("click", (event) => {
 
 document.getElementById("receive-asset")?.addEventListener("change", () => {
   updateReceiveNetworks();
-  const addressNode = document.getElementById("receive-address");
-  if (addressNode) {
-    addressNode.textContent = "Generate a server-tracked deposit route.";
-    delete addressNode.dataset.address;
-  }
+  requestReceiveAddress({ fresh: false, showNotice: false });
+});
+
+document.getElementById("receive-network")?.addEventListener("change", () => {
+  requestReceiveAddress({ fresh: false, showNotice: false });
 });
 
 document.getElementById("generate-receive-address")?.addEventListener("click", generateReceiveAddress);
@@ -220,8 +267,11 @@ document.getElementById("review-send")?.addEventListener("click", reviewLiveSend
 
 updateReceiveNetworks();
 
+window.ensureLiveReceiveAddress = () => requestReceiveAddress({ fresh: false, showNotice: false });
+
 if (location.hash === "#live-crypto") {
   setFundingTab("crypto");
+  window.ensureLiveReceiveAddress();
 }
 
 if (location.hash === "#live-funding") {

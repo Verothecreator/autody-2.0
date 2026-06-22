@@ -213,7 +213,7 @@
             <div>
               <span class="muted-label" id="live-transfer-eyebrow">Crypto transfer</span>
               <h2 id="live-transfer-title">Receive crypto</h2>
-              <p class="card-intro" id="live-transfer-intro">Select an asset and network to request a server-tracked deposit route.</p>
+              <p class="card-intro" id="live-transfer-intro">If this address is not accepted by your sending platform, generate a new address and try again.</p>
             </div>
             <button class="asset-more-button" type="button" data-live-transfer-close aria-label="Close transfer panel">x</button>
           </div>
@@ -221,11 +221,11 @@
           <div class="live-transfer-panel" data-live-transfer-panel="receive">
             <div class="live-panel-heading">
               <span class="muted-label">Receive</span>
-              <strong>Generate a fresh address</strong>
+              <strong>Deposit address</strong>
             </div>
             <div class="live-transfer-brief">
               <strong>Deposit crypto into Autody</strong>
-              <span>Choose the asset and network. The live version will rotate addresses, monitor confirmations, and credit the account ledger after custody checks pass.</span>
+              <span>Choose the asset and network carefully. Send only the selected asset on the selected network; mistakes can cause funds to be lost.</span>
             </div>
             <label>
               <span>Asset</span>
@@ -244,17 +244,16 @@
               <span>Network</span>
               <select id="receive-network"></select>
             </label>
+            <div class="live-receive-code" id="receive-qr-card" hidden>
+              <img id="receive-qr-code" alt="Receive address QR code" />
+              <span>Scan this code or copy the address below.</span>
+            </div>
             <div class="live-address-box">
-              <span id="receive-address">Generate a server-tracked deposit route.</span>
+              <span id="receive-address">Loading receive address...</span>
               <button type="button" id="copy-receive-address">Copy</button>
             </div>
-            <div class="live-action-row">
-              <button class="btn" type="button" id="generate-receive-address">Generate Fresh Address</button>
-              <button class="btn btn-ghost" type="button" data-live-message="Autody records every deposit request on the server. Public launch will use unique custody addresses or approved address inventory; shared treasury routes are owner-testing only.">Fresh Address Policy</button>
-            </div>
-            <div class="live-transfer-footnote">
-              <span>Network accuracy matters</span>
-              <strong>Send only the selected asset on the selected network when production custody is connected.</strong>
+            <div class="live-action-row live-action-row-single">
+              <button class="btn" type="button" id="generate-receive-address">Generate new address</button>
             </div>
           </div>
 

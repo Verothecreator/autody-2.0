@@ -8,10 +8,11 @@
   "dependencies": {
     "express": "^4.18.0",
     "@walletconnect/universal-provider": "^2.16.1",
-    "@walletconnect/modal": "^2.6.2",
     "node-fetch": "^2.6.7",
     "ethers": "^6.13.2",
     "dotenv": "^16.4.5",
-    "pg": "^8.13.1"
+    "@walletconnect/modal": "^2.6.2",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4"
   }
 }

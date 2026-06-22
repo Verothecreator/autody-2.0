@@ -656,7 +656,7 @@ function setLiveTransferTab(mode = "receive") {
     "live-transfer-intro",
     normalized === "send"
       ? "Prepare a withdrawal preview for the selected crypto asset. Production sends will require security approval."
-      : "Generate a fresh deposit preview for the selected crypto asset and network."
+      : "If this address is not accepted by your sending platform, generate a new address and try again."
   );
 }
 
@@ -671,14 +671,12 @@ function openLiveTransferModal(mode = "receive", symbol = selectedLiveWalletSymb
     if (typeof updateReceiveNetworks === "function") updateReceiveNetworks();
   }
   if (sendSelect) sendSelect.value = assetSymbol;
-  const addressNode = document.getElementById("receive-address");
-  if (addressNode && receiveSelect?.value === assetSymbol) {
-    addressNode.textContent = "Generate a deposit address to preview the receive flow.";
-    delete addressNode.dataset.address;
-  }
   setLiveTransferTab(mode);
   modal.hidden = false;
   document.body.classList.add("modal-open");
+  if (mode !== "send" && typeof window.ensureLiveReceiveAddress === "function") {
+    window.ensureLiveReceiveAddress();
+  }
 }
 
 function closeLiveTransferModal() {
@@ -707,6 +705,9 @@ document.addEventListener("click", (event) => {
   if (transferTab) {
     event.preventDefault();
     setLiveTransferTab(transferTab.dataset.liveTransferTab);
+    if (transferTab.dataset.liveTransferTab !== "send" && typeof window.ensureLiveReceiveAddress === "function") {
+      window.ensureLiveReceiveAddress();
+    }
     return;
   }
 

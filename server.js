@@ -5,6 +5,7 @@ const path = require("path");
 const bodyParser = require("body-parser");
 const { ethers } = require("ethers");
 const { Pool } = require("pg");
+const QRCode = require("qrcode");
 require("dotenv").config();
 
 const app = express();
@@ -7107,6 +7108,30 @@ app.post("/api/account/deposits/address", async (req, res) => {
   } catch (err) {
     console.error("Live deposit address error:", err);
     return sendDemoError(res, err, "Deposit route could not be created");
+  }
+});
+
+app.get("/api/qr", async (req, res) => {
+  try {
+    const text = String(req.query.text || "").trim();
+    if (!text) return res.status(400).send("Missing QR text.");
+    if (text.length > 320) return res.status(400).send("QR text is too long.");
+
+    const svg = await QRCode.toString(text, {
+      type: "svg",
+      margin: 1,
+      width: 220,
+      color: {
+        dark: "#111620",
+        light: "#f7f9ff"
+      }
+    });
+    res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(svg);
+  } catch (err) {
+    console.error("QR generation error:", err);
+    return res.status(500).send("QR code could not be generated.");
   }
 });
 
