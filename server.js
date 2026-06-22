@@ -11,7 +11,12 @@ const { BIP32Factory } = require("bip32");
 const ecc = require("tiny-secp256k1");
 const bitcoin = require("bitcoinjs-lib");
 const cashaddr = require("cashaddrjs");
-const { Keypair: SolanaKeypair } = require("@solana/web3.js");
+const {
+    Connection: SolanaConnection,
+    PublicKey: SolanaPublicKey,
+    Keypair: SolanaKeypair,
+    LAMPORTS_PER_SOL
+} = require("@solana/web3.js");
 const { derivePath: deriveEd25519Path } = require("ed25519-hd-key");
 const rippleKeypairs = require("ripple-keypairs");
 const StellarSdk = require("stellar-sdk");
@@ -106,6 +111,8 @@ const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CON
 const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 5000);
 const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
+const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
+const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
 const DEPOSIT_MNEMONIC = String(
     process.env.AUTODY_DEPOSIT_MNEMONIC
@@ -1846,6 +1853,77 @@ const SELF_CUSTODY_NETWORK_FAMILIES = new Map([
     ["tron trc-20", "tron"]
 ]);
 
+const ACCOUNT_DEPOSIT_SCANNER_CONFIGS = {
+    bitcoin: {
+        scanner: "utxo-mempool",
+        asset: "BTC",
+        networks: ["Bitcoin"],
+        baseUrlEnv: ["AUTODY_BITCOIN_API_URL", "BITCOIN_API_URL", "BTC_API_URL"],
+        publicBaseUrl: "https://mempool.space/api",
+        decimals: 8
+    },
+    "bitcoin-cash": {
+        scanner: "blockchair-utxo",
+        asset: "BCH",
+        networks: ["Bitcoin Cash"],
+        chain: "bitcoin-cash",
+        baseUrlEnv: ["AUTODY_BCH_API_URL", "BCH_API_URL"],
+        publicBaseUrl: "https://api.blockchair.com/bitcoin-cash",
+        decimals: 8
+    },
+    dogecoin: {
+        scanner: "blockchair-utxo",
+        asset: "DOGE",
+        networks: ["Dogecoin"],
+        chain: "dogecoin",
+        baseUrlEnv: ["AUTODY_DOGE_API_URL", "DOGE_API_URL"],
+        publicBaseUrl: "https://api.blockchair.com/dogecoin",
+        decimals: 8
+    },
+    litecoin: {
+        scanner: "utxo-mempool",
+        asset: "LTC",
+        networks: ["Litecoin"],
+        baseUrlEnv: ["AUTODY_LITECOIN_API_URL", "LITECOIN_API_URL", "LTC_API_URL"],
+        publicBaseUrl: "https://litecoinspace.org/api",
+        decimals: 8
+    },
+    solana: {
+        scanner: "solana-rpc",
+        asset: "SOL",
+        networks: ["Solana"],
+        rpcEnv: ["AUTODY_SOLANA_RPC_URL", "SOLANA_RPC_URL"],
+        publicRpcUrl: "https://api.mainnet-beta.solana.com",
+        decimals: 9
+    },
+    xrp: {
+        scanner: "xrp-rpc",
+        asset: "XRP",
+        networks: ["XRP Ledger"],
+        rpcEnv: ["AUTODY_XRP_RPC_URL", "XRP_RPC_URL"],
+        publicRpcUrl: "https://s1.ripple.com:51234/"
+    },
+    stellar: {
+        scanner: "stellar-horizon",
+        asset: "XLM",
+        networks: ["Stellar"],
+        baseUrlEnv: ["AUTODY_STELLAR_HORIZON_URL", "STELLAR_HORIZON_URL"],
+        publicBaseUrl: "https://horizon.stellar.org"
+    },
+    tron: {
+        scanner: "tron-grid",
+        asset: "TRX",
+        networks: ["Tron TRC-20"],
+        baseUrlEnv: ["AUTODY_TRON_API_URL", "TRON_API_URL"],
+        publicBaseUrl: "https://api.trongrid.io",
+        decimals: 6
+    }
+};
+
+const TRON_TRC20_DEPOSIT_CONTRACTS = {
+    USDT: { address: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", decimals: 6 }
+};
+
 const LITECOIN_NETWORK = {
     messagePrefix: "\x19Litecoin Signed Message:\n",
     bech32: "ltc",
@@ -1892,6 +1970,47 @@ function depositEnvKeyPart(value = "") {
 function getDepositRpcUrl(config = {}) {
     const envName = (config.rpcEnv || []).find((name) => String(process.env[name] || "").trim());
     return envName ? String(process.env[envName]).trim() : config.publicRpcUrl || "";
+}
+
+function getDepositRestBaseUrl(config = {}) {
+    const envName = (config.baseUrlEnv || []).find((name) => String(process.env[name] || "").trim());
+    const rawUrl = envName ? String(process.env[envName]).trim() : config.publicBaseUrl || "";
+    return rawUrl.replace(/\/+$/g, "");
+}
+
+async function fetchDepositJson(url, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DEPOSIT_REST_TIMEOUT_MS);
+    timeout.unref?.();
+
+    const headers = {
+        Accept: "application/json",
+        "User-Agent": "Autody/1.0 deposit monitor",
+        ...(options.headers || {})
+    };
+    if (options.body) headers["Content-Type"] = "application/json";
+
+    try {
+        const response = await fetch(url, {
+            method: options.method || "GET",
+            headers,
+            body: options.body ? JSON.stringify(options.body) : undefined,
+            signal: controller.signal
+        });
+        const text = await response.text();
+        let json = {};
+        try {
+            json = text ? JSON.parse(text) : {};
+        } catch (err) {
+            json = { raw: text };
+        }
+        if (!response.ok) {
+            throw new Error(json?.error || json?.message || json?.raw || `Deposit API returned ${response.status}`);
+        }
+        return json;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 function getEvmNetworkConfig(network = "") {
@@ -1943,6 +2062,26 @@ function getEvmTokenDepositContract(assetSymbol, network) {
         console.error(`Invalid token contract for ${assetSymbol} on ${network}:`, err.message || err);
         return null;
     }
+}
+
+function getAccountDepositScannerConfig(assetSymbol, network, family) {
+    const asset = normalizeTradeSymbol(assetSymbol);
+    const networkName = String(network || "").trim();
+
+    if (family === "tron" && TRON_TRC20_DEPOSIT_CONTRACTS[asset]) {
+        return {
+            ...ACCOUNT_DEPOSIT_SCANNER_CONFIGS.tron,
+            scanner: "tron-trc20",
+            asset,
+            tokenContract: TRON_TRC20_DEPOSIT_CONTRACTS[asset]
+        };
+    }
+
+    const config = ACCOUNT_DEPOSIT_SCANNER_CONFIGS[family];
+    if (!config) return null;
+    if (config.asset !== asset) return null;
+    if (!config.networks.some((candidate) => candidate.toLowerCase() === networkName.toLowerCase())) return null;
+    return { ...config, asset };
 }
 
 function isNativeEvmDepositAsset(assetSymbol, network) {
@@ -3044,6 +3183,7 @@ function activeDepositAddressGroups(rows = []) {
     const groups = {
         evmNative: new Map(),
         evmToken: new Map(),
+        accountHistory: new Map(),
         unsupported: []
     };
 
@@ -3052,6 +3192,16 @@ function activeDepositAddressGroups(rows = []) {
         const network = String(row.network || "").trim();
         const config = getEvmNetworkConfig(network);
         if (!config) {
+            const family = selfCustodyNetworkFamily(network);
+            const accountConfig = getAccountDepositScannerConfig(asset, network, family);
+            if (accountConfig) {
+                const key = `${accountConfig.scanner}:${network}:${asset}`;
+                if (!groups.accountHistory.has(key)) {
+                    groups.accountHistory.set(key, { config: accountConfig, rows: [] });
+                }
+                groups.accountHistory.get(key).rows.push(row);
+                return;
+            }
             groups.unsupported.push(row);
             return;
         }
@@ -3205,6 +3355,387 @@ async function scanEvmNativeDepositGroup(client, network, rows, summary) {
     await saveDepositScanState(client, window);
 }
 
+function normalizeChainAddressForCompare(address = "") {
+    return String(address || "")
+        .trim()
+        .toLowerCase()
+        .replace(/^bitcoincash:/, "");
+}
+
+function chainAddressMatches(left = "", right = "") {
+    return normalizeChainAddressForCompare(left) === normalizeChainAddressForCompare(right);
+}
+
+async function creditAccountHistoryDeposit(client, row, detection, summary) {
+    const result = await creditDetectedDepositWithTransaction(client, row, detection);
+    if (result.credited) summary.credited.push(result);
+    else summary.duplicates += 1;
+}
+
+function mempoolDepositOutputAmount(tx = {}, address = "") {
+    return (tx.vout || []).reduce((sum, output) => {
+        const outputAddress = output.scriptpubkey_address || output.scriptpubkeyAddress || output.address;
+        if (!chainAddressMatches(outputAddress, address)) return sum;
+        return sum + Math.max(0, Number(output.value || 0));
+    }, 0);
+}
+
+async function scanMempoolUtxoDepositGroup(client, config, rows, summary) {
+    const baseUrl = getDepositRestBaseUrl(config);
+    if (!baseUrl) {
+        summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
+        return;
+    }
+
+    const tipJson = await fetchDepositJson(`${baseUrl}/blocks/tip/height`);
+    const tipHeight = Number(tipJson?.raw ?? tipJson);
+    for (const row of rows) {
+        try {
+            const txs = await fetchDepositJson(`${baseUrl}/address/${encodeURIComponent(row.address)}/txs`);
+            const transactions = Array.isArray(txs) ? txs : [];
+            for (const tx of transactions.slice(0, DEPOSIT_ACCOUNT_TX_LIMIT)) {
+                const txHash = normalizeText(tx.txid || tx.hash);
+                const amountSmallestUnit = mempoolDepositOutputAmount(tx, row.address);
+                if (!txHash || amountSmallestUnit <= 0) continue;
+                const blockNumber = Number(tx.status?.block_height || 0);
+                const confirmed = Boolean(tx.status?.confirmed && blockNumber);
+                const confirmations = confirmed && Number.isFinite(tipHeight)
+                    ? Math.max(0, tipHeight - blockNumber + 1)
+                    : 0;
+                if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) continue;
+
+                await creditAccountHistoryDeposit(client, row, {
+                    amount: amountSmallestUnit / (10 ** config.decimals),
+                    txHash,
+                    logIndex: null,
+                    blockNumber,
+                    confirmations,
+                    metadata: {
+                        scanner: config.scanner,
+                        outputUnit: "sats",
+                        address: row.address
+                    }
+                }, summary);
+            }
+        } catch (err) {
+            summary.errors.push({ network: row.network, asset: row.asset_symbol, scanner: config.scanner, address: row.address, error: err.message || String(err) });
+        }
+    }
+}
+
+function blockchairAddressTransactions(json = {}, address = "") {
+    const data = json.data || {};
+    const matchingKey = Object.keys(data).find((key) => chainAddressMatches(key, address)) || Object.keys(data)[0];
+    const entry = matchingKey ? data[matchingKey] : null;
+    const transactions = Array.isArray(entry?.transactions) ? entry.transactions : [];
+    return transactions.filter((tx) => tx && typeof tx === "object");
+}
+
+async function scanBlockchairUtxoDepositGroup(client, config, rows, summary) {
+    const baseUrl = getDepositRestBaseUrl(config);
+    if (!baseUrl) {
+        summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
+        return;
+    }
+
+    for (const row of rows) {
+        try {
+            const url = `${baseUrl}/dashboards/address/${encodeURIComponent(row.address)}?transaction_details=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}`;
+            const json = await fetchDepositJson(url);
+            const transactions = blockchairAddressTransactions(json, row.address);
+            for (const tx of transactions) {
+                const txHash = normalizeText(tx.hash || tx.transaction_hash || tx.tx_hash);
+                const balanceChange = Number(tx.balance_change ?? tx.address?.balance_change ?? 0);
+                const blockNumber = Number(tx.block_id || tx.block_height || 0);
+                if (!txHash || balanceChange <= 0 || !blockNumber) continue;
+
+                await creditAccountHistoryDeposit(client, row, {
+                    amount: balanceChange / (10 ** config.decimals),
+                    txHash,
+                    logIndex: null,
+                    blockNumber,
+                    confirmations: DEPOSIT_MIN_CONFIRMATIONS,
+                    metadata: {
+                        scanner: config.scanner,
+                        chain: config.chain,
+                        outputUnit: "sats",
+                        address: row.address
+                    }
+                }, summary);
+            }
+        } catch (err) {
+            summary.errors.push({ network: row.network, asset: row.asset_symbol, scanner: config.scanner, address: row.address, error: err.message || String(err) });
+        }
+    }
+}
+
+async function scanSolanaDepositGroup(client, config, rows, summary) {
+    const rpcUrl = getDepositRpcUrl(config);
+    if (!rpcUrl) {
+        summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
+        return;
+    }
+
+    const connection = new SolanaConnection(rpcUrl, "confirmed");
+    for (const row of rows) {
+        try {
+            const publicKey = new SolanaPublicKey(row.address);
+            const signatures = await connection.getSignaturesForAddress(publicKey, { limit: DEPOSIT_ACCOUNT_TX_LIMIT }, "confirmed");
+            for (const signatureInfo of signatures || []) {
+                const confirmations = signatureInfo.confirmationStatus === "finalized" ? DEPOSIT_MIN_CONFIRMATIONS : 1;
+                if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) continue;
+                const parsed = await connection.getParsedTransaction(signatureInfo.signature, { maxSupportedTransactionVersion: 0 });
+                const accountKeys = parsed?.transaction?.message?.accountKeys || [];
+                const addressIndex = accountKeys.findIndex((key) => {
+                    const account = key.pubkey?.toBase58?.() || key.pubkey || key;
+                    return String(account) === row.address;
+                });
+                if (addressIndex < 0) continue;
+                const preBalance = Number(parsed?.meta?.preBalances?.[addressIndex] || 0);
+                const postBalance = Number(parsed?.meta?.postBalances?.[addressIndex] || 0);
+                const diffLamports = postBalance - preBalance;
+                if (diffLamports <= 0) continue;
+
+                await creditAccountHistoryDeposit(client, row, {
+                    amount: diffLamports / LAMPORTS_PER_SOL,
+                    txHash: signatureInfo.signature,
+                    logIndex: null,
+                    blockNumber: Number(parsed?.slot || signatureInfo.slot || 0),
+                    confirmations,
+                    metadata: {
+                        scanner: config.scanner,
+                        unit: "lamports",
+                        address: row.address
+                    }
+                }, summary);
+            }
+        } catch (err) {
+            const message = err.message || String(err);
+            if (!/not found|could not find/i.test(message)) {
+                summary.errors.push({ network: row.network, asset: row.asset_symbol, scanner: config.scanner, address: row.address, error: message });
+            }
+        }
+    }
+}
+
+async function scanXrpDepositGroup(client, config, rows, summary) {
+    const rpcUrl = getDepositRpcUrl(config);
+    if (!rpcUrl) {
+        summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
+        return;
+    }
+
+    for (const row of rows) {
+        try {
+            const json = await fetchDepositJson(rpcUrl, {
+                method: "POST",
+                body: {
+                    method: "account_tx",
+                    params: [{
+                        account: row.address,
+                        ledger_index_min: -1,
+                        ledger_index_max: -1,
+                        limit: DEPOSIT_ACCOUNT_TX_LIMIT,
+                        forward: false
+                    }]
+                }
+            });
+            if (json?.result?.error === "actNotFound") continue;
+            const transactions = json?.result?.transactions || [];
+            for (const entry of transactions) {
+                const tx = entry.tx_json || entry.tx || entry;
+                const amountDrops = typeof tx.Amount === "string" ? Number(tx.Amount) : 0;
+                const txHash = normalizeText(tx.hash || tx.Hash || entry.hash);
+                const ledgerIndex = Number(tx.ledger_index || entry.ledger_index || 0);
+                if (entry.validated === false) continue;
+                if (tx.TransactionType !== "Payment" || tx.Destination !== row.address || amountDrops <= 0 || !txHash) continue;
+
+                await creditAccountHistoryDeposit(client, row, {
+                    amount: amountDrops / 1_000_000,
+                    txHash,
+                    logIndex: null,
+                    blockNumber: ledgerIndex,
+                    confirmations: DEPOSIT_MIN_CONFIRMATIONS,
+                    metadata: {
+                        scanner: config.scanner,
+                        source: tx.Account,
+                        destination: tx.Destination,
+                        unit: "drops"
+                    }
+                }, summary);
+            }
+        } catch (err) {
+            summary.errors.push({ network: row.network, asset: row.asset_symbol, scanner: config.scanner, address: row.address, error: err.message || String(err) });
+        }
+    }
+}
+
+async function scanStellarDepositGroup(client, config, rows, summary) {
+    const baseUrl = getDepositRestBaseUrl(config);
+    if (!baseUrl) {
+        summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
+        return;
+    }
+
+    for (const row of rows) {
+        try {
+            const json = await fetchDepositJson(`${baseUrl}/accounts/${encodeURIComponent(row.address)}/payments?order=desc&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}`);
+            const records = json?._embedded?.records || [];
+            for (const record of records) {
+                let amount = 0;
+                if (record.type === "payment" && record.to === row.address && record.asset_type === "native") {
+                    amount = numberValue(record.amount, 0);
+                } else if (record.type === "create_account" && record.account === row.address) {
+                    amount = numberValue(record.starting_balance, 0);
+                }
+                const txHash = normalizeText(record.transaction_hash);
+                if (amount <= 0 || !txHash) continue;
+
+                await creditAccountHistoryDeposit(client, row, {
+                    amount,
+                    txHash,
+                    logIndex: record.id ? Number(String(record.id).replace(/\D/g, "").slice(-9)) : null,
+                    blockNumber: Number(record.ledger || 0),
+                    confirmations: DEPOSIT_MIN_CONFIRMATIONS,
+                    metadata: {
+                        scanner: config.scanner,
+                        paymentType: record.type,
+                        source: record.from || record.funder || null,
+                        destination: record.to || record.account || null
+                    }
+                }, summary);
+            }
+        } catch (err) {
+            const message = err.message || String(err);
+            if (!/404|not found/i.test(message)) {
+                summary.errors.push({ network: row.network, asset: row.asset_symbol, scanner: config.scanner, address: row.address, error: message });
+            }
+        }
+    }
+}
+
+function tronDepositHeaders() {
+    const apiKey = String(process.env.TRON_PRO_API_KEY || process.env.AUTODY_TRON_API_KEY || "").trim();
+    return apiKey ? { "TRON-PRO-API-KEY": apiKey } : {};
+}
+
+function tronHexToBase58(value = "") {
+    try {
+        return TronWeb.address.fromHex(value);
+    } catch (err) {
+        return "";
+    }
+}
+
+async function scanTronNativeDepositGroup(client, config, rows, summary) {
+    const baseUrl = getDepositRestBaseUrl(config);
+    if (!baseUrl) {
+        summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
+        return;
+    }
+
+    for (const row of rows) {
+        try {
+            const url = `${baseUrl}/v1/accounts/${encodeURIComponent(row.address)}/transactions?only_confirmed=true&only_to=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}&order_by=block_timestamp,desc`;
+            const json = await fetchDepositJson(url, { headers: tronDepositHeaders() });
+            for (const tx of json?.data || []) {
+                const value = tx.raw_data?.contract?.[0]?.parameter?.value || {};
+                const toAddress = tronHexToBase58(value.to_address);
+                const amountSun = Number(value.amount || 0);
+                const txHash = normalizeText(tx.txID || tx.txid || tx.hash);
+                if (!chainAddressMatches(toAddress, row.address) || amountSun <= 0 || !txHash) continue;
+                const resultStatus = tx.ret?.[0]?.contractRet || "";
+                if (resultStatus && resultStatus !== "SUCCESS") continue;
+
+                await creditAccountHistoryDeposit(client, row, {
+                    amount: amountSun / 1_000_000,
+                    txHash,
+                    logIndex: null,
+                    blockNumber: Number(tx.blockNumber || 0),
+                    confirmations: DEPOSIT_MIN_CONFIRMATIONS,
+                    metadata: {
+                        scanner: config.scanner,
+                        unit: "sun",
+                        from: tronHexToBase58(value.owner_address),
+                        to: toAddress
+                    }
+                }, summary);
+            }
+        } catch (err) {
+            summary.errors.push({ network: row.network, asset: row.asset_symbol, scanner: config.scanner, address: row.address, error: err.message || String(err) });
+        }
+    }
+}
+
+async function scanTronTrc20DepositGroup(client, config, rows, summary) {
+    const baseUrl = getDepositRestBaseUrl(config);
+    const contract = config.tokenContract;
+    if (!baseUrl || !contract?.address) {
+        summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
+        return;
+    }
+
+    for (const row of rows) {
+        try {
+            const url = `${baseUrl}/v1/accounts/${encodeURIComponent(row.address)}/transactions/trc20?only_confirmed=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}&contract_address=${encodeURIComponent(contract.address)}`;
+            const json = await fetchDepositJson(url, { headers: tronDepositHeaders() });
+            for (const tx of json?.data || []) {
+                const toAddress = tx.to || tx.to_address || tx.toAddress;
+                const rawValue = String(tx.value || "0");
+                const txHash = normalizeText(tx.transaction_id || tx.txID || tx.hash);
+                if (!chainAddressMatches(toAddress, row.address) || !txHash) continue;
+                const amount = numberValue(ethers.formatUnits(BigInt(rawValue), contract.decimals), 0);
+                if (amount <= 0) continue;
+
+                await creditAccountHistoryDeposit(client, row, {
+                    amount,
+                    txHash,
+                    logIndex: Number(tx.log_index || tx.event_index || 0),
+                    blockNumber: Number(tx.block_number || tx.blockNumber || 0),
+                    confirmations: DEPOSIT_MIN_CONFIRMATIONS,
+                    metadata: {
+                        scanner: config.scanner,
+                        contract: contract.address,
+                        tokenDecimals: contract.decimals,
+                        from: tx.from || tx.from_address || null,
+                        to: toAddress
+                    }
+                }, summary);
+            }
+        } catch (err) {
+            summary.errors.push({ network: row.network, asset: row.asset_symbol, scanner: config.scanner, address: row.address, error: err.message || String(err) });
+        }
+    }
+}
+
+async function scanAccountHistoryDepositGroup(client, config, rows, summary) {
+    switch (config.scanner) {
+        case "utxo-mempool":
+            await scanMempoolUtxoDepositGroup(client, config, rows, summary);
+            return;
+        case "blockchair-utxo":
+            await scanBlockchairUtxoDepositGroup(client, config, rows, summary);
+            return;
+        case "solana-rpc":
+            await scanSolanaDepositGroup(client, config, rows, summary);
+            return;
+        case "xrp-rpc":
+            await scanXrpDepositGroup(client, config, rows, summary);
+            return;
+        case "stellar-horizon":
+            await scanStellarDepositGroup(client, config, rows, summary);
+            return;
+        case "tron-grid":
+            await scanTronNativeDepositGroup(client, config, rows, summary);
+            return;
+        case "tron-trc20":
+            await scanTronTrc20DepositGroup(client, config, rows, summary);
+            return;
+        default:
+            summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner not configured" });
+    }
+}
+
 async function scanDatabaseCryptoDeposits(options = {}) {
     if (!databaseConfigured()) {
         return { success: false, configured: false, error: "Database is not configured." };
@@ -3258,6 +3789,20 @@ async function scanDatabaseCryptoDeposits(options = {}) {
             } catch (err) {
                 console.error(`Token deposit scan failed for ${key}:`, err);
                 summary.errors.push({ network, asset: assetSymbol, scanner: "evm-token", error: err.message || String(err) });
+            }
+        }
+
+        for (const [key, group] of groups.accountHistory.entries()) {
+            try {
+                await scanAccountHistoryDepositGroup(client, group.config, group.rows, summary);
+            } catch (err) {
+                console.error(`Account-history deposit scan failed for ${key}:`, err);
+                summary.errors.push({
+                    network: group.config.networks?.[0] || "",
+                    asset: group.config.asset,
+                    scanner: group.config.scanner,
+                    error: err.message || String(err)
+                });
             }
         }
 
