@@ -4,6 +4,11 @@ const liveCryptoAssets = {
     networks: ["Polygon PoS"],
     addressPrefix: "0x"
   },
+  BTC: {
+    name: "Bitcoin",
+    networks: ["Bitcoin"],
+    addressPrefix: "bc1"
+  },
   ETH: {
     name: "Ethereum",
     networks: ["Ethereum ERC-20", "Base", "Arbitrum One", "Optimism"],
@@ -11,7 +16,7 @@ const liveCryptoAssets = {
   },
   USDT: {
     name: "Tether USDt",
-    networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain"],
+    networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain", "Tron TRC-20"],
     addressPrefix: "0x"
   },
   USDC: {
@@ -24,6 +29,13 @@ const liveCryptoAssets = {
     networks: ["BNB Smart Chain BEP-20"],
     addressPrefix: "0x"
   },
+  SOL: { name: "Solana", networks: ["Solana"], addressPrefix: "" },
+  XRP: { name: "XRP", networks: ["XRP Ledger"], addressPrefix: "r" },
+  DOGE: { name: "Dogecoin", networks: ["Dogecoin"], addressPrefix: "D" },
+  LTC: { name: "Litecoin", networks: ["Litecoin"], addressPrefix: "ltc1" },
+  BCH: { name: "Bitcoin Cash", networks: ["Bitcoin Cash"], addressPrefix: "bitcoincash:" },
+  XLM: { name: "Stellar", networks: ["Stellar"], addressPrefix: "G" },
+  TRX: { name: "TRON", networks: ["Tron TRC-20"], addressPrefix: "T" },
   AVAX: { name: "Avalanche", networks: ["Avalanche C-Chain"], addressPrefix: "0x" },
   LINK: { name: "Chainlink", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"], addressPrefix: "0x" },
   POL: { name: "Polygon", networks: ["Polygon PoS", "Ethereum ERC-20"], addressPrefix: "0x" },

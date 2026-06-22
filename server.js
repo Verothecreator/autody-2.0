@@ -6,10 +6,22 @@ const bodyParser = require("body-parser");
 const { ethers } = require("ethers");
 const { Pool } = require("pg");
 const QRCode = require("qrcode");
+const bip39 = require("bip39");
+const { BIP32Factory } = require("bip32");
+const ecc = require("tiny-secp256k1");
+const bitcoin = require("bitcoinjs-lib");
+const cashaddr = require("cashaddrjs");
+const { Keypair: SolanaKeypair } = require("@solana/web3.js");
+const { derivePath: deriveEd25519Path } = require("ed25519-hd-key");
+const rippleKeypairs = require("ripple-keypairs");
+const StellarSdk = require("stellar-sdk");
+const TronWebModule = require("tronweb");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const bip32 = BIP32Factory(ecc);
+const TronWeb = TronWebModule.TronWeb || TronWebModule.default || TronWebModule;
 
 const RPC = process.env.POLYGON_RPC;
 
@@ -88,8 +100,15 @@ const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 10
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
-const EVM_DEPOSIT_MNEMONIC = String(process.env.AUTODY_EVM_DEPOSIT_MNEMONIC || process.env.AUTODY_CUSTODY_EVM_MNEMONIC || "").trim();
-const EVM_DEPOSIT_PASSWORD = process.env.AUTODY_EVM_DEPOSIT_PASSWORD || process.env.AUTODY_CUSTODY_EVM_PASSWORD || "";
+const DEPOSIT_MNEMONIC = String(
+    process.env.AUTODY_DEPOSIT_MNEMONIC
+    || process.env.AUTODY_EVM_DEPOSIT_MNEMONIC
+    || process.env.AUTODY_CUSTODY_EVM_MNEMONIC
+    || ""
+).trim();
+const DEPOSIT_MNEMONIC_PASSWORD = process.env.AUTODY_DEPOSIT_PASSWORD || process.env.AUTODY_EVM_DEPOSIT_PASSWORD || process.env.AUTODY_CUSTODY_EVM_PASSWORD || "";
+const EVM_DEPOSIT_MNEMONIC = DEPOSIT_MNEMONIC;
+const EVM_DEPOSIT_PASSWORD = DEPOSIT_MNEMONIC_PASSWORD;
 const EVM_DEPOSIT_BASE_PATH = process.env.AUTODY_EVM_DEPOSIT_BASE_PATH || process.env.AUTODY_CUSTODY_EVM_BASE_PATH || "m/44'/60'/0'/0";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
@@ -1644,10 +1663,18 @@ function demoTradeError(status, message) {
 
 const LIVE_DEPOSIT_ASSETS = {
     AU: { name: "Autody AU", networks: ["Polygon PoS"] },
+    BTC: { name: "Bitcoin", networks: ["Bitcoin"] },
     ETH: { name: "Ethereum", networks: ["Ethereum ERC-20", "Base", "Arbitrum One", "Optimism"] },
-    USDT: { name: "Tether USDt", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain"] },
+    USDT: { name: "Tether USDt", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain", "Tron TRC-20"] },
     USDC: { name: "USD Coin", networks: ["Ethereum ERC-20", "Base", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain"] },
+    SOL: { name: "Solana", networks: ["Solana"] },
+    XRP: { name: "XRP", networks: ["XRP Ledger"] },
     BNB: { name: "BNB", networks: ["BNB Smart Chain BEP-20"] },
+    DOGE: { name: "Dogecoin", networks: ["Dogecoin"] },
+    LTC: { name: "Litecoin", networks: ["Litecoin"] },
+    BCH: { name: "Bitcoin Cash", networks: ["Bitcoin Cash"] },
+    XLM: { name: "Stellar", networks: ["Stellar"] },
+    TRX: { name: "TRON", networks: ["Tron TRC-20"] },
     AVAX: { name: "Avalanche", networks: ["Avalanche C-Chain"] },
     LINK: { name: "Chainlink", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"] },
     POL: { name: "Polygon", networks: ["Polygon PoS", "Ethereum ERC-20"] },
@@ -1682,7 +1709,36 @@ const EVM_SELF_CUSTODY_NETWORKS = new Set([
     "Avalanche C-Chain"
 ].map((network) => network.toLowerCase()));
 
+const SELF_CUSTODY_NETWORK_FAMILIES = new Map([
+    ["bitcoin", "bitcoin"],
+    ["bitcoin cash", "bitcoin-cash"],
+    ["dogecoin", "dogecoin"],
+    ["litecoin", "litecoin"],
+    ["solana", "solana"],
+    ["xrp ledger", "xrp"],
+    ["stellar", "stellar"],
+    ["tron trc-20", "tron"]
+]);
+
+const LITECOIN_NETWORK = {
+    messagePrefix: "\x19Litecoin Signed Message:\n",
+    bech32: "ltc",
+    bip32: { public: 0x019da462, private: 0x019d9cfe },
+    pubKeyHash: 0x30,
+    scriptHash: 0x32,
+    wif: 0xb0
+};
+
+const DOGECOIN_NETWORK = {
+    messagePrefix: "\x19Dogecoin Signed Message:\n",
+    bip32: { public: 0x02facafd, private: 0x02fac398 },
+    pubKeyHash: 0x1e,
+    scriptHash: 0x16,
+    wif: 0x9e
+};
+
 let evmDepositRootCache = null;
+let depositSeedCache = null;
 
 function normalizeDepositAssetSymbol(value) {
     const symbol = normalizeTradeSymbol(value);
@@ -1727,19 +1783,144 @@ function isEvmDepositNetwork(network = "") {
     return EVM_SELF_CUSTODY_NETWORKS.has(String(network || "").trim().toLowerCase());
 }
 
-function normalizedEvmMnemonic() {
-    return EVM_DEPOSIT_MNEMONIC
+function selfCustodyNetworkFamily(network = "") {
+    const normalized = String(network || "").trim().toLowerCase();
+    if (isEvmDepositNetwork(normalized)) return "evm";
+    return SELF_CUSTODY_NETWORK_FAMILIES.get(normalized) || "";
+}
+
+function normalizedDepositMnemonic() {
+    return DEPOSIT_MNEMONIC
         .replace(/[(),]+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 }
 
+function normalizedEvmMnemonic() {
+    return normalizedDepositMnemonic();
+}
+
 function selfCustodyEvmConfigured() {
-    return Boolean(normalizedEvmMnemonic());
+    return Boolean(normalizedDepositMnemonic());
 }
 
 function evmDepositEnvName() {
-    return "AUTODY_EVM_DEPOSIT_MNEMONIC";
+    if (String(process.env.AUTODY_DEPOSIT_MNEMONIC || "").trim()) return "AUTODY_DEPOSIT_MNEMONIC";
+    if (String(process.env.AUTODY_EVM_DEPOSIT_MNEMONIC || "").trim()) return "AUTODY_EVM_DEPOSIT_MNEMONIC";
+    if (String(process.env.AUTODY_CUSTODY_EVM_MNEMONIC || "").trim()) return "AUTODY_CUSTODY_EVM_MNEMONIC";
+    return "AUTODY_DEPOSIT_MNEMONIC";
+}
+
+function getDepositSeed() {
+    if (depositSeedCache) return depositSeedCache;
+    const mnemonic = normalizedDepositMnemonic();
+    if (!mnemonic) return null;
+    if (!bip39.validateMnemonic(mnemonic)) {
+        throw new Error("Deposit mnemonic is not a valid BIP-39 seed phrase.");
+    }
+    depositSeedCache = bip39.mnemonicToSeedSync(mnemonic, DEPOSIT_MNEMONIC_PASSWORD);
+    return depositSeedCache;
+}
+
+function deriveBip32Address(pathValue, network, paymentType = "p2wpkh") {
+    const seed = getDepositSeed();
+    if (!seed) return "";
+    const node = bip32.fromSeed(seed, network).derivePath(pathValue);
+    const pubkey = Buffer.from(node.publicKey);
+    if (paymentType === "p2pkh") {
+        return bitcoin.payments.p2pkh({ pubkey, network }).address || "";
+    }
+    return bitcoin.payments.p2wpkh({ pubkey, network }).address || "";
+}
+
+function deriveBitcoinCashAddress(index) {
+    const seed = getDepositSeed();
+    if (!seed) return "";
+    const node = bip32.fromSeed(seed, bitcoin.networks.bitcoin).derivePath(`m/44'/145'/0'/0/${index}`);
+    const hash = bitcoin.crypto.hash160(Buffer.from(node.publicKey));
+    return cashaddr.encode("bitcoincash", "P2PKH", hash);
+}
+
+function deriveEd25519Seed(pathValue) {
+    const seed = getDepositSeed();
+    if (!seed) return null;
+    return deriveEd25519Path(pathValue, seed.toString("hex")).key;
+}
+
+function deriveXrpAddress(index) {
+    const seed = getDepositSeed();
+    if (!seed) return "";
+    const entropy = crypto.createHmac("sha256", seed)
+        .update(`xrp:${index}`)
+        .digest()
+        .subarray(0, 16);
+    const xrpSeed = rippleKeypairs.generateSeed({ entropy });
+    return rippleKeypairs.deriveAddress(rippleKeypairs.deriveKeypair(xrpSeed).publicKey);
+}
+
+function deriveTronAddress(index) {
+    const seed = getDepositSeed();
+    if (!seed) return "";
+    const node = bip32.fromSeed(seed).derivePath(`m/44'/195'/0'/0/${index}`);
+    return TronWeb.address.fromPrivateKey(Buffer.from(node.privateKey).toString("hex"));
+}
+
+function deriveSelfCustodyDepositAddress(family, index) {
+    switch (family) {
+        case "evm":
+            return {
+                address: deriveEvmDepositAddress(index),
+                derivationPath: `${EVM_DEPOSIT_BASE_PATH}/${index}`
+            };
+        case "bitcoin":
+            return {
+                address: deriveBip32Address(`m/84'/0'/0'/0/${index}`, bitcoin.networks.bitcoin, "p2wpkh"),
+                derivationPath: `m/84'/0'/0'/0/${index}`
+            };
+        case "bitcoin-cash":
+            return {
+                address: deriveBitcoinCashAddress(index),
+                derivationPath: `m/44'/145'/0'/0/${index}`
+            };
+        case "dogecoin":
+            return {
+                address: deriveBip32Address(`m/44'/3'/0'/0/${index}`, DOGECOIN_NETWORK, "p2pkh"),
+                derivationPath: `m/44'/3'/0'/0/${index}`
+            };
+        case "litecoin":
+            return {
+                address: deriveBip32Address(`m/84'/2'/0'/0/${index}`, LITECOIN_NETWORK, "p2wpkh"),
+                derivationPath: `m/84'/2'/0'/0/${index}`
+            };
+        case "solana": {
+            const pathValue = `m/44'/501'/${index}'/0'`;
+            const seed = deriveEd25519Seed(pathValue);
+            return {
+                address: seed ? SolanaKeypair.fromSeed(seed).publicKey.toBase58() : "",
+                derivationPath: pathValue
+            };
+        }
+        case "xrp":
+            return {
+                address: deriveXrpAddress(index),
+                derivationPath: `autody-xrp-hmac/${index}`
+            };
+        case "stellar": {
+            const pathValue = `m/44'/148'/${index}'`;
+            const seed = deriveEd25519Seed(pathValue);
+            return {
+                address: seed ? StellarSdk.Keypair.fromRawEd25519Seed(seed).publicKey() : "",
+                derivationPath: pathValue
+            };
+        }
+        case "tron":
+            return {
+                address: deriveTronAddress(index),
+                derivationPath: `m/44'/195'/0'/0/${index}`
+            };
+        default:
+            return { address: "", derivationPath: "" };
+    }
 }
 
 function getEvmDepositRoot() {
@@ -1995,6 +2176,182 @@ function resolveJsonSelfCustodyEvmRoute(db, userId, assetSymbol, network, reques
     }
 }
 
+function selfCustodyProviderName(family) {
+    return `self_custody_${String(family || "").replace(/[^a-z0-9]+/gi, "_")}`;
+}
+
+async function resolveDatabaseSelfCustodyRoute(client, profileId, assetSymbol, network, requestedFresh) {
+    const family = selfCustodyNetworkFamily(network);
+    if (!family || !selfCustodyEvmConfigured()) return null;
+
+    const provider = selfCustodyProviderName(family);
+    const routeType = "self_custody_hd";
+    try {
+        if (!requestedFresh) {
+            const existing = await client.query(`
+                select address, metadata
+                from crypto_deposit_addresses
+                where profile_id = $1
+                  and asset_symbol = $2
+                  and network = $3
+                  and provider = $4
+                  and route_type = $5
+                  and status = 'active'
+                order by last_issued_at desc
+                limit 1
+            `, [profileId, assetSymbol, network, provider, routeType]);
+
+            if (existing.rows[0]?.address) {
+                return {
+                    address: existing.rows[0].address,
+                    provider,
+                    routeType,
+                    status: "address_issued",
+                    envName: evmDepositEnvName(),
+                    custodyConnected: true,
+                    uniqueAddress: true,
+                    metadata: existing.rows[0].metadata || {},
+                    warnings: []
+                };
+            }
+        }
+
+        await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [`autody:self_custody_${family}_deposit_index`]);
+        const indexResult = await client.query(`
+            select coalesce(max((metadata->>'derivationIndex')::integer), -1) as max_index
+            from crypto_deposit_addresses
+            where provider = $1
+              and route_type = $2
+              and metadata ? 'derivationIndex'
+        `, [provider, routeType]);
+        const maxIndex = indexResult.rows[0]?.max_index;
+        const nextIndex = Number(maxIndex ?? -1) + 1;
+        const derived = deriveSelfCustodyDepositAddress(family, nextIndex);
+        if (!derived.address) throw new Error(`No ${family} address was derived.`);
+
+        return {
+            address: derived.address,
+            provider,
+            routeType,
+            status: "address_issued",
+            envName: evmDepositEnvName(),
+            custodyConnected: true,
+            uniqueAddress: true,
+            metadata: {
+                derivationIndex: nextIndex,
+                derivationPath: derived.derivationPath,
+                networkFamily: family
+            },
+            warnings: []
+        };
+    } catch (err) {
+        console.error(`Self-custody ${family} deposit route error:`, err);
+        return {
+            address: "",
+            provider,
+            routeType: "self_custody_error",
+            status: "route_error",
+            envName: evmDepositEnvName(),
+            custodyConnected: false,
+            uniqueAddress: false,
+            metadata: { networkFamily: family },
+            warnings: [
+                `Self-custody ${family} address generation is not configured correctly.`,
+                `Check ${evmDepositEnvName()} before accepting deposits.`
+            ]
+        };
+    }
+}
+
+function resolveJsonSelfCustodyRoute(db, userId, assetSymbol, network, requestedFresh) {
+    const family = selfCustodyNetworkFamily(network);
+    if (!family || !selfCustodyEvmConfigured()) return null;
+
+    const provider = selfCustodyProviderName(family);
+    const routeType = "self_custody_hd";
+    db.depositAddressBook = db.depositAddressBook || {};
+    db.depositAddressBook[userId] = db.depositAddressBook[userId] || [];
+
+    try {
+        if (!requestedFresh) {
+            const existing = db.depositAddressBook[userId]
+                .filter((item) => item.asset === assetSymbol
+                    && item.network === network
+                    && item.provider === provider
+                    && item.routeType === routeType
+                    && item.status === "active")
+                .sort((a, b) => String(b.lastIssuedAt || "").localeCompare(String(a.lastIssuedAt || "")))[0];
+            if (existing?.address) {
+                existing.lastIssuedAt = new Date().toISOString();
+                return {
+                    address: existing.address,
+                    provider,
+                    routeType,
+                    status: "address_issued",
+                    envName: evmDepositEnvName(),
+                    custodyConnected: true,
+                    uniqueAddress: true,
+                    metadata: existing.metadata || {},
+                    warnings: []
+                };
+            }
+        }
+
+        db.depositAddressIndexes = db.depositAddressIndexes || {};
+        const indexKey = family.replace(/[^a-z0-9]+/gi, "_");
+        const nextIndex = Number(db.depositAddressIndexes[indexKey] || 0);
+        const derived = deriveSelfCustodyDepositAddress(family, nextIndex);
+        if (!derived.address) throw new Error(`No ${family} address was derived.`);
+        db.depositAddressIndexes[indexKey] = nextIndex + 1;
+        const now = new Date().toISOString();
+        const record = {
+            id: crypto.randomUUID(),
+            userId,
+            asset: assetSymbol,
+            network,
+            address: derived.address,
+            provider,
+            routeType,
+            status: "active",
+            firstIssuedAt: now,
+            lastIssuedAt: now,
+            metadata: {
+                derivationIndex: nextIndex,
+                derivationPath: derived.derivationPath,
+                networkFamily: family
+            }
+        };
+        db.depositAddressBook[userId].unshift(record);
+        return {
+            address: derived.address,
+            provider,
+            routeType,
+            status: "address_issued",
+            envName: evmDepositEnvName(),
+            custodyConnected: true,
+            uniqueAddress: true,
+            metadata: record.metadata,
+            warnings: []
+        };
+    } catch (err) {
+        console.error(`JSON self-custody ${family} deposit route error:`, err);
+        return {
+            address: "",
+            provider,
+            routeType: "self_custody_error",
+            status: "route_error",
+            envName: evmDepositEnvName(),
+            custodyConnected: false,
+            uniqueAddress: false,
+            metadata: { networkFamily: family },
+            warnings: [
+                `Self-custody ${family} address generation is not configured correctly.`,
+                `Check ${evmDepositEnvName()} before accepting deposits.`
+            ]
+        };
+    }
+}
+
 async function ensureDepositTables(client = dbPool) {
     await client.query(`
         create table if not exists crypto_deposit_addresses (
@@ -2051,7 +2408,7 @@ async function createDatabaseDepositRequest(auth, body = {}) {
         await client.query("begin");
         await ensureDepositTables(client);
         const context = await getPracticeDbContext(client, auth.profileId, "live");
-        const route = await resolveDatabaseSelfCustodyEvmRoute(client, auth.profileId, assetSymbol, network, requestedFresh)
+        const route = await resolveDatabaseSelfCustodyRoute(client, auth.profileId, assetSymbol, network, requestedFresh)
             || resolveTreasuryDepositRoute(assetSymbol, network);
         const expiresAt = new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString();
         let addressId = null;
@@ -2138,7 +2495,7 @@ function createJsonDepositRequest(auth, body = {}) {
     const network = normalizeDepositNetwork(assetSymbol, body.network);
     const requestedFresh = body.fresh !== false;
     const db = loadDemoDb();
-    const route = resolveJsonSelfCustodyEvmRoute(db, auth.userId, assetSymbol, network, requestedFresh)
+    const route = resolveJsonSelfCustodyRoute(db, auth.userId, assetSymbol, network, requestedFresh)
         || resolveTreasuryDepositRoute(assetSymbol, network);
     const now = new Date().toISOString();
     const expiresAt = route.address
