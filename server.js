@@ -1643,14 +1643,32 @@ function demoTradeError(status, message) {
 }
 
 const LIVE_DEPOSIT_ASSETS = {
-    AU: { name: "Autody AU", networks: ["Autody custody", "Polygon PoS"] },
-    BTC: { name: "Bitcoin", networks: ["Bitcoin"] },
+    AU: { name: "Autody AU", networks: ["Polygon PoS"] },
     ETH: { name: "Ethereum", networks: ["Ethereum ERC-20", "Base", "Arbitrum One", "Optimism"] },
-    USDT: { name: "Tether USDt", networks: ["Ethereum ERC-20", "Tron TRC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Solana SPL"] },
-    USDC: { name: "USD Coin", networks: ["Ethereum ERC-20", "Base", "Solana SPL", "Polygon PoS", "Arbitrum One"] },
-    BNB: { name: "BNB", networks: ["BNB Smart Chain BEP-20", "BNB Beacon Chain"] },
-    BCH: { name: "Bitcoin Cash", networks: ["Bitcoin Cash"] },
-    DOGE: { name: "Dogecoin", networks: ["Dogecoin"] }
+    USDT: { name: "Tether USDt", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain"] },
+    USDC: { name: "USD Coin", networks: ["Ethereum ERC-20", "Base", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain"] },
+    BNB: { name: "BNB", networks: ["BNB Smart Chain BEP-20"] },
+    AVAX: { name: "Avalanche", networks: ["Avalanche C-Chain"] },
+    LINK: { name: "Chainlink", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"] },
+    POL: { name: "Polygon", networks: ["Polygon PoS", "Ethereum ERC-20"] },
+    UNI: { name: "Uniswap", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"] },
+    AAVE: { name: "Aave", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"] },
+    ARB: { name: "Arbitrum", networks: ["Arbitrum One"] },
+    OP: { name: "Optimism", networks: ["Optimism"] },
+    SHIB: { name: "Shiba Inu", networks: ["Ethereum ERC-20"] },
+    FET: { name: "Artificial Superintelligence Alliance", networks: ["Ethereum ERC-20"] },
+    RENDER: { name: "Render", networks: ["Ethereum ERC-20"] },
+    PEPE: { name: "Pepe", networks: ["Ethereum ERC-20"] },
+    DAI: { name: "Dai", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One", "Optimism"] },
+    PYUSD: { name: "PayPal USD", networks: ["Ethereum ERC-20"] },
+    FDUSD: { name: "First Digital USD", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20"] },
+    TUSD: { name: "TrueUSD", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20"] },
+    MKR: { name: "Maker", networks: ["Ethereum ERC-20"] },
+    LDO: { name: "Lido DAO", networks: ["Ethereum ERC-20", "Arbitrum One"] },
+    QNT: { name: "Quant", networks: ["Ethereum ERC-20"] },
+    GRT: { name: "The Graph", networks: ["Ethereum ERC-20", "Arbitrum One"] },
+    CRV: { name: "Curve DAO", networks: ["Ethereum ERC-20", "Arbitrum One"] },
+    MANA: { name: "Decentraland", networks: ["Ethereum ERC-20", "Polygon PoS"] }
 };
 
 const EVM_SELF_CUSTODY_NETWORKS = new Set([
@@ -1675,7 +1693,7 @@ function normalizeDepositAssetSymbol(value) {
 }
 
 function normalizeDepositNetwork(assetSymbol, value) {
-    const asset = LIVE_DEPOSIT_ASSETS[assetSymbol] || LIVE_DEPOSIT_ASSETS.BTC;
+    const asset = LIVE_DEPOSIT_ASSETS[assetSymbol] || LIVE_DEPOSIT_ASSETS[Object.keys(LIVE_DEPOSIT_ASSETS)[0]];
     const requested = String(value || asset.networks[0] || "").trim();
     const match = asset.networks.find((network) => network.toLowerCase() === requested.toLowerCase());
     if (!match) throw demoTradeError(400, `Choose a supported ${assetSymbol} deposit network.`);

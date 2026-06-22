@@ -1,13 +1,8 @@
 const liveCryptoAssets = {
   AU: {
     name: "Autody AU",
-    networks: ["Autody custody", "Polygon PoS"],
-    addressPrefix: "au1"
-  },
-  BTC: {
-    name: "Bitcoin",
-    networks: ["Bitcoin"],
-    addressPrefix: "bc1qautody"
+    networks: ["Polygon PoS"],
+    addressPrefix: "0x"
   },
   ETH: {
     name: "Ethereum",
@@ -16,34 +11,65 @@ const liveCryptoAssets = {
   },
   USDT: {
     name: "Tether USDt",
-    networks: ["Ethereum ERC-20", "Tron TRC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Solana SPL"],
+    networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain"],
     addressPrefix: "0x"
   },
   USDC: {
     name: "USD Coin",
-    networks: ["Ethereum ERC-20", "Base", "Solana SPL", "Polygon PoS", "Arbitrum One"],
+    networks: ["Ethereum ERC-20", "Base", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain"],
     addressPrefix: "0x"
   },
   BNB: {
     name: "BNB",
-    networks: ["BNB Smart Chain BEP-20", "BNB Beacon Chain"],
+    networks: ["BNB Smart Chain BEP-20"],
     addressPrefix: "0x"
   },
-  BCH: {
-    name: "Bitcoin Cash",
-    networks: ["Bitcoin Cash"],
-    addressPrefix: "bitcoincash:q"
-  },
-  DOGE: {
-    name: "Dogecoin",
-    networks: ["Dogecoin"],
-    addressPrefix: "D"
-  }
+  AVAX: { name: "Avalanche", networks: ["Avalanche C-Chain"], addressPrefix: "0x" },
+  LINK: { name: "Chainlink", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"], addressPrefix: "0x" },
+  POL: { name: "Polygon", networks: ["Polygon PoS", "Ethereum ERC-20"], addressPrefix: "0x" },
+  UNI: { name: "Uniswap", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"], addressPrefix: "0x" },
+  AAVE: { name: "Aave", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One"], addressPrefix: "0x" },
+  ARB: { name: "Arbitrum", networks: ["Arbitrum One"], addressPrefix: "0x" },
+  OP: { name: "Optimism", networks: ["Optimism"], addressPrefix: "0x" },
+  SHIB: { name: "Shiba Inu", networks: ["Ethereum ERC-20"], addressPrefix: "0x" },
+  FET: { name: "Artificial Superintelligence Alliance", networks: ["Ethereum ERC-20"], addressPrefix: "0x" },
+  RENDER: { name: "Render", networks: ["Ethereum ERC-20"], addressPrefix: "0x" },
+  PEPE: { name: "Pepe", networks: ["Ethereum ERC-20"], addressPrefix: "0x" },
+  DAI: { name: "Dai", networks: ["Ethereum ERC-20", "Polygon PoS", "Arbitrum One", "Optimism"], addressPrefix: "0x" },
+  PYUSD: { name: "PayPal USD", networks: ["Ethereum ERC-20"], addressPrefix: "0x" },
+  FDUSD: { name: "First Digital USD", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20"], addressPrefix: "0x" },
+  TUSD: { name: "TrueUSD", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20"], addressPrefix: "0x" },
+  MKR: { name: "Maker", networks: ["Ethereum ERC-20"], addressPrefix: "0x" },
+  LDO: { name: "Lido DAO", networks: ["Ethereum ERC-20", "Arbitrum One"], addressPrefix: "0x" },
+  QNT: { name: "Quant", networks: ["Ethereum ERC-20"], addressPrefix: "0x" },
+  GRT: { name: "The Graph", networks: ["Ethereum ERC-20", "Arbitrum One"], addressPrefix: "0x" },
+  CRV: { name: "Curve DAO", networks: ["Ethereum ERC-20", "Arbitrum One"], addressPrefix: "0x" },
+  MANA: { name: "Decentraland", networks: ["Ethereum ERC-20", "Polygon PoS"], addressPrefix: "0x" }
 };
 
 const liveNotice = document.getElementById("live-notice");
 let liveNoticeTimer = null;
 const receiveRouteCache = new Map();
+
+function liveCryptoOptionMarkup() {
+  return Object.entries(liveCryptoAssets)
+    .map(([symbol, asset]) => `<option value="${symbol}">${symbol} / ${asset.name}</option>`)
+    .join("");
+}
+
+function populateLiveCryptoSelects() {
+  const options = liveCryptoOptionMarkup();
+  document.querySelectorAll("#receive-asset, #send-asset").forEach((select) => {
+    if (!select) return;
+    const currentValue = select.value;
+    select.innerHTML = options;
+    if (liveCryptoAssets[currentValue]) select.value = currentValue;
+  });
+}
+
+function defaultLiveCryptoSymbol() {
+  return Object.keys(liveCryptoAssets)[0] || "ETH";
+}
 
 function showLiveNotice(message, type = "info") {
   if (!liveNotice) return;
@@ -86,7 +112,7 @@ function updateReceiveNetworks() {
   const networkSelect = document.getElementById("receive-network");
   if (!assetSelect || !networkSelect) return;
 
-  const asset = liveCryptoAssets[assetSelect.value] || liveCryptoAssets.BTC;
+  const asset = liveCryptoAssets[assetSelect.value] || liveCryptoAssets[defaultLiveCryptoSymbol()];
   networkSelect.innerHTML = asset.networks.map((network) => `<option value="${network}">${network}</option>`).join("");
 }
 
@@ -204,7 +230,7 @@ async function copyReceiveAddress() {
 }
 
 function reviewLiveSend() {
-  const asset = document.getElementById("send-asset")?.value || "BTC";
+  const asset = document.getElementById("send-asset")?.value || defaultLiveCryptoSymbol();
   const amount = Number(document.getElementById("send-amount")?.value || 0);
   const destination = document.getElementById("send-address")?.value?.trim();
 
@@ -265,6 +291,7 @@ document.getElementById("generate-receive-address")?.addEventListener("click", g
 document.getElementById("copy-receive-address")?.addEventListener("click", copyReceiveAddress);
 document.getElementById("review-send")?.addEventListener("click", reviewLiveSend);
 
+populateLiveCryptoSelects();
 updateReceiveNetworks();
 
 window.ensureLiveReceiveAddress = () => requestReceiveAddress({ fresh: false, showNotice: false });
