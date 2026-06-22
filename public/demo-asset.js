@@ -339,9 +339,10 @@ function renderActions(asset) {
 
   const cryptoActions = `
     <a href="demo-orders.html?side=buy&symbol=${symbol}">Buy</a>
+    <a href="demo-orders.html?side=sell&symbol=${symbol}">Sell</a>
     <a href="demo-orders.html?side=swap&symbol=${symbol}">Swap</a>
-    <button type="button" data-demo-blocked-action="Send">Send</button>
     <button type="button" data-demo-blocked-action="Receive">Receive</button>
+    <button type="button" data-demo-blocked-action="Send">Send</button>
   `;
   const marketActions = `
     <a href="demo-orders.html?side=buy&symbol=${symbol}">Buy</a>

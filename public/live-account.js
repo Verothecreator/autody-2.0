@@ -65,6 +65,7 @@ const receiveRouteCache = new Map();
 
 function liveCryptoOptionMarkup() {
   return Object.entries(liveCryptoAssets)
+    .sort(([symbolA], [symbolB]) => symbolA.localeCompare(symbolB))
     .map(([symbol, asset]) => `<option value="${symbol}">${symbol} / ${asset.name}</option>`)
     .join("");
 }
@@ -130,7 +131,11 @@ function updateReceiveNetworks() {
   if (!assetSelect || !networkSelect) return;
 
   const asset = liveCryptoAssets[assetSelect.value] || liveCryptoAssets[defaultLiveCryptoSymbol()];
-  networkSelect.innerHTML = asset.networks.map((network) => `<option value="${network}">${network}</option>`).join("");
+  networkSelect.innerHTML = asset.networks
+    .slice()
+    .sort((networkA, networkB) => networkA.localeCompare(networkB))
+    .map((network) => `<option value="${network}">${network}</option>`)
+    .join("");
 }
 
 function setLiveTransferAsset(symbol) {
