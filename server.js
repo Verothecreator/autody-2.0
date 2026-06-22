@@ -88,8 +88,6 @@ const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 10
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
-const EVM_DEPOSIT_XPUB = String(process.env.AUTODY_EVM_DEPOSIT_XPUB || process.env.AUTODY_CUSTODY_EVM_XPUB || "").trim();
-const EVM_DEPOSIT_PRIVATE_KEY = String(process.env.AUTODY_EVM_DEPOSIT_PRIVATE_KEY || process.env.AUTODY_CUSTODY_EVM_PRIVATE_KEY || "").trim();
 const EVM_DEPOSIT_MNEMONIC = String(process.env.AUTODY_EVM_DEPOSIT_MNEMONIC || process.env.AUTODY_CUSTODY_EVM_MNEMONIC || "").trim();
 const EVM_DEPOSIT_PASSWORD = process.env.AUTODY_EVM_DEPOSIT_PASSWORD || process.env.AUTODY_CUSTODY_EVM_PASSWORD || "";
 const EVM_DEPOSIT_BASE_PATH = process.env.AUTODY_EVM_DEPOSIT_BASE_PATH || process.env.AUTODY_CUSTODY_EVM_BASE_PATH || "m/44'/60'/0'/0";
@@ -1711,38 +1709,33 @@ function isEvmDepositNetwork(network = "") {
     return EVM_SELF_CUSTODY_NETWORKS.has(String(network || "").trim().toLowerCase());
 }
 
+function normalizedEvmMnemonic() {
+    return EVM_DEPOSIT_MNEMONIC
+        .replace(/[(),]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 function selfCustodyEvmConfigured() {
-    return Boolean(EVM_DEPOSIT_PRIVATE_KEY || EVM_DEPOSIT_MNEMONIC || EVM_DEPOSIT_XPUB);
+    return Boolean(normalizedEvmMnemonic());
 }
 
 function evmDepositEnvName() {
-    if (EVM_DEPOSIT_PRIVATE_KEY) return "AUTODY_EVM_DEPOSIT_PRIVATE_KEY";
-    if (EVM_DEPOSIT_MNEMONIC) return "AUTODY_EVM_DEPOSIT_MNEMONIC";
-    if (EVM_DEPOSIT_XPUB) return "AUTODY_EVM_DEPOSIT_XPUB";
-    return "";
+    return "AUTODY_EVM_DEPOSIT_MNEMONIC";
 }
 
 function getEvmDepositRoot() {
     if (evmDepositRootCache) return evmDepositRootCache;
-    if (EVM_DEPOSIT_PRIVATE_KEY) return null;
-    if (EVM_DEPOSIT_XPUB) {
-        evmDepositRootCache = ethers.HDNodeWallet.fromExtendedKey(EVM_DEPOSIT_XPUB);
-        return evmDepositRootCache;
-    }
-    if (EVM_DEPOSIT_MNEMONIC) {
+    const mnemonic = normalizedEvmMnemonic();
+    if (mnemonic) {
         evmDepositRootCache = ethers.HDNodeWallet.fromPhrase(
-            EVM_DEPOSIT_MNEMONIC,
+            mnemonic,
             EVM_DEPOSIT_PASSWORD,
             EVM_DEPOSIT_BASE_PATH
         );
         return evmDepositRootCache;
     }
     return null;
-}
-
-function getEvmPrivateKeyAddress() {
-    if (!EVM_DEPOSIT_PRIVATE_KEY) return "";
-    return ethers.getAddress(new ethers.Wallet(EVM_DEPOSIT_PRIVATE_KEY).address);
 }
 
 function deriveEvmDepositAddress(index) {
@@ -1821,10 +1814,9 @@ async function resolveDatabaseSelfCustodyEvmRoute(client, profileId, assetSymbol
     if (!selfCustodyEvmConfigured() || !isEvmDepositNetwork(network)) return null;
 
     const provider = "self_custody_evm";
+    const routeType = "self_custody_hd";
     try {
-        const privateKeyAddress = getEvmPrivateKeyAddress();
-        const routeType = privateKeyAddress ? "self_custody_private_key" : "self_custody_hd";
-        if (!requestedFresh || privateKeyAddress) {
+        if (!requestedFresh) {
             const existing = await client.query(`
                 select address, metadata
                 from crypto_deposit_addresses
@@ -1846,28 +1838,11 @@ async function resolveDatabaseSelfCustodyEvmRoute(client, profileId, assetSymbol
                     status: "address_issued",
                     envName: evmDepositEnvName(),
                     custodyConnected: true,
-                    uniqueAddress: !privateKeyAddress,
+                    uniqueAddress: true,
                     metadata: existing.rows[0].metadata || {},
                     warnings: []
                 };
             }
-        }
-
-        if (privateKeyAddress) {
-            return {
-                address: privateKeyAddress,
-                provider,
-                routeType,
-                status: "address_issued",
-                envName: evmDepositEnvName(),
-                custodyConnected: true,
-                uniqueAddress: false,
-                metadata: {
-                    addressSource: "private_key",
-                    networkFamily: "evm"
-                },
-                warnings: []
-            };
         }
 
         await client.query("select pg_advisory_xact_lock(hashtext('autody:self_custody_evm_deposit_index'))");
@@ -1892,7 +1867,7 @@ async function resolveDatabaseSelfCustodyEvmRoute(client, profileId, assetSymbol
             uniqueAddress: true,
             metadata: {
                 derivationIndex: nextIndex,
-                derivationBasePath: EVM_DEPOSIT_XPUB ? "xpub-child" : EVM_DEPOSIT_BASE_PATH,
+                derivationBasePath: EVM_DEPOSIT_BASE_PATH,
                 networkFamily: "evm"
             },
             warnings: []
@@ -1910,7 +1885,7 @@ async function resolveDatabaseSelfCustodyEvmRoute(client, profileId, assetSymbol
             metadata: { networkFamily: "evm" },
             warnings: [
                 "Self-custody EVM address generation is not configured correctly.",
-                "Check AUTODY_EVM_DEPOSIT_PRIVATE_KEY or AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
+                "Check AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
             ]
         };
     }
@@ -1920,14 +1895,12 @@ function resolveJsonSelfCustodyEvmRoute(db, userId, assetSymbol, network, reques
     if (!selfCustodyEvmConfigured() || !isEvmDepositNetwork(network)) return null;
 
     const provider = "self_custody_evm";
+    const routeType = "self_custody_hd";
     db.depositAddressBook = db.depositAddressBook || {};
     db.depositAddressBook[userId] = db.depositAddressBook[userId] || [];
 
     try {
-        const privateKeyAddress = getEvmPrivateKeyAddress();
-        const routeType = privateKeyAddress ? "self_custody_private_key" : "self_custody_hd";
-
-        if (!requestedFresh || privateKeyAddress) {
+        if (!requestedFresh) {
             const existing = db.depositAddressBook[userId]
                 .filter((item) => item.asset === assetSymbol
                     && item.network === network
@@ -1944,28 +1917,11 @@ function resolveJsonSelfCustodyEvmRoute(db, userId, assetSymbol, network, reques
                     status: "address_issued",
                     envName: evmDepositEnvName(),
                     custodyConnected: true,
-                    uniqueAddress: !privateKeyAddress,
+                    uniqueAddress: true,
                     metadata: existing.metadata || {},
                     warnings: []
                 };
             }
-        }
-
-        if (privateKeyAddress) {
-            return {
-                address: privateKeyAddress,
-                provider,
-                routeType,
-                status: "address_issued",
-                envName: evmDepositEnvName(),
-                custodyConnected: true,
-                uniqueAddress: false,
-                metadata: {
-                    addressSource: "private_key",
-                    networkFamily: "evm"
-                },
-                warnings: []
-            };
         }
 
         db.depositAddressIndexes = db.depositAddressIndexes || {};
@@ -1986,7 +1942,7 @@ function resolveJsonSelfCustodyEvmRoute(db, userId, assetSymbol, network, reques
             lastIssuedAt: now,
             metadata: {
                 derivationIndex: nextIndex,
-                derivationBasePath: EVM_DEPOSIT_XPUB ? "xpub-child" : EVM_DEPOSIT_BASE_PATH,
+                derivationBasePath: EVM_DEPOSIT_BASE_PATH,
                 networkFamily: "evm"
             }
         };
@@ -2015,7 +1971,7 @@ function resolveJsonSelfCustodyEvmRoute(db, userId, assetSymbol, network, reques
             metadata: { networkFamily: "evm" },
             warnings: [
                 "Self-custody EVM address generation is not configured correctly.",
-                "Check AUTODY_EVM_DEPOSIT_PRIVATE_KEY or AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
+                "Check AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
             ]
         };
     }
