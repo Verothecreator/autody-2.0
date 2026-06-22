@@ -88,6 +88,10 @@ const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 10
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
+const EVM_DEPOSIT_XPUB = String(process.env.AUTODY_EVM_DEPOSIT_XPUB || process.env.AUTODY_CUSTODY_EVM_XPUB || "").trim();
+const EVM_DEPOSIT_MNEMONIC = String(process.env.AUTODY_EVM_DEPOSIT_MNEMONIC || process.env.AUTODY_CUSTODY_EVM_MNEMONIC || "").trim();
+const EVM_DEPOSIT_PASSWORD = process.env.AUTODY_EVM_DEPOSIT_PASSWORD || process.env.AUTODY_CUSTODY_EVM_PASSWORD || "";
+const EVM_DEPOSIT_BASE_PATH = process.env.AUTODY_EVM_DEPOSIT_BASE_PATH || process.env.AUTODY_CUSTODY_EVM_BASE_PATH || "m/44'/60'/0'/0";
 let liveRefreshInFlight = null;
 let lastLiveRefresh = null;
 let chartRefreshInFlight = null;
@@ -1650,6 +1654,19 @@ const LIVE_DEPOSIT_ASSETS = {
     DOGE: { name: "Dogecoin", networks: ["Dogecoin"] }
 };
 
+const EVM_SELF_CUSTODY_NETWORKS = new Set([
+    "Ethereum",
+    "Ethereum ERC-20",
+    "Base",
+    "Arbitrum One",
+    "Optimism",
+    "BNB Smart Chain BEP-20",
+    "Polygon PoS",
+    "Avalanche C-Chain"
+].map((network) => network.toLowerCase()));
+
+let evmDepositRootCache = null;
+
 function normalizeDepositAssetSymbol(value) {
     const symbol = normalizeTradeSymbol(value);
     if (!LIVE_DEPOSIT_ASSETS[symbol]) {
@@ -1687,6 +1704,38 @@ function looksLikePrivateTreasurySecret(value = "") {
         || /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(trimmed)
         || /(private[_\s-]?key|seed[_\s-]?phrase|mnemonic|recovery[_\s-]?phrase)/i.test(trimmed)
         || (words.length >= 12 && words.length <= 24 && /^[a-z]+(?: [a-z]+){11,23}$/.test(lower));
+}
+
+function isEvmDepositNetwork(network = "") {
+    return EVM_SELF_CUSTODY_NETWORKS.has(String(network || "").trim().toLowerCase());
+}
+
+function selfCustodyEvmConfigured() {
+    return Boolean(EVM_DEPOSIT_XPUB || EVM_DEPOSIT_MNEMONIC);
+}
+
+function getEvmDepositRoot() {
+    if (evmDepositRootCache) return evmDepositRootCache;
+    if (EVM_DEPOSIT_XPUB) {
+        evmDepositRootCache = ethers.HDNodeWallet.fromExtendedKey(EVM_DEPOSIT_XPUB);
+        return evmDepositRootCache;
+    }
+    if (EVM_DEPOSIT_MNEMONIC) {
+        evmDepositRootCache = ethers.HDNodeWallet.fromPhrase(
+            EVM_DEPOSIT_MNEMONIC,
+            EVM_DEPOSIT_PASSWORD,
+            EVM_DEPOSIT_BASE_PATH
+        );
+        return evmDepositRootCache;
+    }
+    return null;
+}
+
+function deriveEvmDepositAddress(index) {
+    const root = getEvmDepositRoot();
+    if (!root) return "";
+    const child = root.deriveChild(index);
+    return ethers.getAddress(child.address);
 }
 
 function treasuryAddressEnvCandidates(assetSymbol, network) {
@@ -1754,6 +1803,169 @@ function resolveTreasuryDepositRoute(assetSymbol, network) {
     };
 }
 
+async function resolveDatabaseSelfCustodyEvmRoute(client, profileId, assetSymbol, network, requestedFresh) {
+    if (!selfCustodyEvmConfigured() || !isEvmDepositNetwork(network)) return null;
+
+    const provider = "self_custody_evm";
+    const routeType = "self_custody_hd";
+    try {
+        if (!requestedFresh) {
+            const existing = await client.query(`
+                select address, metadata
+                from crypto_deposit_addresses
+                where profile_id = $1
+                  and asset_symbol = $2
+                  and network = $3
+                  and provider = $4
+                  and route_type = $5
+                  and status = 'active'
+                order by last_issued_at desc
+                limit 1
+            `, [profileId, assetSymbol, network, provider, routeType]);
+
+            if (existing.rows[0]?.address) {
+                return {
+                    address: existing.rows[0].address,
+                    provider,
+                    routeType,
+                    status: "address_issued",
+                    envName: EVM_DEPOSIT_XPUB ? "AUTODY_EVM_DEPOSIT_XPUB" : "AUTODY_EVM_DEPOSIT_MNEMONIC",
+                    custodyConnected: true,
+                    uniqueAddress: true,
+                    metadata: existing.rows[0].metadata || {},
+                    warnings: []
+                };
+            }
+        }
+
+        await client.query("select pg_advisory_xact_lock(hashtext('autody:self_custody_evm_deposit_index'))");
+        const indexResult = await client.query(`
+            select coalesce(max((metadata->>'derivationIndex')::integer), -1) as max_index
+            from crypto_deposit_addresses
+            where provider = $1
+              and route_type = $2
+              and metadata ? 'derivationIndex'
+        `, [provider, routeType]);
+        const maxIndex = indexResult.rows[0]?.max_index;
+        const nextIndex = Number(maxIndex ?? -1) + 1;
+        const address = deriveEvmDepositAddress(nextIndex);
+
+        return {
+            address,
+            provider,
+            routeType,
+            status: "address_issued",
+            envName: EVM_DEPOSIT_XPUB ? "AUTODY_EVM_DEPOSIT_XPUB" : "AUTODY_EVM_DEPOSIT_MNEMONIC",
+            custodyConnected: true,
+            uniqueAddress: true,
+            metadata: {
+                derivationIndex: nextIndex,
+                derivationBasePath: EVM_DEPOSIT_XPUB ? "xpub-child" : EVM_DEPOSIT_BASE_PATH,
+                networkFamily: "evm"
+            },
+            warnings: []
+        };
+    } catch (err) {
+        console.error("Self-custody EVM deposit route error:", err);
+        return {
+            address: "",
+            provider,
+            routeType: "self_custody_error",
+            status: "route_error",
+            envName: EVM_DEPOSIT_XPUB ? "AUTODY_EVM_DEPOSIT_XPUB" : "AUTODY_EVM_DEPOSIT_MNEMONIC",
+            custodyConnected: false,
+            uniqueAddress: false,
+            metadata: { networkFamily: "evm" },
+            warnings: [
+                "Self-custody EVM address generation is not configured correctly.",
+                "Check AUTODY_EVM_DEPOSIT_XPUB or AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
+            ]
+        };
+    }
+}
+
+function resolveJsonSelfCustodyEvmRoute(db, userId, assetSymbol, network, requestedFresh) {
+    if (!selfCustodyEvmConfigured() || !isEvmDepositNetwork(network)) return null;
+
+    const provider = "self_custody_evm";
+    const routeType = "self_custody_hd";
+    db.depositAddressBook = db.depositAddressBook || {};
+    db.depositAddressBook[userId] = db.depositAddressBook[userId] || [];
+
+    if (!requestedFresh) {
+        const existing = db.depositAddressBook[userId]
+            .filter((item) => item.asset === assetSymbol && item.network === network && item.provider === provider && item.status === "active")
+            .sort((a, b) => String(b.lastIssuedAt || "").localeCompare(String(a.lastIssuedAt || "")))[0];
+        if (existing?.address) {
+            existing.lastIssuedAt = new Date().toISOString();
+            return {
+                address: existing.address,
+                provider,
+                routeType,
+                status: "address_issued",
+                envName: EVM_DEPOSIT_XPUB ? "AUTODY_EVM_DEPOSIT_XPUB" : "AUTODY_EVM_DEPOSIT_MNEMONIC",
+                custodyConnected: true,
+                uniqueAddress: true,
+                metadata: existing.metadata || {},
+                warnings: []
+            };
+        }
+    }
+
+    try {
+        db.depositAddressIndexes = db.depositAddressIndexes || {};
+        const nextIndex = Number(db.depositAddressIndexes.evm || 0);
+        const address = deriveEvmDepositAddress(nextIndex);
+        db.depositAddressIndexes.evm = nextIndex + 1;
+        const now = new Date().toISOString();
+        const record = {
+            id: crypto.randomUUID(),
+            userId,
+            asset: assetSymbol,
+            network,
+            address,
+            provider,
+            routeType,
+            status: "active",
+            firstIssuedAt: now,
+            lastIssuedAt: now,
+            metadata: {
+                derivationIndex: nextIndex,
+                derivationBasePath: EVM_DEPOSIT_XPUB ? "xpub-child" : EVM_DEPOSIT_BASE_PATH,
+                networkFamily: "evm"
+            }
+        };
+        db.depositAddressBook[userId].unshift(record);
+        return {
+            address,
+            provider,
+            routeType,
+            status: "address_issued",
+            envName: EVM_DEPOSIT_XPUB ? "AUTODY_EVM_DEPOSIT_XPUB" : "AUTODY_EVM_DEPOSIT_MNEMONIC",
+            custodyConnected: true,
+            uniqueAddress: true,
+            metadata: record.metadata,
+            warnings: []
+        };
+    } catch (err) {
+        console.error("JSON self-custody EVM deposit route error:", err);
+        return {
+            address: "",
+            provider,
+            routeType: "self_custody_error",
+            status: "route_error",
+            envName: EVM_DEPOSIT_XPUB ? "AUTODY_EVM_DEPOSIT_XPUB" : "AUTODY_EVM_DEPOSIT_MNEMONIC",
+            custodyConnected: false,
+            uniqueAddress: false,
+            metadata: { networkFamily: "evm" },
+            warnings: [
+                "Self-custody EVM address generation is not configured correctly.",
+                "Check AUTODY_EVM_DEPOSIT_XPUB or AUTODY_EVM_DEPOSIT_MNEMONIC before accepting deposits."
+            ]
+        };
+    }
+}
+
 async function ensureDepositTables(client = dbPool) {
     await client.query(`
         create table if not exists crypto_deposit_addresses (
@@ -1804,13 +2016,14 @@ async function createDatabaseDepositRequest(auth, body = {}) {
     const assetSymbol = normalizeDepositAssetSymbol(body.asset);
     const network = normalizeDepositNetwork(assetSymbol, body.network);
     const requestedFresh = body.fresh !== false;
-    const route = resolveTreasuryDepositRoute(assetSymbol, network);
     const client = await dbPool.connect();
 
     try {
         await client.query("begin");
         await ensureDepositTables(client);
         const context = await getPracticeDbContext(client, auth.profileId, "live");
+        const route = await resolveDatabaseSelfCustodyEvmRoute(client, auth.profileId, assetSymbol, network, requestedFresh)
+            || resolveTreasuryDepositRoute(assetSymbol, network);
         const expiresAt = new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString();
         let addressId = null;
 
@@ -1833,7 +2046,11 @@ async function createDatabaseDepositRequest(auth, body = {}) {
                 route.address,
                 route.routeType,
                 route.provider,
-                JSON.stringify({ envName: route.envName || null, uniqueAddress: route.uniqueAddress })
+                JSON.stringify({
+                    envName: route.envName || null,
+                    uniqueAddress: route.uniqueAddress,
+                    ...(route.metadata || {})
+                })
             ]);
             addressId = addressResult.rows[0]?.id || null;
         }
@@ -1891,8 +2108,9 @@ function createJsonDepositRequest(auth, body = {}) {
     const assetSymbol = normalizeDepositAssetSymbol(body.asset);
     const network = normalizeDepositNetwork(assetSymbol, body.network);
     const requestedFresh = body.fresh !== false;
-    const route = resolveTreasuryDepositRoute(assetSymbol, network);
     const db = loadDemoDb();
+    const route = resolveJsonSelfCustodyEvmRoute(db, auth.userId, assetSymbol, network, requestedFresh)
+        || resolveTreasuryDepositRoute(assetSymbol, network);
     const now = new Date().toISOString();
     const expiresAt = route.address
         ? new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString()
