@@ -3146,11 +3146,15 @@ async function duplicateDepositEventDetails(client, eventId) {
             e.confirmations,
             e.status,
             e.credited_at,
+            a.provider as address_provider,
+            a.route_type as address_route_type,
+            a.metadata as address_metadata,
             h.quantity as holding_quantity,
             h.value_usd as holding_value_usd,
             h.updated_at as holding_updated_at
         from crypto_deposit_events e
         join profiles p on p.id = e.profile_id
+        left join crypto_deposit_addresses a on a.id = e.address_id
         left join account_modes am on am.profile_id = e.profile_id and am.mode = 'live'
         left join wallets w on w.account_mode_id = am.id
         left join holdings h on h.wallet_id = w.id and upper(h.symbol) = upper(e.asset_symbol)
@@ -3174,6 +3178,10 @@ async function duplicateDepositEventDetails(client, eventId) {
         confirmations: numberValue(row.confirmations, 0),
         status: row.status,
         creditedAt: row.credited_at,
+        routeType: row.address_route_type || null,
+        provider: row.address_provider || null,
+        derivationIndex: row.address_metadata?.derivationIndex ?? null,
+        derivationPath: row.address_metadata?.derivationPath || null,
         holdingQuantity: row.holding_quantity == null ? 0 : numberValue(row.holding_quantity, 0),
         holdingValueUsd: row.holding_value_usd == null ? 0 : numberValue(row.holding_value_usd, 0),
         holdingUpdatedAt: row.holding_updated_at || null
