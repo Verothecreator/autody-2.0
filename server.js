@@ -115,7 +115,7 @@ const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
 const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
-const DEPOSIT_ROUTE_MODE = String(process.env.AUTODY_DEPOSIT_ROUTE_MODE || process.env.DEPOSIT_ROUTE_MODE || "hybrid")
+const DEPOSIT_ROUTE_MODE = String(process.env.AUTODY_DEPOSIT_ROUTE_MODE || process.env.DEPOSIT_ROUTE_MODE || "self_custody")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_");
@@ -2878,23 +2878,25 @@ function resolveJsonSelfCustodyRoute(db, userId, assetSymbol, network, requested
 
 async function resolveDatabaseDepositRoute(client, profileId, assetSymbol, network, requestedFresh) {
     const treasuryRoute = resolveTreasuryDepositRoute(assetSymbol, network);
-    if (depositRoutePrefersTreasury() && treasuryRoute.address) return treasuryRoute;
     if (depositRouteMode() === "treasury_direct") return treasuryRoute;
 
     const selfCustodyRoute = depositRouteAllowsSelfCustody()
         ? await resolveDatabaseSelfCustodyRoute(client, profileId, assetSymbol, network, requestedFresh)
         : null;
+    if (selfCustodyRoute?.address || depositRouteMode() === "self_custody") return selfCustodyRoute || treasuryRoute;
+    if (depositRoutePrefersTreasury() && treasuryRoute.address) return treasuryRoute;
     return selfCustodyRoute || treasuryRoute;
 }
 
 function resolveJsonDepositRoute(db, userId, assetSymbol, network, requestedFresh) {
     const treasuryRoute = resolveTreasuryDepositRoute(assetSymbol, network);
-    if (depositRoutePrefersTreasury() && treasuryRoute.address) return treasuryRoute;
     if (depositRouteMode() === "treasury_direct") return treasuryRoute;
 
     const selfCustodyRoute = depositRouteAllowsSelfCustody()
         ? resolveJsonSelfCustodyRoute(db, userId, assetSymbol, network, requestedFresh)
         : null;
+    if (selfCustodyRoute?.address || depositRouteMode() === "self_custody") return selfCustodyRoute || treasuryRoute;
+    if (depositRoutePrefersTreasury() && treasuryRoute.address) return treasuryRoute;
     return selfCustodyRoute || treasuryRoute;
 }
 
