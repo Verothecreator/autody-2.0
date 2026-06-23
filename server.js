@@ -1618,59 +1618,143 @@ function liveWalletHoldingUrl(holding) {
     return `account-asset.html?symbol=${encodeURIComponent(symbol)}`;
 }
 
-function buildLiveWalletSnapshot(account) {
-    const currency = account?.user?.currency || "USD";
-    const createdAt = account?.user?.createdAt || new Date().toISOString();
-    const holding = (symbol, name, category, status, detail) => ({
-        symbol,
-        name,
-        category,
-        assetType: category,
-        balance: 0,
+const LIVE_WALLET_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
+
+function buildLiveWalletRecords(account) {
+    const orderRecords = (account.orders || []).map(walletRecordFromOrder);
+    const createdAt = account?.user?.createdAt || null;
+    const setupRecord = {
+        type: "setup",
+        title: "Live account opened",
+        symbol: "LIVE",
+        assetType: "account",
         valueUsd: 0,
-        price: symbol === "USD" ? 1 : null,
+        status: "awaiting funding",
+        createdAt
+    };
+
+    return [setupRecord, ...orderRecords]
+        .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
+        .slice(0, 10);
+}
+
+async function buildLiveWalletSnapshot(account) {
+    const baseCash = account.wallet?.cash || walletDefaultHolding("USD", "USD Funds", "cash", "Awaiting deposit");
+    const rawHoldings = account.wallet?.holdings || [];
+    const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
+    const symbolsForMarket = [...holdingsBySymbol.keys()]
+        .filter((symbol) => symbol !== "AU" && !LIVE_WALLET_GROUP_SYMBOLS.has(symbol));
+    const marketAssets = symbolsForMarket.length
+        ? (await Promise.all(symbolsForMarket.map((symbol) => findMarketAssetBySymbol(symbol).catch(() => null)))).filter(Boolean)
+        : [];
+    const marketMap = new Map(marketAssets.map((asset) => [String(asset.symbol || "").toUpperCase(), asset]));
+
+    const cash = {
+        ...baseCash,
+        symbol: "USD",
+        name: "USD Funds",
+        category: "cash",
+        assetType: "cash",
+        balance: numberValue(account.user?.cashBalance, baseCash.balance),
+        valueUsd: numberValue(account.user?.cashBalance, baseCash.valueUsd),
+        price: 1,
         changePct: null,
-        status,
-        detail,
-        url: liveWalletHoldingUrl({ symbol })
+        url: liveWalletHoldingUrl({ symbol: "USD" }),
+        status: numberValue(account.user?.cashBalance, baseCash.valueUsd) > 0 ? "Available" : "Awaiting deposit",
+        detail: "Verified funds"
+    };
+
+    const enrichHolding = (holding) => {
+        const symbol = String(holding.symbol || "").toUpperCase();
+        const marketAsset = marketMap.get(symbol);
+        const category = holding.category || marketAsset?.assetType || (symbol === "AU" ? "currency" : "market");
+        const balance = numberValue(holding.balance, 0);
+        const price = firstPositive(marketAsset?.price, holding.lastPrice);
+        const valueUsd = symbol === "USD"
+            ? cash.valueUsd
+            : balance > 0 && price != null
+                ? balance * price
+                : numberValue(holding.valueUsd, 0);
+        const averageCost = positiveNumber(holding.averageCost);
+        const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
+        const unrealizedProfitLoss = costBasis != null ? valueUsd - costBasis : null;
+
+        return {
+            ...holding,
+            symbol,
+            name: holding.name || marketAsset?.name || LIVE_DEPOSIT_ASSETS[symbol]?.name || symbol,
+            category,
+            assetType: category,
+            balance,
+            price,
+            changePct: nullableNumber(marketAsset?.changePct),
+            market: marketAsset?.market || holding.market || null,
+            logoUrl: marketAsset?.logoUrl || holding.logoUrl || null,
+            valueUsd,
+            averageCost,
+            costBasis,
+            unrealizedProfitLoss,
+            url: liveWalletHoldingUrl({ symbol }),
+            status: balance > 0 ? "Held" : symbol === "AU" ? "Not held" : "Ready",
+            detail: balance > 0 ? "Verified live holding" : holding.detail || "Available after deposit",
+            updatedAt: holding.updatedAt || marketAsset?.capturedAt || null
+        };
+    };
+
+    const au = enrichHolding(holdingsBySymbol.get("AU") || walletDefaultHolding("AU", "Autody AU", "currency", "Not held"));
+    const rawPositionHoldings = rawHoldings.filter((holding) => {
+        const symbol = String(holding.symbol || "").toUpperCase();
+        return !LIVE_WALLET_GROUP_SYMBOLS.has(symbol);
+    });
+    const positions = rawPositionHoldings.map(enrichHolding).filter((holding) => holding.balance > 0 || holding.valueUsd > 0);
+    const cryptoPositions = positions.filter((holding) => ["crypto", "currency", "stablecoin"].includes(String(holding.category || "").toLowerCase()));
+    const stockPositions = positions.filter((holding) => ["stock", "stocks"].includes(String(holding.category || "").toLowerCase()));
+    const etfPositions = positions.filter((holding) => String(holding.category || "").toLowerCase() === "etf");
+    const commodityPositions = positions.filter((holding) => String(holding.category || "").toLowerCase() === "commodity");
+    const cryptoValue = cryptoPositions.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const stockValue = stockPositions.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const etfValue = etfPositions.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const commodityValue = commodityPositions.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const auValue = numberValue(au.valueUsd, 0);
+    const totalValue = cash.valueUsd + auValue + cryptoValue + stockValue + etfValue + commodityValue;
+    const investedValue = auValue + cryptoValue + stockValue + etfValue + commodityValue;
+    const groupHolding = (symbol, name, category, balance, valueUsd, detail) => ({
+        ...walletDefaultHolding(symbol, name, category),
+        assetType: category,
+        balance,
+        valueUsd,
+        url: liveWalletHoldingUrl({ symbol }),
+        status: balance ? "Tracking" : "Ready",
+        detail
     });
 
     return {
-        currency,
-        startingBalance: 0,
-        cashBalance: 0,
-        reservedCash: 0,
-        totalValue: 0,
-        investedValue: 0,
-        positionsCount: 0,
+        currency: account.user?.currency || "USD",
+        startingBalance: account.user?.startingBalance || 0,
+        cashBalance: cash.valueUsd,
+        reservedCash: account.user?.reservedCash || 0,
+        totalValue,
+        investedValue,
+        positionsCount: positions.length + (au.balance > 0 ? 1 : 0),
         pendingTransfers: 0,
         groups: {
-            cashValue: 0,
-            auValue: 0,
-            cryptoValue: 0,
-            stockValue: 0,
-            etfValue: 0,
-            commodityValue: 0
+            cashValue: cash.valueUsd,
+            auValue,
+            cryptoValue,
+            stockValue,
+            etfValue,
+            commodityValue
         },
         holdings: [
-            holding("USD", "USD Funds", "cash", "Awaiting deposit", "Available after a verified deposit"),
-            holding("AU", "Autody AU", "crypto", "Not held", "Autody balance"),
-            holding("CRYPTO", "Crypto", "crypto", "Ready", "Deposit-ready digital assets"),
-            holding("STOCKS", "Stocks", "stock", "Ready", "Company shares"),
-            holding("ETFS", "ETFs", "etf", "Ready", "Funds and baskets"),
-            holding("OILMETALS", "Oil and metals", "commodity", "Ready", "Commodity instruments")
+            cash,
+            au,
+            groupHolding("CRYPTO", "Crypto", "crypto", cryptoPositions.length, cryptoValue, "Deposit-ready digital assets"),
+            groupHolding("STOCKS", "Stocks", "stock", stockPositions.length, stockValue, "Company shares"),
+            groupHolding("ETFS", "ETFs", "etf", etfPositions.length, etfValue, "Funds and baskets"),
+            groupHolding("OILMETALS", "Oil and metals", "commodity", commodityPositions.length, commodityValue, "Commodity instruments"),
+            ...positions
         ],
-        records: [
-            {
-                type: "setup",
-                title: "Live account opened",
-                symbol: "LIVE",
-                assetType: "account",
-                valueUsd: 0,
-                status: "awaiting funding",
-                createdAt
-            }
-        ]
+        records: buildLiveWalletRecords(account)
     };
 }
 
@@ -9669,7 +9753,7 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
 app.get("/api/account/wallet", async (req, res) => {
   try {
     const account = await getAuthenticatedAccount(req, "live");
-    const wallet = buildLiveWalletSnapshot(account);
+    const wallet = await buildLiveWalletSnapshot(account);
     return res.json({
       success: true,
       user: publicUser(account.user),

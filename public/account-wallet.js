@@ -21,6 +21,7 @@ const liveWalletState = {
   totalValue: 0,
   positionsCount: 0,
   pendingTransfers: 0,
+  holdings: [],
   records: []
 };
 
@@ -84,6 +85,11 @@ function formatLiveWalletNumber(value, maximumFractionDigits = 6) {
 
 function hasLiveWalletNumber(value) {
   return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+}
+
+function liveWalletNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function liveWalletPriceDigits(number, compact = false) {
@@ -166,6 +172,47 @@ function liveGroupBySymbol(symbol) {
   return LIVE_WALLET_GROUPS.find((group) => group.symbol === lookup) || null;
 }
 
+function normalizeLiveWalletHolding(holding = {}) {
+  const symbol = String(holding.symbol || "").toUpperCase();
+  if (!symbol) return null;
+  const market = liveCatalogAsset(symbol) || {};
+  const category = holding.assetType || holding.category || market.assetType || (symbol === "USD" ? "cash" : "market");
+  const price = hasLiveWalletNumber(holding.price)
+    ? Number(holding.price)
+    : hasLiveWalletNumber(holding.lastPrice)
+      ? Number(holding.lastPrice)
+      : market.price ?? null;
+
+  return {
+    ...market,
+    ...holding,
+    symbol,
+    name: holding.name || holding.assetName || market.name || symbol,
+    category,
+    assetType: category,
+    balance: liveWalletNumber(holding.balance, 0),
+    valueUsd: liveWalletNumber(holding.valueUsd, 0),
+    price,
+    changePct: holding.changePct ?? market.changePct ?? null,
+    logoUrl: holding.logoUrl || market.logoUrl || null,
+    currency: holding.currency || market.currency || "USD",
+    status: holding.status || (liveWalletNumber(holding.balance, 0) > 0 ? "Held" : "Ready"),
+    detail: holding.detail || "",
+    url: holding.url || `account-asset.html?symbol=${encodeURIComponent(symbol)}`
+  };
+}
+
+function liveWalletHoldings() {
+  return (liveWalletState.holdings || [])
+    .map(normalizeLiveWalletHolding)
+    .filter(Boolean);
+}
+
+function liveWalletHoldingForSymbol(symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  return liveWalletHoldings().find((holding) => holding.symbol === lookup) || null;
+}
+
 function liveGroupKeyForAsset(asset = {}) {
   const symbol = String(asset.symbol || "").toUpperCase();
   const category = String(asset.category || asset.assetType || "").toLowerCase();
@@ -241,6 +288,19 @@ function liveWalletLogoElement(asset, extraClass = "") {
 }
 
 function liveWalletGroupRow(group) {
+  const saved = liveWalletHoldingForSymbol(group.symbol);
+  if (saved) {
+    return {
+      ...group,
+      ...saved,
+      key: group.key,
+      defaults: group.defaults,
+      detail: saved.detail || group.detail,
+      isGroup: Boolean(group.defaults.length),
+      customAsset: group.symbol === "AU" || saved.customAsset
+    };
+  }
+
   if (group.symbol === "USD") {
     return {
       ...group,
@@ -279,7 +339,12 @@ function liveWalletRows() {
 
 function liveGroupAssets(group) {
   if (!group.defaults.length) return [];
-  return group.defaults.map((symbol) => {
+  const heldAssets = liveWalletHoldings()
+    .filter((asset) => !LIVE_GROUP_SYMBOLS.has(asset.symbol))
+    .filter((asset) => liveGroupKeyForAsset(asset) === group.key)
+    .sort((left, right) => liveWalletNumber(right.valueUsd, 0) - liveWalletNumber(left.valueUsd, 0));
+  const heldSymbols = new Set(heldAssets.map((asset) => asset.symbol));
+  const defaultAssets = group.defaults.filter((symbol) => !heldSymbols.has(String(symbol || "").toUpperCase())).map((symbol) => {
     const market = liveCatalogAsset(symbol) || {};
     const assetType = market.assetType || group.category;
     return {
@@ -298,12 +363,16 @@ function liveGroupAssets(group) {
       url: `account-asset.html?symbol=${encodeURIComponent(symbol)}`
     };
   });
+
+  return [...heldAssets, ...defaultAssets];
 }
 
 function liveWalletAssetForSymbol(symbol) {
   const lookup = String(symbol || "").toUpperCase();
   const group = liveGroupBySymbol(lookup);
   if (group) return liveWalletGroupRow(group);
+  const holding = liveWalletHoldingForSymbol(lookup);
+  if (holding) return holding;
   const market = liveCatalogAsset(lookup);
   if (!market) return null;
   const groupKey = liveGroupKeyForSymbol(lookup);
@@ -592,18 +661,52 @@ function renderLiveWallet() {
 async function loadLiveWallet() {
   renderLiveWallet();
   try {
-    const response = await fetch("/api/markets/catalog?type=all", {
-      cache: "no-store",
-      headers: window.AutodyAuth?.headers?.() || {}
-    });
-    if (!response.ok) throw new Error(`/api/markets/catalog returned ${response.status}`);
-    const data = await response.json();
-    if (Array.isArray(data.assets)) {
-      liveWalletCatalog = data.assets;
-      renderLiveWallet();
+    const authHeaders = window.AutodyAuth?.headers?.() || {};
+    const [walletResult, catalogResult] = await Promise.allSettled([
+      fetch("/api/account/wallet", {
+        cache: "no-store",
+        headers: authHeaders
+      }),
+      fetch("/api/markets/catalog?type=all", {
+        cache: "no-store",
+        headers: authHeaders
+      })
+    ]);
+
+    if (walletResult.status !== "fulfilled") {
+      throw walletResult.reason || new Error("Live wallet request failed.");
     }
+    const walletResponse = walletResult.value;
+    if (walletResponse.ok) {
+      const walletData = await walletResponse.json();
+      if (walletData?.wallet) {
+        liveWalletState.cashBalance = liveWalletNumber(walletData.wallet.cashBalance, 0);
+        liveWalletState.totalValue = liveWalletNumber(walletData.wallet.totalValue, liveWalletState.cashBalance);
+        liveWalletState.positionsCount = liveWalletNumber(walletData.wallet.positionsCount, 0);
+        liveWalletState.pendingTransfers = liveWalletNumber(walletData.wallet.pendingTransfers, 0);
+        liveWalletState.holdings = Array.isArray(walletData.wallet.holdings) ? walletData.wallet.holdings : [];
+        liveWalletState.records = Array.isArray(walletData.wallet.records) ? walletData.wallet.records : [];
+      }
+    } else {
+      throw new Error(`/api/account/wallet returned ${walletResponse.status}`);
+    }
+
+    if (catalogResult.status !== "fulfilled") {
+      console.warn("Live market catalog failed:", catalogResult.reason);
+      renderLiveWallet();
+      return;
+    }
+    const catalogResponse = catalogResult.value;
+    if (catalogResponse.ok) {
+      const catalogData = await catalogResponse.json();
+      if (Array.isArray(catalogData.assets)) liveWalletCatalog = catalogData.assets;
+    } else {
+      console.warn(`/api/markets/catalog returned ${catalogResponse.status}`);
+    }
+
+    renderLiveWallet();
   } catch (err) {
-    console.warn("Live wallet market catalog failed:", err);
+    console.warn("Live wallet data failed:", err);
   }
 }
 
