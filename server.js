@@ -2460,10 +2460,24 @@ function sweepTreasuryAddressEnvCandidates(network) {
 }
 
 function resolveSweepTreasuryAddress(network, body = {}) {
-    if (DEPOSIT_SWEEP_DESTINATION_OVERRIDE && body.destinationAddress) {
+    const requestedDestination = String(
+        body.destinationAddress ||
+        body.destination ||
+        body.treasuryAddress ||
+        body.toAddress ||
+        ""
+    ).trim();
+
+    if (requestedDestination) {
         return {
-            address: ethers.getAddress(String(body.destinationAddress).trim()),
-            source: "request.destinationAddress"
+            address: ethers.getAddress(requestedDestination),
+            source: body.destination
+                ? "request.destination"
+                : body.destinationAddress
+                    ? "request.destinationAddress"
+                    : body.treasuryAddress
+                        ? "request.treasuryAddress"
+                        : "request.toAddress"
         };
     }
 

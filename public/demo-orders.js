@@ -416,9 +416,9 @@ function renderWalletSummary() {
 function renderOrderHistory() {
   const table = document.getElementById("orders-table");
   const rows = orderHistory.map((order) => {
-    const side = String(order.side || "order").toUpperCase();
+    const side = String(order.side || order.type || "order").toUpperCase();
     const symbol = String(order.symbol || "-").toUpperCase();
-    const notional = order.notional_usd ?? order.notionalUsd ?? 0;
+    const notional = order.notional_usd ?? order.notionalUsd ?? order.valueUsd ?? order.amountUsd ?? 0;
     return `
       <a class="asset-table-row order-row-link" href="${ORDER_ASSET_PAGE}?symbol=${encodeURIComponent(symbol)}">
         <span>${escapeOrderHtml(side)}</span>
@@ -476,14 +476,16 @@ async function loadOrdersPage(options = {}) {
   try {
     const [catalog, wallet, orders] = await Promise.all([
       getOrderJson("/api/markets/catalog?type=all"),
-      IS_LIVE_ORDER_PAGE ? Promise.resolve({ wallet: { cashBalance: 0, totalValue: 0, positionsCount: 0, holdings: [] } }) : getOrderJson("/api/demo/wallet"),
-      IS_LIVE_ORDER_PAGE ? Promise.resolve({ orders: [] }) : getOrderJson("/api/demo/orders")
+      getOrderJson(IS_LIVE_ORDER_PAGE ? "/api/account/wallet" : "/api/demo/wallet"),
+      getOrderJson(IS_LIVE_ORDER_PAGE ? "/api/account/orders" : "/api/demo/orders")
     ]);
     orderAssets = (catalog.assets || [])
       .filter((asset) => asset.price != null)
       .sort((a, b) => (a.rank || 9999) - (b.rank || 9999));
     orderWallet = wallet.wallet;
-    orderHistory = orders.orders || [];
+    orderHistory = orders.orders?.length
+      ? orders.orders
+      : (wallet.wallet?.records || []).filter((record) => String(record.type || "").toLowerCase() !== "setup");
     renderOrdersPage();
   } catch (err) {
     console.warn("Demo orders page failed:", err);

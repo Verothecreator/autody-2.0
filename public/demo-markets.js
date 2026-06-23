@@ -304,7 +304,7 @@ function updateDashboard() {
   const topMover = sortByMove(liveAssets)[0];
   const holdings = demoWallet?.holdings || [];
   const openPositions = IS_LIVE_MARKET_PAGE
-    ? 0
+    ? Number(demoWallet?.positionsCount || 0)
     : holdings.filter((asset) => !["USD", "AU", "CRYPTO", "STOCKS"].includes(asset.symbol) && Number(asset.valueUsd) > 0).length;
 
   document.getElementById("market-total-count").textContent = String(allMarketAssets.length || 0);
@@ -312,8 +312,16 @@ function updateDashboard() {
   document.getElementById("market-top-mover-detail").textContent = topMover ? `${topMover.name} ${marketMove(topMover.changePct)}` : "Live percentage move";
   document.getElementById("market-open-positions").textContent = `${openPositions} positions`;
 
-  if (IS_LIVE_MARKET_PAGE) {
-    document.getElementById("market-buying-power").textContent = "$0.00";
+  if (IS_LIVE_MARKET_PAGE && demoWallet) {
+    const sidebarBalance = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: demoWallet.currency || "USD",
+      maximumFractionDigits: 2
+    }).format(Number(demoWallet.cashBalance || 0));
+    document.querySelectorAll("[data-live-balance]").forEach((node) => {
+      node.textContent = `${sidebarBalance} ${demoWallet.currency || "USD"}`;
+    });
+    document.getElementById("market-buying-power").textContent = marketPrice(demoWallet.cashBalance, demoWallet.currency || "USD");
   } else if (demoWallet) {
     const sidebarBalance = new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -339,7 +347,7 @@ async function loadDemoMarkets(options = {}) {
   try {
     const [catalog, wallet] = await Promise.all([
       getJson("/api/markets/catalog?type=all"),
-      IS_LIVE_MARKET_PAGE ? Promise.resolve(null) : getJson("/api/demo/wallet").catch(() => null)
+      getJson(IS_LIVE_MARKET_PAGE ? "/api/account/wallet" : "/api/demo/wallet").catch(() => null)
     ]);
 
     const nextAssets = catalog.assets || [];

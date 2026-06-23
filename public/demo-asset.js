@@ -355,11 +355,11 @@ function renderActions(asset) {
 
 function renderActivity(orders) {
   const target = document.getElementById("asset-activity-list");
-  if (IS_LIVE_ASSET_PAGE) {
+  if (IS_LIVE_ASSET_PAGE && !orders?.length) {
     target.innerHTML = `
       <div class="asset-empty-activity">
         <strong>No live activity yet.</strong>
-        <span>Deposits, buys, sells, swaps, sends, and receives will appear here after live account storage is connected.</span>
+        <span>Deposits, buys, sells, swaps, sends, and receives will appear here for this asset.</span>
       </div>
     `;
     return;
@@ -377,11 +377,29 @@ function renderActivity(orders) {
 
   target.innerHTML = orders.map((order) => `
     <div>
-      <span>${escapeHtml(order.side || "Order")}</span>
+      <span>${escapeHtml(order.side || order.type || "Order")}</span>
       <strong>${escapeHtml(order.symbol)} ${escapeHtml(order.status || "Open")}</strong>
-      <small>${formatPrice(order.notional_usd || order.notionalUsd || 0)}</small>
+      <small>${formatPrice(order.notional_usd || order.notionalUsd || order.valueUsd || order.amountUsd || 0)}</small>
     </div>
   `).join("");
+}
+
+function liveHoldingForSymbol(data, symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  return (data.live?.wallet?.holdings || []).find((holding) => (
+    String(holding.symbol || "").toUpperCase() === lookup
+  ));
+}
+
+function liveActivityForSymbol(data, symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  const orders = (data.live?.orders || []).filter((order) => (
+    String(order.symbol || "").toUpperCase() === lookup
+  ));
+  if (orders.length) return orders;
+  return (data.live?.wallet?.records || []).filter((record) => (
+    String(record.symbol || "").toUpperCase() === lookup
+  ));
 }
 
 function renderAsset(data) {
@@ -399,12 +417,18 @@ function renderAsset(data) {
   change.className = moveClass(asset.changePct);
   document.getElementById("asset-chart-title").textContent = `${asset.name} movement`;
   if (IS_LIVE_ASSET_PAGE) {
+    const wallet = data.live?.wallet || {};
+    const cashBalance = Number(wallet.cashBalance || 0);
+    const holding = liveHoldingForSymbol(data, asset.symbol);
+    const heldBalance = Number(holding?.balance || 0);
+    const heldValue = Number(holding?.valueUsd || 0);
+    const balanceText = `${formatPrice(cashBalance, wallet.currency || "USD")} USD`;
     document.querySelectorAll("[data-live-balance]").forEach((node) => {
-      node.textContent = "$0.00 USD";
+      node.textContent = balanceText;
     });
-    document.getElementById("asset-buying-power").textContent = "Account balance $0.00";
-    document.getElementById("asset-owned").textContent = `0 ${asset.symbol}`;
-    document.getElementById("asset-owned-value").textContent = "$0.00";
+    document.getElementById("asset-buying-power").textContent = `Account balance ${formatPrice(cashBalance, wallet.currency || "USD")}`;
+    document.getElementById("asset-owned").textContent = `${formatNumber(heldBalance, false)} ${asset.symbol}`;
+    document.getElementById("asset-owned-value").textContent = formatPrice(heldValue, "USD");
     document.querySelector(".asset-action-card .muted-label").textContent = "Live actions";
     document.getElementById("asset-action-title").textContent = "Use this asset";
     document.querySelector(".asset-balance-card .muted-label").textContent = "Your live balance";
@@ -421,7 +445,7 @@ function renderAsset(data) {
   renderLineChart(asset, chart);
   renderDetails(asset, chart);
   renderActions(asset);
-  renderActivity(IS_LIVE_ASSET_PAGE ? [] : data.demo?.orders || []);
+  renderActivity(IS_LIVE_ASSET_PAGE ? liveActivityForSymbol(data, asset.symbol) : data.demo?.orders || []);
   renderChartStats(asset, chart);
   setAssetMessage("");
 }
@@ -452,6 +476,16 @@ async function loadAsset(options = {}) {
     const accountMode = IS_LIVE_ASSET_PAGE ? "live" : "demo";
     const data = await getJson(`/api/markets/asset/${encodeURIComponent(currentSymbol)}?range=${encodeURIComponent(currentRange)}&mode=${encodeURIComponent(accountMode)}`);
     if (!data.success) throw new Error(data.error || "Asset detail failed");
+    if (IS_LIVE_ASSET_PAGE) {
+      const [walletResult, ordersResult] = await Promise.allSettled([
+        getJson("/api/account/wallet"),
+        getJson("/api/account/orders")
+      ]);
+      data.live = {
+        wallet: walletResult.status === "fulfilled" ? walletResult.value?.wallet : null,
+        orders: ordersResult.status === "fulfilled" ? ordersResult.value?.orders || [] : []
+      };
+    }
     if (requestToken !== assetRequestToken) return;
     renderAsset(data);
   } catch (err) {
