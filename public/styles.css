@@ -4341,6 +4341,333 @@ body.modal-open {
   padding-right: 10px;
 }
 
+.admin-body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 72% 8%, rgba(93, 95, 239, 0.14), transparent 34%),
+    linear-gradient(180deg, #080b11 0%, #06080d 100%);
+}
+
+.admin-shell {
+  width: min(1600px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 28px 0 60px;
+  display: grid;
+  gap: 22px;
+}
+
+.admin-hero {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.18fr) minmax(0, 1fr) minmax(320px, 0.42fr);
+  gap: 24px;
+  align-items: start;
+  padding: 18px 0 8px;
+}
+
+.admin-hero .app-brand {
+  padding: 0;
+}
+
+.admin-hero h1 {
+  margin: 8px 0 10px;
+  font-size: clamp(3rem, 7vw, 6.4rem);
+  line-height: 0.92;
+}
+
+.admin-hero p {
+  max-width: 780px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.admin-key-card,
+.admin-action-card,
+.admin-output-card,
+.admin-table-card {
+  background: rgba(15, 19, 27, 0.88);
+}
+
+.admin-key-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-key-card label,
+.admin-action-card label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.admin-key-card input,
+.admin-action-card input {
+  min-height: 46px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151922;
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+}
+
+.admin-action-card input::placeholder,
+.admin-key-card input::placeholder {
+  color: rgba(204, 215, 245, 0.58);
+}
+
+.admin-key-actions,
+.admin-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-form-row {
+  align-items: end;
+}
+
+.admin-form-row:has(> :nth-child(3)) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-form-row-tight {
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.3fr);
+}
+
+.admin-check {
+  min-height: 46px;
+  display: flex !important;
+  align-items: center;
+  gap: 10px !important;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151922;
+  color: var(--text) !important;
+}
+
+.admin-check input {
+  min-height: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
+.admin-notice {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(18, 24, 34, 0.9);
+  color: var(--muted);
+}
+
+.admin-notice[data-state="success"] {
+  border-color: rgba(45, 225, 139, 0.38);
+  color: var(--positive);
+}
+
+.admin-notice[data-state="error"] {
+  border-color: rgba(255, 87, 120, 0.38);
+  color: var(--negative);
+}
+
+.admin-kpi-grid,
+.admin-grid,
+.admin-data-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-kpi-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.admin-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-data-grid {
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+}
+
+.admin-action-card {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-output-card {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-output-card pre {
+  min-height: 96px;
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #080b11;
+  color: #dbe5ff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.admin-table-card {
+  overflow: hidden;
+}
+
+.admin-table {
+  display: grid;
+  gap: 8px;
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.admin-record,
+.admin-empty {
+  border: 1px solid rgba(79, 91, 126, 0.5);
+  border-radius: 8px;
+  background: rgba(24, 29, 39, 0.88);
+}
+
+.admin-empty {
+  padding: 18px;
+  color: var(--muted);
+}
+
+.admin-record {
+  min-width: 760px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(210px, 1.05fr) minmax(130px, 0.55fr) minmax(130px, 0.6fr) minmax(130px, 0.6fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+}
+
+.admin-record-scan {
+  min-width: 560px;
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.6fr) minmax(220px, 0.8fr);
+}
+
+.admin-record div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.admin-record strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.admin-record span,
+.admin-record small {
+  min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-mono {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.admin-status {
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-weight: 900;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.admin-status.positive {
+  color: var(--positive);
+  background: rgba(45, 225, 139, 0.1);
+}
+
+.admin-status.negative {
+  color: var(--negative);
+  background: rgba(255, 87, 120, 0.1);
+}
+
+.admin-copy {
+  width: fit-content;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(93, 95, 239, 0.14);
+  color: var(--text);
+  padding: 0 10px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-copy:hover {
+  border-color: var(--primary);
+}
+
+@media (max-width: 1180px) {
+  .admin-hero,
+  .admin-grid,
+  .admin-data-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-record {
+    min-width: 680px;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-shell {
+    width: min(1600px, calc(100% - 28px));
+    padding-top: 18px;
+  }
+
+  .admin-hero h1 {
+    font-size: 3.2rem;
+  }
+
+  .admin-kpi-grid,
+  .admin-key-actions,
+  .admin-form-row,
+  .admin-form-row:has(> :nth-child(3)),
+  .admin-form-row-tight {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-table {
+    max-height: none;
+    padding-right: 0;
+  }
+
+  .admin-record,
+  .admin-record-scan {
+    min-width: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-record span,
+  .admin-record small {
+    white-space: normal;
+  }
+}
+
 .popup-overlay {
   position: fixed;
   inset: 0;

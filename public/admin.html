@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Admin | Deposits</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell">
+    <header class="admin-hero">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div>
+        <p class="eyebrow">Admin control</p>
+        <h1>Deposit portal</h1>
+        <p>Watch generated addresses, credited deposits, scan state, manual credits, and sweep readiness.</p>
+      </div>
+      <div class="admin-key-card">
+        <label>
+          Admin key
+          <input type="password" id="admin-key" autocomplete="off" placeholder="Enter admin key" />
+        </label>
+        <div class="admin-key-actions">
+          <button type="button" class="btn" id="admin-connect">Connect</button>
+          <button type="button" class="btn btn-ghost" id="admin-refresh">Refresh</button>
+        </div>
+      </div>
+    </header>
+
+    <p class="admin-notice" id="admin-notice">Enter the admin key to load deposit data.</p>
+
+    <section class="admin-kpi-grid" id="admin-kpis">
+      <div class="app-card mini-metric">
+        <span class="muted-label">Active addresses</span>
+        <strong data-kpi="activeAddresses">0</strong>
+        <small>Generated and treasury routes</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Open requests</span>
+        <strong data-kpi="openRequests">0</strong>
+        <small>Waiting for chain detection</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Credited deposits</span>
+        <strong data-kpi="creditedEvents">0</strong>
+        <small data-kpi="creditedUsd">$0.00 credited</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Monitor</span>
+        <strong data-kpi="monitorStatus">Off</strong>
+        <small data-kpi="scanStates">0 scan states</small>
+      </div>
+    </section>
+
+    <section class="admin-grid">
+      <form class="app-card admin-action-card" id="admin-scan-form">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Chain scan</span>
+            <h2>Find deposits</h2>
+          </div>
+        </div>
+        <label>Address<input name="address" placeholder="Optional generated address" /></label>
+        <div class="admin-form-row">
+          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" /></label>
+          <label>Network<input name="network" list="admin-network-options" placeholder="Polygon PoS" /></label>
+        </div>
+        <div class="admin-form-row">
+          <label>From block<input name="fromBlock" type="number" inputmode="numeric" /></label>
+          <label>To block<input name="toBlock" type="number" inputmode="numeric" /></label>
+          <label>Limit<input name="limit" type="number" value="25" min="1" max="100" /></label>
+        </div>
+        <button type="submit" class="btn">Run Scan</button>
+      </form>
+
+      <form class="app-card admin-action-card" id="admin-sweep-form">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Treasury move</span>
+            <h2>Sweep address</h2>
+          </div>
+        </div>
+        <label>Generated address<input name="address" placeholder="0x..." required /></label>
+        <div class="admin-form-row">
+          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" required /></label>
+          <label>Network<input name="network" list="admin-network-options" placeholder="Polygon PoS" required /></label>
+        </div>
+        <label>Destination<input name="destination" placeholder="Optional treasury destination" /></label>
+        <div class="admin-form-row admin-form-row-tight">
+          <label>Amount<input name="amount" type="number" step="any" placeholder="Blank = full balance" /></label>
+          <label class="admin-check"><input name="execute" type="checkbox" /> Execute transfer</label>
+        </div>
+        <button type="submit" class="btn">Check Sweep</button>
+      </form>
+
+      <form class="app-card admin-action-card" id="admin-credit-form">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Ledger repair</span>
+            <h2>Manual credit</h2>
+          </div>
+        </div>
+        <div class="admin-form-row">
+          <label>Email<input name="email" type="email" placeholder="user@example.com" /></label>
+          <label>Profile ID<input name="profileId" placeholder="Optional uuid" /></label>
+        </div>
+        <div class="admin-form-row">
+          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" required /></label>
+          <label>Network<input name="network" list="admin-network-options" placeholder="Polygon PoS" required /></label>
+        </div>
+        <label>Address<input name="address" placeholder="Deposit address or manual note" /></label>
+        <label>Transaction hash<input name="txHash" placeholder="tx hash or blank for manual id" /></label>
+        <div class="admin-form-row">
+          <label>Amount<input name="amount" type="number" step="any" required /></label>
+          <label>USD value<input name="amountUsd" type="number" step="any" /></label>
+          <label>Confirmations<input name="confirmations" type="number" value="3" min="0" /></label>
+        </div>
+        <button type="submit" class="btn">Credit Account</button>
+      </form>
+    </section>
+
+    <section class="app-card admin-output-card">
+      <div class="card-heading">
+        <div>
+          <span class="muted-label">Action output</span>
+          <h2>Latest result</h2>
+        </div>
+        <button type="button" class="btn btn-ghost" id="admin-clear-output">Clear</button>
+      </div>
+      <pre id="admin-output">No action run yet.</pre>
+    </section>
+
+    <section class="admin-data-grid">
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Routes</span>
+            <h2>Latest addresses</h2>
+          </div>
+          <span class="status-pill" data-count="addresses">0</span>
+        </div>
+        <div class="admin-table" id="admin-addresses"></div>
+      </article>
+
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Requests</span>
+            <h2>Deposit requests</h2>
+          </div>
+          <span class="status-pill" data-count="requests">0</span>
+        </div>
+        <div class="admin-table" id="admin-requests"></div>
+      </article>
+    </section>
+
+    <section class="admin-data-grid">
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Ledger</span>
+            <h2>Deposit events</h2>
+          </div>
+          <span class="status-pill" data-count="events">0</span>
+        </div>
+        <div class="admin-table" id="admin-events"></div>
+      </article>
+
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Watcher</span>
+            <h2>Scan state</h2>
+          </div>
+          <span class="status-pill" data-count="scanStates">0</span>
+        </div>
+        <div class="admin-table" id="admin-scan-states"></div>
+      </article>
+    </section>
+  </main>
+
+  <datalist id="admin-asset-options"></datalist>
+  <datalist id="admin-network-options"></datalist>
+  <script src="admin.js"></script>
+</body>
+</html>

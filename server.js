@@ -4589,6 +4589,216 @@ async function manuallyCreditDatabaseDeposit(body = {}) {
     }
 }
 
+function adminDepositProfileName(row = {}) {
+    const firstLast = [row.first_name, row.last_name]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(" ");
+    return firstLast || row.display_name || row.email || "Unknown account";
+}
+
+function adminDepositMetadata(metadata) {
+    return normalizeDepositMetadata(metadata);
+}
+
+function adminDepositAddressRow(row = {}) {
+    const metadata = adminDepositMetadata(row.metadata);
+    return {
+        id: row.id,
+        profileId: row.profile_id,
+        email: row.email,
+        profileName: adminDepositProfileName(row),
+        symbol: row.asset_symbol,
+        network: row.network,
+        address: row.address,
+        routeType: row.route_type,
+        provider: row.provider,
+        status: row.status,
+        derivationIndex: metadata.derivationIndex ?? null,
+        derivationPath: metadata.derivationPath || null,
+        firstIssuedAt: row.first_issued_at || null,
+        lastIssuedAt: row.last_issued_at || null,
+        metadata
+    };
+}
+
+function adminDepositRequestRow(row = {}) {
+    const warnings = Array.isArray(row.warnings) ? row.warnings : [];
+    return {
+        id: row.id,
+        profileId: row.profile_id,
+        email: row.email,
+        profileName: adminDepositProfileName(row),
+        symbol: row.asset_symbol,
+        network: row.network,
+        address: row.address,
+        routeType: row.route_type,
+        provider: row.provider,
+        status: row.status,
+        requestedFresh: Boolean(row.requested_fresh),
+        amount: row.amount_received == null ? null : numberValue(row.amount_received, 0),
+        amountUsd: row.amount_usd == null ? null : numberValue(row.amount_usd, 0),
+        confirmations: numberValue(row.confirmations, 0),
+        txHash: row.tx_hash || null,
+        warnings,
+        createdAt: row.created_at || null,
+        updatedAt: row.updated_at || null,
+        creditedAt: row.credited_at || null,
+        expiresAt: row.expires_at || null
+    };
+}
+
+function adminDepositEventRow(row = {}) {
+    const metadata = adminDepositMetadata(row.metadata);
+    const addressMetadata = adminDepositMetadata(row.address_metadata);
+    return {
+        id: row.id,
+        profileId: row.profile_id,
+        email: row.email,
+        profileName: adminDepositProfileName(row),
+        symbol: row.asset_symbol,
+        network: row.network,
+        address: row.address,
+        txHash: row.tx_hash,
+        logIndex: row.log_index == null ? null : Number(row.log_index),
+        blockNumber: row.block_number == null ? null : Number(row.block_number),
+        amount: numberValue(row.amount, 0),
+        amountUsd: row.amount_usd == null ? null : numberValue(row.amount_usd, 0),
+        confirmations: numberValue(row.confirmations, 0),
+        status: row.status,
+        creditedAt: row.credited_at || null,
+        createdAt: row.created_at || null,
+        updatedAt: row.updated_at || null,
+        routeType: row.route_type || null,
+        provider: row.provider || null,
+        derivationIndex: addressMetadata.derivationIndex ?? null,
+        derivationPath: addressMetadata.derivationPath || null,
+        metadata
+    };
+}
+
+function adminDepositScanStateRow(row = {}) {
+    return {
+        scanKey: row.scan_key,
+        network: row.network,
+        symbol: row.asset_symbol || null,
+        scanner: row.scanner,
+        lastScannedBlock: row.last_scanned_block == null ? null : Number(row.last_scanned_block),
+        updatedAt: row.updated_at || null
+    };
+}
+
+function adminDepositSupportedAssets() {
+    return Object.entries(LIVE_DEPOSIT_ASSETS)
+        .map(([symbol, asset]) => ({
+            symbol,
+            name: asset.name || symbol,
+            networks: [...(asset.networks || [])].sort((a, b) => a.localeCompare(b))
+        }))
+        .sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+async function getAdminDepositOverview(body = {}) {
+    if (!databaseConfigured()) {
+        return { success: false, configured: false, error: "Database is not configured." };
+    }
+
+    const limit = Math.min(100, Math.max(10, Number(body.limit || 50)));
+    const client = await dbPool.connect();
+    try {
+        await ensureDepositTables(client);
+        const totalsResult = await client.query(`
+            select
+              (select count(*) from crypto_deposit_addresses where status = 'active') as active_addresses,
+              (select count(*) from crypto_deposit_addresses where route_type = 'self_custody_hd') as generated_addresses,
+              (select count(*) from crypto_deposit_addresses where route_type in ('treasury_direct', 'shared_treasury_manual')) as treasury_addresses,
+              (select count(*) from crypto_deposit_requests where status not in ('credited', 'cancelled', 'expired')) as open_requests,
+              (select count(*) from crypto_deposit_events) as total_events,
+              (select count(*) from crypto_deposit_events where status = 'credited') as credited_events,
+              (select coalesce(sum(amount_usd), 0) from crypto_deposit_events where status = 'credited') as credited_usd,
+              (select count(*) from crypto_deposit_scan_state) as scan_states
+        `);
+
+        const addressesResult = await client.query(`
+            select
+              a.id, a.profile_id, p.email, p.display_name, pv.first_name, pv.last_name,
+              a.asset_symbol, a.network, a.address, a.route_type, a.provider, a.status,
+              a.first_issued_at, a.last_issued_at, a.metadata
+            from crypto_deposit_addresses a
+            join profiles p on p.id = a.profile_id
+            left join profile_verifications pv on pv.profile_id = p.id
+            order by a.last_issued_at desc
+            limit $1
+        `, [limit]);
+
+        const requestsResult = await client.query(`
+            select
+              r.id, r.profile_id, p.email, p.display_name, pv.first_name, pv.last_name,
+              r.asset_symbol, r.network, r.address, r.provider, r.route_type, r.status,
+              r.requested_fresh, r.warnings, r.amount_received, r.amount_usd, r.confirmations,
+              r.tx_hash, r.created_at, r.updated_at, r.credited_at, r.expires_at
+            from crypto_deposit_requests r
+            join profiles p on p.id = r.profile_id
+            left join profile_verifications pv on pv.profile_id = p.id
+            order by r.created_at desc
+            limit $1
+        `, [limit]);
+
+        const eventsResult = await client.query(`
+            select
+              e.id, e.profile_id, p.email, p.display_name, pv.first_name, pv.last_name,
+              e.asset_symbol, e.network, e.address, e.tx_hash, e.log_index, e.block_number,
+              e.amount, e.amount_usd, e.confirmations, e.status, e.credited_at,
+              e.created_at, e.updated_at, e.metadata,
+              a.route_type, a.provider, a.metadata as address_metadata
+            from crypto_deposit_events e
+            join profiles p on p.id = e.profile_id
+            left join profile_verifications pv on pv.profile_id = p.id
+            left join crypto_deposit_addresses a on a.id = e.address_id
+            order by e.created_at desc
+            limit $1
+        `, [limit]);
+
+        const scanStatesResult = await client.query(`
+            select scan_key, network, asset_symbol, scanner, last_scanned_block, updated_at
+            from crypto_deposit_scan_state
+            order by updated_at desc
+            limit $1
+        `, [limit]);
+
+        const totals = totalsResult.rows[0] || {};
+        return {
+            success: true,
+            configured: true,
+            generatedAt: new Date().toISOString(),
+            capabilities: {
+                childAddresses: depositRouteAllowsSelfCustody(),
+                evmSweep: true,
+                nonEvmSweep: false,
+                manualCredit: true,
+                automaticMonitor: DEPOSIT_MONITOR_ENABLED
+            },
+            supportedAssets: adminDepositSupportedAssets(),
+            totals: {
+                activeAddresses: numberValue(totals.active_addresses, 0),
+                generatedAddresses: numberValue(totals.generated_addresses, 0),
+                treasuryAddresses: numberValue(totals.treasury_addresses, 0),
+                openRequests: numberValue(totals.open_requests, 0),
+                totalEvents: numberValue(totals.total_events, 0),
+                creditedEvents: numberValue(totals.credited_events, 0),
+                creditedUsd: numberValue(totals.credited_usd, 0),
+                scanStates: numberValue(totals.scan_states, 0)
+            },
+            addresses: addressesResult.rows.map(adminDepositAddressRow),
+            requests: requestsResult.rows.map(adminDepositRequestRow),
+            events: eventsResult.rows.map(adminDepositEventRow),
+            scanStates: scanStatesResult.rows.map(adminDepositScanStateRow)
+        };
+    } finally {
+        client.release();
+    }
+}
+
 function tradeAssetType(asset) {
     if (asset?.symbol === "AU" || asset?.customAsset) return "currency";
     const assetType = String(asset?.assetType || "crypto").toLowerCase();
@@ -9235,6 +9445,25 @@ app.post("/api/admin/deposits/scan", async (req, res) => {
   } catch (err) {
     console.error("Admin deposit scan failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "Deposit scan failed." });
+  }
+});
+
+app.post("/api/admin/deposits/overview", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin deposit overview is not authorized." });
+    }
+    const result = await getAdminDepositOverview(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin deposit overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Deposit overview failed." });
   }
 });
 
