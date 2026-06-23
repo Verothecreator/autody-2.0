@@ -129,7 +129,7 @@
             <div>
               <span class="muted-label">Funding</span>
               <h2>Add funds</h2>
-              <p class="card-intro">These flows prepare how users will fund a live account. No real card, ACH, wire, or crypto payment is sent yet.</p>
+              <p class="card-intro">These flows prepare fiat funding for a live account. Crypto deposits stay in the separate receive flow.</p>
             </div>
           </div>
 
@@ -137,18 +137,18 @@
             <button type="button" class="active" data-funding-tab="card">Debit card</button>
             <button type="button" data-funding-tab="ach">ACH</button>
             <button type="button" data-funding-tab="wire">Wire</button>
-            <button type="button" data-funding-tab="crypto">Crypto</button>
+            <button type="button" data-funding-tab="direct">Direct deposit</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="card">
             <div class="live-form-grid">
               <label>
                 <span>Deposit amount</span>
-                <input type="number" min="10" placeholder="Enter USD amount" />
+                <input type="number" min="10" placeholder="Enter USD amount" data-funding-amount="card" />
               </label>
               <label>
                 <span>Funding source</span>
-                <select>
+                <select data-funding-source="card">
                   <option>Debit card</option>
                   <option>Credit card</option>
                 </select>
@@ -156,20 +156,20 @@
             </div>
             <div class="live-method-summary">
               <strong>Card funding provider pending</strong>
-              <span>When connected, this opens a regulated checkout instead of storing card details on Autody.</span>
+              <span>When connected, this opens a regulated checkout. The estimated card fee will be shown before confirmation.</span>
             </div>
-            <button class="btn btn-full" type="button" data-live-message="Card funding is not connected yet. This button will open the provider checkout when we connect one.">Prepare Card Deposit</button>
+            <button class="btn btn-full" type="button" data-funding-request="card">Prepare Card Deposit</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="ach" hidden>
             <div class="live-form-grid">
               <label>
                 <span>Deposit amount</span>
-                <input type="number" min="25" placeholder="Enter USD amount" />
+                <input type="number" min="25" placeholder="Enter USD amount" data-funding-amount="ach" />
               </label>
               <label>
                 <span>Transfer speed</span>
-                <select>
+                <select data-funding-source="ach">
                   <option>Standard ACH</option>
                   <option>Same-day ACH</option>
                 </select>
@@ -177,12 +177,18 @@
             </div>
             <div class="live-method-summary">
               <strong>ACH funding provider pending</strong>
-              <span>Users will connect a bank through a provider; Autody credits the ledger only after settlement rules pass.</span>
+              <span>Bank transfers will start as pending USD and become available only after settlement and return-risk checks pass.</span>
             </div>
-            <button class="btn btn-full" type="button" data-live-message="ACH is not connected yet. This will become a bank-link flow after provider setup.">Prepare ACH Deposit</button>
+            <button class="btn btn-full" type="button" data-funding-request="ach">Prepare ACH Deposit</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="wire" hidden>
+            <div class="live-form-grid">
+              <label>
+                <span>Expected amount</span>
+                <input type="number" min="0" placeholder="Optional USD amount" data-funding-amount="wire" />
+              </label>
+            </div>
             <div class="live-wire-box">
               <span>Beneficiary</span>
               <strong>Autody treasury account pending</strong>
@@ -191,15 +197,23 @@
               <span>Status</span>
               <strong>Bank rail not connected</strong>
             </div>
-            <button class="btn btn-full" type="button" data-live-message="Wire instructions will appear after a compliant receiving account or provider is connected.">View Wire Instructions</button>
+            <button class="btn btn-full" type="button" data-funding-request="wire">View Wire Instructions</button>
           </div>
 
-          <div class="live-method-panel" data-funding-panel="crypto" hidden>
-            <div class="live-method-summary">
-              <strong>Crypto deposit flow</strong>
-              <span>Generate a receive address, watch the network, wait for confirmations, then credit the user ledger.</span>
+          <div class="live-method-panel" data-funding-panel="direct" hidden>
+            <div class="live-wire-box">
+              <span>Routing number</span>
+              <strong>Pending provider</strong>
+              <span>Account number</span>
+              <strong>Generated per user after setup</strong>
+              <span>Posting rule</span>
+              <strong>Pending first, available after bank confirmation</strong>
             </div>
-            <button class="btn btn-full" type="button" data-live-focus="crypto">Open Crypto Receive</button>
+            <div class="live-method-summary">
+              <strong>Direct deposit rail pending</strong>
+              <span>When connected, each user can receive assigned account details for payroll-style ACH deposits into their Autody USD balance.</span>
+            </div>
+            <button class="btn btn-full" type="button" data-funding-request="direct">Prepare Direct Deposit</button>
           </div>
 
           <p class="live-notice" id="live-notice" hidden></p>

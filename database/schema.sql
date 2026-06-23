@@ -232,6 +232,26 @@ create table if not exists crypto_deposit_scan_state (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists fiat_funding_requests (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references profiles(id) on delete cascade,
+  account_mode_id uuid references account_modes(id) on delete cascade,
+  method text not null check (method in ('card', 'ach', 'wire', 'direct')),
+  status text not null default 'provider_pending',
+  amount_usd numeric(18, 2) not null default 0,
+  fee_usd numeric(18, 2) not null default 0,
+  net_usd numeric(18, 2) not null default 0,
+  reference_code text not null unique,
+  provider text not null default 'pending',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  settled_at timestamptz
+);
+
+create index if not exists fiat_funding_requests_profile_idx
+  on fiat_funding_requests (profile_id, created_at desc);
+
 create table if not exists watchlists (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references profiles(id) on delete cascade,

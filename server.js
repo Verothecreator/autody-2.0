@@ -114,6 +114,13 @@ const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBAC
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
 const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
+const FIAT_FUNDING_METHODS = new Set(["card", "ach", "wire", "direct"]);
+const FIAT_FUNDING_LABELS = {
+    card: "Debit card",
+    ach: "ACH",
+    wire: "Wire",
+    direct: "Direct deposit"
+};
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
 const DEPOSIT_ROUTE_MODE = String(process.env.AUTODY_DEPOSIT_ROUTE_MODE || process.env.DEPOSIT_ROUTE_MODE || "self_custody")
     .trim()
@@ -264,6 +271,9 @@ const defaultDemoDb = {
         [PRACTICE_USER_ID]: []
     },
     depositRequests: {
+        [PRACTICE_USER_ID]: []
+    },
+    fiatFundingRequests: {
         [PRACTICE_USER_ID]: []
     },
     watchlists: {
@@ -3162,6 +3172,176 @@ async function createLiveDepositRequest(auth, body = {}) {
     return createJsonDepositRequest(auth, body);
 }
 
+function normalizeFiatFundingMethod(method) {
+    const raw = String(method || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const aliases = {
+        debit: "card",
+        debit_card: "card",
+        credit: "card",
+        credit_card: "card",
+        bank: "ach",
+        bank_link: "ach",
+        direct_deposit: "direct"
+    };
+    const normalized = aliases[raw] || raw;
+    if (!FIAT_FUNDING_METHODS.has(normalized)) {
+        throw demoTradeError(400, "Choose debit card, ACH, wire, or direct deposit.");
+    }
+    return normalized;
+}
+
+function normalizeFiatFundingAmount(value, method) {
+    if (value == null || value === "") return 0;
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 0) {
+        throw demoTradeError(400, "Enter a valid USD amount.");
+    }
+    if ((method === "card" || method === "ach") && amount <= 0) {
+        throw demoTradeError(400, "Enter a USD amount to start this funding request.");
+    }
+    return Math.round(amount * 100) / 100;
+}
+
+function estimateFiatFundingFee(method, amountUsd) {
+    if (!amountUsd) return 0;
+    if (method === "card") return Math.round(((amountUsd * 0.039) + 0.3) * 100) / 100;
+    if (method === "ach") return Math.round(Math.min(amountUsd * 0.01, 5) * 100) / 100;
+    return 0;
+}
+
+function fiatFundingStatus(method) {
+    if (method === "wire") return "instructions_pending";
+    if (method === "direct") return "details_pending";
+    return "provider_pending";
+}
+
+function fiatFundingReference(method) {
+    return `AUTODY-${String(method || "fund").toUpperCase()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+}
+
+function mapFiatFundingRequest(row) {
+    return {
+        id: row.id,
+        method: row.method,
+        label: FIAT_FUNDING_LABELS[row.method] || row.method,
+        status: row.status,
+        amountUsd: numberValue(row.amount_usd, 0),
+        feeUsd: numberValue(row.fee_usd, 0),
+        netUsd: numberValue(row.net_usd, 0),
+        referenceCode: row.reference_code,
+        provider: row.provider,
+        metadata: row.metadata || {},
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+    };
+}
+
+async function ensureFiatFundingTables(client = dbPool) {
+    await client.query(`
+        create table if not exists fiat_funding_requests (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references profiles(id) on delete cascade,
+          account_mode_id uuid references account_modes(id) on delete cascade,
+          method text not null check (method in ('card', 'ach', 'wire', 'direct')),
+          status text not null default 'provider_pending',
+          amount_usd numeric(18, 2) not null default 0,
+          fee_usd numeric(18, 2) not null default 0,
+          net_usd numeric(18, 2) not null default 0,
+          reference_code text not null unique,
+          provider text not null default 'pending',
+          metadata jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          settled_at timestamptz
+        );
+
+        create index if not exists fiat_funding_requests_profile_idx
+          on fiat_funding_requests (profile_id, created_at desc);
+    `);
+}
+
+async function createDatabaseFiatFundingRequest(auth, body = {}) {
+    const method = normalizeFiatFundingMethod(body.method);
+    const amountUsd = normalizeFiatFundingAmount(body.amountUsd ?? body.amount, method);
+    const feeUsd = estimateFiatFundingFee(method, amountUsd);
+    const netUsd = Math.max(0, Math.round((amountUsd - feeUsd) * 100) / 100);
+    const metadata = {
+        fundingSource: normalizeText(body.fundingSource || body.source || ""),
+        transferSpeed: normalizeText(body.transferSpeed || ""),
+        note: normalizeText(body.note || ""),
+        providerConnected: false
+    };
+    const client = await dbPool.connect();
+
+    try {
+        await client.query("begin");
+        await ensureFiatFundingTables(client);
+        const context = await getPracticeDbContext(client, auth.profileId, "live");
+        const result = await client.query(`
+            insert into fiat_funding_requests (
+              profile_id, account_mode_id, method, status, amount_usd, fee_usd, net_usd,
+              reference_code, provider, metadata
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9::jsonb)
+            returning *
+        `, [
+            auth.profileId,
+            context.account_mode_id,
+            method,
+            fiatFundingStatus(method),
+            amountUsd,
+            feeUsd,
+            netUsd,
+            fiatFundingReference(method),
+            JSON.stringify(metadata)
+        ]);
+        await client.query("commit");
+        return mapFiatFundingRequest(result.rows[0]);
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+function createJsonFiatFundingRequest(auth, body = {}) {
+    const method = normalizeFiatFundingMethod(body.method);
+    const amountUsd = normalizeFiatFundingAmount(body.amountUsd ?? body.amount, method);
+    const feeUsd = estimateFiatFundingFee(method, amountUsd);
+    const now = new Date().toISOString();
+    const request = {
+        id: crypto.randomUUID(),
+        userId: auth.userId,
+        method,
+        label: FIAT_FUNDING_LABELS[method] || method,
+        status: fiatFundingStatus(method),
+        amountUsd,
+        feeUsd,
+        netUsd: Math.max(0, Math.round((amountUsd - feeUsd) * 100) / 100),
+        referenceCode: fiatFundingReference(method),
+        provider: "pending",
+        metadata: {
+            fundingSource: normalizeText(body.fundingSource || body.source || ""),
+            transferSpeed: normalizeText(body.transferSpeed || ""),
+            note: normalizeText(body.note || ""),
+            providerConnected: false
+        },
+        createdAt: now,
+        updatedAt: now
+    };
+    const db = loadDemoDb();
+    db.fiatFundingRequests = db.fiatFundingRequests || {};
+    db.fiatFundingRequests[auth.userId] = [request, ...(db.fiatFundingRequests[auth.userId] || [])].slice(0, 50);
+    saveDemoDb(db);
+    return request;
+}
+
+async function createLiveFiatFundingRequest(auth, body = {}) {
+    if (auth.source === "supabase") return createDatabaseFiatFundingRequest(auth, body);
+    return createJsonFiatFundingRequest(auth, body);
+}
+
 const evmDepositProviderCache = new Map();
 const ERC20_TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
 const ERC20_TRANSFER_INTERFACE = new ethers.Interface([
@@ -5961,6 +6141,7 @@ function cleanupExpiredJsonPendingAccounts(db) {
         delete db.settings?.[id];
         delete db.verificationCodes?.[id];
         delete db.depositRequests?.[id];
+        delete db.fiatFundingRequests?.[id];
     }
     db.sessions = (db.sessions || []).filter((session) => !removedIds.has(session.userId));
     return true;
@@ -6040,6 +6221,8 @@ function createJsonAccount(signUp) {
     db.orders[userId] = [];
     db.depositRequests = db.depositRequests || {};
     db.depositRequests[userId] = [];
+    db.fiatFundingRequests = db.fiatFundingRequests || {};
+    db.fiatFundingRequests[userId] = [];
     db.watchlists = db.watchlists || {};
     db.watchlists[userId] = {
         demo: defaultWatchlistForMode("demo"),
@@ -6167,7 +6350,7 @@ function resetJsonAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
     db.users = (db.users || []).filter((user) => keepIds.has(user.id));
     db.sessions = (db.sessions || []).filter((session) => keepIds.has(session.userId));
     db.trustedDevices = (db.trustedDevices || []).filter((device) => keepIds.has(device.userId));
-    for (const key of ["wallets", "orders", "watchlists", "researchPreferences", "performance", "settings", "verificationCodes", "depositRequests"]) {
+    for (const key of ["wallets", "orders", "watchlists", "researchPreferences", "performance", "settings", "verificationCodes", "depositRequests", "fiatFundingRequests"]) {
         if (!db[key] || typeof db[key] !== "object") continue;
         Object.keys(db[key]).forEach((userId) => {
             if (!keepIds.has(userId)) delete db[key][userId];
@@ -10112,6 +10295,26 @@ app.post("/api/account/deposits/address", async (req, res) => {
   } catch (err) {
     console.error("Live deposit address error:", err);
     return sendDemoError(res, err, "Deposit route could not be created");
+  }
+});
+
+app.post("/api/account/funding/request", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const request = await createLiveFiatFundingRequest(auth, body);
+    return res.json({
+      success: true,
+      request,
+      nextStep: request.method === "wire"
+        ? "Wire instructions will be completed after a compliant receiving account is connected."
+        : request.method === "direct"
+          ? "Direct deposit routing details will be assigned after a banking provider is connected."
+          : `${request.label} checkout is pending provider connection.`
+    });
+  } catch (err) {
+    console.error("Live fiat funding request error:", err);
+    return sendDemoError(res, err, "Funding request could not be created");
   }
 });
 

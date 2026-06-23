@@ -125,6 +125,51 @@ function setFundingTab(tabName) {
   });
 }
 
+function fundingMethodLabel(method) {
+  return {
+    card: "Card",
+    ach: "ACH",
+    wire: "Wire",
+    direct: "Direct deposit"
+  }[method] || "Funding";
+}
+
+function fundingAmountValue(method) {
+  return document.querySelector(`[data-funding-amount="${method}"]`)?.value?.trim() || "";
+}
+
+function fundingSourceValue(method) {
+  return document.querySelector(`[data-funding-source="${method}"]`)?.value?.trim() || "";
+}
+
+async function createFundingRequest(method, button) {
+  const normalized = String(method || "").trim().toLowerCase();
+  const originalText = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Preparing...";
+  }
+
+  try {
+    const data = await postLiveAccountJson("/api/account/funding/request", {
+      method: normalized,
+      amountUsd: fundingAmountValue(normalized),
+      fundingSource: fundingSourceValue(normalized)
+    });
+    const request = data.request || {};
+    const feeText = request.feeUsd ? ` Estimated fee: $${Number(request.feeUsd).toFixed(2)}.` : "";
+    const referenceText = request.referenceCode ? ` Reference ${request.referenceCode}.` : "";
+    showLiveNotice(`${fundingMethodLabel(normalized)} funding request saved.${referenceText}${feeText}`, "success");
+  } catch (err) {
+    showLiveNotice(err.message || `${fundingMethodLabel(normalized)} funding request could not be saved.`, "warning");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
 function updateReceiveNetworks() {
   const assetSelect = document.getElementById("receive-asset");
   const networkSelect = document.getElementById("receive-network");
@@ -344,6 +389,13 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const fundingRequest = event.target.closest("[data-funding-request]");
+  if (fundingRequest) {
+    event.preventDefault();
+    createFundingRequest(fundingRequest.dataset.fundingRequest, fundingRequest);
+    return;
+  }
+
   const liveMessage = event.target.closest("[data-live-message]");
   if (liveMessage) {
     showLiveNotice(liveMessage.dataset.liveMessage, "info");
@@ -352,7 +404,12 @@ document.addEventListener("click", (event) => {
 
   const liveFocus = event.target.closest("[data-live-focus]");
   if (liveFocus) {
-    const targetId = liveFocus.dataset.liveFocus === "crypto" ? "live-crypto" : "live-funding";
+    if (liveFocus.dataset.liveFocus === "crypto") {
+      event.preventDefault();
+      openAutodyLiveTransferModal("receive");
+      return;
+    }
+    const targetId = "live-funding";
     const target = document.getElementById(targetId);
     if (!target) {
       window.location.href = `account-wallet.html#${targetId}`;
@@ -360,7 +417,6 @@ document.addEventListener("click", (event) => {
     }
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     if (liveFocus.dataset.liveFocus === "funding") setFundingTab("card");
-    if (liveFocus.dataset.liveFocus === "crypto") setFundingTab("crypto");
     return;
   }
 
@@ -411,7 +467,6 @@ window.openAutodyLiveTransferModal = openAutodyLiveTransferModal;
 window.closeAutodyLiveTransferModal = closeAutodyLiveTransferModal;
 
 if (location.hash === "#live-crypto") {
-  setFundingTab("crypto");
   openAutodyLiveTransferModal(
     new URLSearchParams(location.search).get("transfer") === "send" ? "send" : "receive",
     new URLSearchParams(location.search).get("asset") || defaultLiveCryptoSymbol()
