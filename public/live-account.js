@@ -231,6 +231,10 @@ function resetReceiveAddress(message = "Loading receive address...") {
   setReceiveQr("");
 }
 
+function receiveAddressButtonText(deposit) {
+  return deposit?.directTreasury || deposit?.uniqueAddress === false ? "Refresh address" : "Generate new address";
+}
+
 function displayReceiveDeposit(deposit) {
   const addressNode = document.getElementById("receive-address");
   if (!addressNode) return false;
@@ -245,6 +249,8 @@ function displayReceiveDeposit(deposit) {
   addressNode.dataset.address = deposit.address;
   addressNode.dataset.depositId = deposit.id || "";
   setReceiveQr(deposit.address);
+  const button = document.getElementById("generate-receive-address");
+  if (button) button.textContent = receiveAddressButtonText(deposit);
   return true;
 }
 
@@ -263,6 +269,7 @@ async function requestReceiveAddress({ fresh = false, force = false, showNotice 
   }
 
   const originalText = button?.textContent || "Generate new address";
+  let finalButtonText = originalText;
   if (button) {
     button.disabled = true;
     button.textContent = "Requesting...";
@@ -280,6 +287,7 @@ async function requestReceiveAddress({ fresh = false, force = false, showNotice 
 
     receiveRouteCache.set(key, deposit);
     if (displayReceiveDeposit(deposit)) {
+      finalButtonText = receiveAddressButtonText(deposit);
       if (showNotice) showLiveNotice(`${deposit.asset} receive address is ready.`, "success");
       return;
     }
@@ -291,7 +299,7 @@ async function requestReceiveAddress({ fresh = false, force = false, showNotice 
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = originalText;
+      button.textContent = finalButtonText;
     }
   }
 }

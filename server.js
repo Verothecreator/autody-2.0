@@ -115,6 +115,10 @@ const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
 const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
+const DEPOSIT_ROUTE_MODE = String(process.env.AUTODY_DEPOSIT_ROUTE_MODE || process.env.DEPOSIT_ROUTE_MODE || "hybrid")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
 const DEPOSIT_SWEEP_GAS_LIMIT = BigInt(Math.max(21000, Number(process.env.DEPOSIT_SWEEP_GAS_LIMIT || 140000)));
 const DEPOSIT_SWEEP_DESTINATION_OVERRIDE = process.env.DEPOSIT_SWEEP_DESTINATION_OVERRIDE === "true";
 const DEPOSIT_MNEMONIC = String(
@@ -2401,12 +2405,46 @@ function normalizeDepositMetadata(metadata) {
 function treasuryAddressEnvCandidates(assetSymbol, network) {
     const assetKey = depositEnvKeyPart(assetSymbol);
     const networkKey = depositEnvKeyPart(network);
-    return [
+    const candidates = [
         `AUTODY_TREASURY_${assetKey}_${networkKey}_ADDRESS`,
         `TREASURY_${assetKey}_${networkKey}_ADDRESS`,
         `AUTODY_TREASURY_${assetKey}_ADDRESS`,
-        `TREASURY_${assetKey}_ADDRESS`
+        `TREASURY_${assetKey}_ADDRESS`,
+        `AUTODY_TREASURY_${networkKey}_ADDRESS`,
+        `TREASURY_${networkKey}_ADDRESS`,
+        `AUTODY_SWEEP_TREASURY_${networkKey}_ADDRESS`
     ];
+    if (isEvmDepositNetwork(network)) {
+        candidates.push(
+            "AUTODY_TREASURY_EVM_ADDRESS",
+            "AUTODY_SWEEP_TREASURY_EVM_ADDRESS",
+            "AUTODY_TREASURY_ADDRESS",
+            "TREASURY_ADDRESS"
+        );
+    }
+    return candidates;
+}
+
+function depositRouteMode() {
+    if (["direct", "treasury", "treasury_only", "treasury_direct", "treasury_direct_only"].includes(DEPOSIT_ROUTE_MODE)) {
+        return "treasury_direct";
+    }
+    if (["self", "self_custody", "self_custody_only", "generated", "generated_addresses"].includes(DEPOSIT_ROUTE_MODE)) {
+        return "self_custody";
+    }
+    return "hybrid";
+}
+
+function depositRoutePrefersTreasury() {
+    return ["treasury_direct", "hybrid"].includes(depositRouteMode());
+}
+
+function depositRouteAllowsSelfCustody() {
+    return ["self_custody", "hybrid"].includes(depositRouteMode());
+}
+
+function isDirectTreasuryRouteType(routeType = "") {
+    return ["treasury_direct", "shared_treasury_manual"].includes(String(routeType || "").trim().toLowerCase());
 }
 
 function sweepTreasuryAddressEnvCandidates(network) {
@@ -2483,14 +2521,14 @@ function resolveTreasuryDepositRoute(assetSymbol, network) {
     return {
         address,
         provider,
-        routeType: "shared_treasury_manual",
+        routeType: "treasury_direct",
         status: "address_issued",
         envName,
         custodyConnected: false,
         uniqueAddress: false,
         warnings: [
-            "This is a shared treasury route for owner/manual testing.",
-            "Public user deposits need unique custody-generated addresses or a deposit-address inventory before automatic crediting."
+            "This route sends funds directly to the treasury wallet and does not need a child-address sweep.",
+            "Because this address can be shared, credit matching should use a deposit request, transaction hash, memo/tag, or admin review."
         ]
     };
 }
@@ -2838,6 +2876,28 @@ function resolveJsonSelfCustodyRoute(db, userId, assetSymbol, network, requested
     }
 }
 
+async function resolveDatabaseDepositRoute(client, profileId, assetSymbol, network, requestedFresh) {
+    const treasuryRoute = resolveTreasuryDepositRoute(assetSymbol, network);
+    if (depositRoutePrefersTreasury() && treasuryRoute.address) return treasuryRoute;
+    if (depositRouteMode() === "treasury_direct") return treasuryRoute;
+
+    const selfCustodyRoute = depositRouteAllowsSelfCustody()
+        ? await resolveDatabaseSelfCustodyRoute(client, profileId, assetSymbol, network, requestedFresh)
+        : null;
+    return selfCustodyRoute || treasuryRoute;
+}
+
+function resolveJsonDepositRoute(db, userId, assetSymbol, network, requestedFresh) {
+    const treasuryRoute = resolveTreasuryDepositRoute(assetSymbol, network);
+    if (depositRoutePrefersTreasury() && treasuryRoute.address) return treasuryRoute;
+    if (depositRouteMode() === "treasury_direct") return treasuryRoute;
+
+    const selfCustodyRoute = depositRouteAllowsSelfCustody()
+        ? resolveJsonSelfCustodyRoute(db, userId, assetSymbol, network, requestedFresh)
+        : null;
+    return selfCustodyRoute || treasuryRoute;
+}
+
 async function ensureDepositTables(client = dbPool) {
     await client.query(`
         create table if not exists crypto_deposit_addresses (
@@ -2961,8 +3021,7 @@ async function createDatabaseDepositRequest(auth, body = {}) {
         await client.query("begin");
         await ensureDepositTables(client);
         const context = await getPracticeDbContext(client, auth.profileId, "live");
-        const route = await resolveDatabaseSelfCustodyRoute(client, auth.profileId, assetSymbol, network, requestedFresh)
-            || resolveTreasuryDepositRoute(assetSymbol, network);
+        const route = await resolveDatabaseDepositRoute(client, auth.profileId, assetSymbol, network, requestedFresh);
         const expiresAt = new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString();
         let addressId = null;
 
@@ -3032,6 +3091,9 @@ async function createDatabaseDepositRequest(auth, body = {}) {
             warnings: Array.isArray(row.warnings) ? row.warnings : route.warnings || [],
             custodyConnected: route.custodyConnected,
             uniqueAddress: route.uniqueAddress,
+            directTreasury: isDirectTreasuryRouteType(route.routeType),
+            sweepRequired: route.routeType === "self_custody_hd",
+            routeMode: depositRouteMode(),
             createdAt: row.created_at,
             expiresAt: row.expires_at
         };
@@ -3048,8 +3110,7 @@ function createJsonDepositRequest(auth, body = {}) {
     const network = normalizeDepositNetwork(assetSymbol, body.network);
     const requestedFresh = body.fresh !== false;
     const db = loadDemoDb();
-    const route = resolveJsonSelfCustodyRoute(db, auth.userId, assetSymbol, network, requestedFresh)
-        || resolveTreasuryDepositRoute(assetSymbol, network);
+    const route = resolveJsonDepositRoute(db, auth.userId, assetSymbol, network, requestedFresh);
     const now = new Date().toISOString();
     const expiresAt = route.address
         ? new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString()
@@ -3068,6 +3129,9 @@ function createJsonDepositRequest(auth, body = {}) {
         warnings: route.warnings || [],
         custodyConnected: route.custodyConnected,
         uniqueAddress: route.uniqueAddress,
+        directTreasury: isDirectTreasuryRouteType(route.routeType),
+        sweepRequired: route.routeType === "self_custody_hd",
+        routeMode: depositRouteMode(),
         createdAt: now,
         expiresAt
     };
@@ -3367,34 +3431,6 @@ async function sweepDatabaseDepositAddress(body = {}) {
     const network = normalizeDepositNetwork(assetSymbol, body.network);
     if (!requestedAddress) throw demoTradeError(400, "Provide the generated deposit address to sweep.");
 
-    const networkConfig = getEvmNetworkConfig(network);
-    if (!networkConfig) {
-        throw demoTradeError(400, "Automated sweeping is currently available for EVM deposit networks only.");
-    }
-
-    const token = getEvmTokenDepositContract(assetSymbol, network);
-    const nativeAsset = (networkConfig.nativeAssets || []).map((item) => normalizeTradeSymbol(item));
-    const isNative = nativeAsset.includes(assetSymbol);
-    if (!token && !isNative) {
-        throw demoTradeError(400, `No sweep contract is configured for ${assetSymbol} on ${network}.`);
-    }
-
-    const treasury = resolveSweepTreasuryAddress(network, body);
-    if (!treasury.address) {
-        return {
-            success: false,
-            configured: false,
-            error: "Treasury sweep address is not configured.",
-            setEnv: sweepTreasuryAddressEnvCandidates(network)[0],
-            acceptedFallbacks: sweepTreasuryAddressEnvCandidates(network)
-        };
-    }
-
-    const providerConfig = getEvmDepositProvider(network);
-    if (!providerConfig?.provider) {
-        throw demoTradeError(500, `No RPC provider is configured for ${network}.`);
-    }
-
     const client = await dbPool.connect();
     try {
         await ensureDepositTables(client);
@@ -3410,6 +3446,50 @@ async function sweepDatabaseDepositAddress(body = {}) {
         `, params);
         const row = result.rows[0];
         if (!row) throw demoTradeError(404, "Deposit address was not found in Autody records.");
+
+        if (isDirectTreasuryRouteType(row.route_type)) {
+            return {
+                success: true,
+                configured: true,
+                sweepRequired: false,
+                executable: false,
+                asset: assetSymbol,
+                network,
+                address: row.address,
+                routeType: row.route_type,
+                provider: row.provider,
+                message: "This is a direct treasury route. Funds sent here already land in the treasury wallet, so no child-address sweep is required."
+            };
+        }
+
+        const networkConfig = getEvmNetworkConfig(network);
+        if (!networkConfig) {
+            throw demoTradeError(400, "Automated sweeping is currently available for EVM deposit networks only.");
+        }
+
+        const token = getEvmTokenDepositContract(assetSymbol, network);
+        const nativeAsset = (networkConfig.nativeAssets || []).map((item) => normalizeTradeSymbol(item));
+        const isNative = nativeAsset.includes(assetSymbol);
+        if (!token && !isNative) {
+            throw demoTradeError(400, `No sweep contract is configured for ${assetSymbol} on ${network}.`);
+        }
+
+        const treasury = resolveSweepTreasuryAddress(network, body);
+        if (!treasury.address) {
+            return {
+                success: false,
+                configured: false,
+                error: "Treasury sweep address is not configured.",
+                setEnv: sweepTreasuryAddressEnvCandidates(network)[0],
+                acceptedFallbacks: sweepTreasuryAddressEnvCandidates(network)
+            };
+        }
+
+        const providerConfig = getEvmDepositProvider(network);
+        if (!providerConfig?.provider) {
+            throw demoTradeError(500, `No RPC provider is configured for ${network}.`);
+        }
+
         if (row.route_type !== "self_custody_hd") throw demoTradeError(400, "Only generated self-custody deposit addresses can be swept.");
 
         const metadata = normalizeDepositMetadata(row.metadata);
@@ -9778,7 +9858,10 @@ app.post("/api/account/deposits/address", async (req, res) => {
         provider: deposit.provider,
         routeType: deposit.routeType,
         custodyConnected: Boolean(deposit.custodyConnected),
-        uniqueAddress: Boolean(deposit.uniqueAddress)
+        uniqueAddress: Boolean(deposit.uniqueAddress),
+        directTreasury: Boolean(deposit.directTreasury),
+        sweepRequired: Boolean(deposit.sweepRequired),
+        routeMode: deposit.routeMode || depositRouteMode()
       }
     });
   } catch (err) {
