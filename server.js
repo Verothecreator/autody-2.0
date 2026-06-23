@@ -3128,6 +3128,58 @@ async function latestDepositRequestForAddress(client, addressRow) {
     return result.rows[0]?.id || null;
 }
 
+async function duplicateDepositEventDetails(client, eventId) {
+    if (!eventId) return null;
+    const result = await client.query(`
+        select
+            e.id,
+            e.profile_id,
+            p.email,
+            e.asset_symbol,
+            e.network,
+            e.address,
+            e.tx_hash,
+            e.log_index,
+            e.block_number,
+            e.amount,
+            e.amount_usd,
+            e.confirmations,
+            e.status,
+            e.credited_at,
+            h.quantity as holding_quantity,
+            h.value_usd as holding_value_usd,
+            h.updated_at as holding_updated_at
+        from crypto_deposit_events e
+        join profiles p on p.id = e.profile_id
+        left join account_modes am on am.profile_id = e.profile_id and am.mode = 'live'
+        left join wallets w on w.account_mode_id = am.id
+        left join holdings h on h.wallet_id = w.id and upper(h.symbol) = upper(e.asset_symbol)
+        where e.id = $1
+        limit 1
+    `, [eventId]);
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+        eventId: row.id,
+        profileId: row.profile_id,
+        email: row.email,
+        symbol: row.asset_symbol,
+        network: row.network,
+        address: row.address,
+        txHash: row.tx_hash,
+        logIndex: row.log_index == null ? null : Number(row.log_index),
+        blockNumber: row.block_number == null ? null : Number(row.block_number),
+        amount: numberValue(row.amount, 0),
+        amountUsd: row.amount_usd == null ? null : numberValue(row.amount_usd, 0),
+        confirmations: numberValue(row.confirmations, 0),
+        status: row.status,
+        creditedAt: row.credited_at,
+        holdingQuantity: row.holding_quantity == null ? 0 : numberValue(row.holding_quantity, 0),
+        holdingValueUsd: row.holding_value_usd == null ? 0 : numberValue(row.holding_value_usd, 0),
+        holdingUpdatedAt: row.holding_updated_at || null
+    };
+}
+
 async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
     const address = String(addressRow.address || detection.address || "").trim();
     const requestId = await latestDepositRequestForAddress(client, addressRow);
@@ -3164,7 +3216,12 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
 
     const event = eventResult.rows[0];
     if (!event || event.credited_at || event.status === "credited") {
-        return { credited: false, reason: "already credited", eventId: event?.id || null };
+        return {
+            credited: false,
+            reason: "already credited",
+            eventId: event?.id || null,
+            duplicate: await duplicateDepositEventDetails(client, event?.id)
+        };
     }
 
     const credit = await creditDatabaseDepositHolding(client, addressRow, { ...detection, amount, amountUsd });
@@ -3217,6 +3274,18 @@ async function creditDetectedDepositWithTransaction(client, addressRow, detectio
     } catch (err) {
         await client.query("rollback").catch(() => {});
         throw err;
+    }
+}
+
+function addDepositScanResult(summary, result) {
+    if (result?.credited) {
+        summary.credited.push(result);
+        return;
+    }
+    summary.duplicates += 1;
+    if (result?.duplicate) {
+        if (!Array.isArray(summary.duplicateEvents)) summary.duplicateEvents = [];
+        summary.duplicateEvents.push(result.duplicate);
     }
 }
 
@@ -3348,8 +3417,7 @@ async function scanEvmTokenDepositsFromBlockscout(client, config, contract, rows
                         source: baseUrl
                     }
                 });
-                if (result.credited) summary.credited.push(result);
-                else summary.duplicates += 1;
+                addDepositScanResult(summary, result);
                 detected += 1;
             }
 
@@ -3447,8 +3515,7 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
                     to: parsed.args.to
                 }
             });
-            if (result.credited) summary.credited.push(result);
-            else summary.duplicates += 1;
+            addDepositScanResult(summary, result);
         }
     }
 
@@ -3514,8 +3581,7 @@ async function scanEvmNativeDepositGroup(client, network, rows, summary, options
                         to
                     }
                 });
-                if (result.credited) summary.credited.push(result);
-                else summary.duplicates += 1;
+                addDepositScanResult(summary, result);
             }
         }
     }
@@ -3536,8 +3602,7 @@ function chainAddressMatches(left = "", right = "") {
 
 async function creditAccountHistoryDeposit(client, row, detection, summary) {
     const result = await creditDetectedDepositWithTransaction(client, row, detection);
-    if (result.credited) summary.credited.push(result);
-    else summary.duplicates += 1;
+    addDepositScanResult(summary, result);
 }
 
 function mempoolDepositOutputAmount(tx = {}, address = "") {
@@ -3916,6 +3981,7 @@ async function scanDatabaseCryptoDeposits(options = {}) {
         scannedAddresses: 0,
         credited: [],
         duplicates: 0,
+        duplicateEvents: [],
         skipped: [],
         errors: []
     };
