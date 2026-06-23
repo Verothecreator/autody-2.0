@@ -115,6 +115,8 @@ const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
 const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
+const DEPOSIT_SWEEP_GAS_LIMIT = BigInt(Math.max(21000, Number(process.env.DEPOSIT_SWEEP_GAS_LIMIT || 140000)));
+const DEPOSIT_SWEEP_DESTINATION_OVERRIDE = process.env.DEPOSIT_SWEEP_DESTINATION_OVERRIDE === "true";
 const DEPOSIT_MNEMONIC = String(
     process.env.AUTODY_DEPOSIT_MNEMONIC
     || process.env.AUTODY_EVM_DEPOSIT_MNEMONIC
@@ -2292,6 +2294,26 @@ function deriveEvmDepositAddress(index) {
     return ethers.getAddress(child.address);
 }
 
+function deriveEvmDepositWallet(index, provider = null) {
+    const root = getEvmDepositRoot();
+    if (!root) return null;
+    const child = root.deriveChild(index);
+    return provider ? child.connect(provider) : child;
+}
+
+function normalizeDepositMetadata(metadata) {
+    if (!metadata) return {};
+    if (typeof metadata === "string") {
+        try {
+            return JSON.parse(metadata);
+        } catch (err) {
+            return {};
+        }
+    }
+    if (typeof metadata === "object") return metadata;
+    return {};
+}
+
 function treasuryAddressEnvCandidates(assetSymbol, network) {
     const assetKey = depositEnvKeyPart(assetSymbol);
     const networkKey = depositEnvKeyPart(network);
@@ -2301,6 +2323,38 @@ function treasuryAddressEnvCandidates(assetSymbol, network) {
         `AUTODY_TREASURY_${assetKey}_ADDRESS`,
         `TREASURY_${assetKey}_ADDRESS`
     ];
+}
+
+function sweepTreasuryAddressEnvCandidates(network) {
+    const networkKey = depositEnvKeyPart(network);
+    return [
+        `AUTODY_SWEEP_TREASURY_${networkKey}_ADDRESS`,
+        `AUTODY_TREASURY_${networkKey}_ADDRESS`,
+        "AUTODY_SWEEP_TREASURY_EVM_ADDRESS",
+        "AUTODY_TREASURY_EVM_ADDRESS",
+        "AUTODY_SWEEP_TREASURY_ADDRESS",
+        "AUTODY_TREASURY_ADDRESS"
+    ];
+}
+
+function resolveSweepTreasuryAddress(network, body = {}) {
+    if (DEPOSIT_SWEEP_DESTINATION_OVERRIDE && body.destinationAddress) {
+        return {
+            address: ethers.getAddress(String(body.destinationAddress).trim()),
+            source: "request.destinationAddress"
+        };
+    }
+
+    for (const envName of sweepTreasuryAddressEnvCandidates(network)) {
+        const value = String(process.env[envName] || "").trim();
+        if (!value) continue;
+        return {
+            address: ethers.getAddress(value),
+            source: envName
+        };
+    }
+
+    return { address: "", source: "" };
 }
 
 function resolveTreasuryDepositRoute(assetSymbol, network) {
@@ -2949,6 +3003,10 @@ const ERC20_TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
 const ERC20_TRANSFER_INTERFACE = new ethers.Interface([
     "event Transfer(address indexed from, address indexed to, uint256 value)"
 ]);
+const ERC20_SWEEP_ABI = [
+    "function balanceOf(address account) view returns (uint256)",
+    "function transfer(address to, uint256 amount) returns (bool)"
+];
 const STABLE_DEPOSIT_ASSETS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
 
 function getEvmDepositProvider(network) {
@@ -3186,6 +3244,239 @@ async function duplicateDepositEventDetails(client, eventId) {
         holdingValueUsd: row.holding_value_usd == null ? 0 : numberValue(row.holding_value_usd, 0),
         holdingUpdatedAt: row.holding_updated_at || null
     };
+}
+
+function formatNativeAmount(value) {
+    try {
+        return ethers.formatEther(value || 0n);
+    } catch (err) {
+        return "0";
+    }
+}
+
+function safeBigInt(value, fallback = 0n) {
+    try {
+        if (typeof value === "bigint") return value;
+        if (value == null || value === "") return fallback;
+        return BigInt(value);
+    } catch (err) {
+        return fallback;
+    }
+}
+
+async function estimateEvmSweepGas(contract, destination, amountRaw) {
+    try {
+        const estimated = await contract.transfer.estimateGas(destination, amountRaw);
+        return estimated > 0n ? estimated : DEPOSIT_SWEEP_GAS_LIMIT;
+    } catch (err) {
+        return DEPOSIT_SWEEP_GAS_LIMIT;
+    }
+}
+
+async function sweepDatabaseDepositAddress(body = {}) {
+    if (!databaseConfigured()) {
+        return { success: false, configured: false, error: "Database is not configured." };
+    }
+
+    const requestedAddress = String(body.address || "").trim();
+    const assetSymbol = normalizeDepositAssetSymbol(body.asset || body.symbol);
+    const network = normalizeDepositNetwork(assetSymbol, body.network);
+    if (!requestedAddress) throw demoTradeError(400, "Provide the generated deposit address to sweep.");
+
+    const networkConfig = getEvmNetworkConfig(network);
+    if (!networkConfig) {
+        throw demoTradeError(400, "Automated sweeping is currently available for EVM deposit networks only.");
+    }
+
+    const token = getEvmTokenDepositContract(assetSymbol, network);
+    const nativeAsset = (networkConfig.nativeAssets || []).map((item) => normalizeTradeSymbol(item));
+    const isNative = nativeAsset.includes(assetSymbol);
+    if (!token && !isNative) {
+        throw demoTradeError(400, `No sweep contract is configured for ${assetSymbol} on ${network}.`);
+    }
+
+    const treasury = resolveSweepTreasuryAddress(network, body);
+    if (!treasury.address) {
+        return {
+            success: false,
+            configured: false,
+            error: "Treasury sweep address is not configured.",
+            setEnv: sweepTreasuryAddressEnvCandidates(network)[0],
+            acceptedFallbacks: sweepTreasuryAddressEnvCandidates(network)
+        };
+    }
+
+    const providerConfig = getEvmDepositProvider(network);
+    if (!providerConfig?.provider) {
+        throw demoTradeError(500, `No RPC provider is configured for ${network}.`);
+    }
+
+    const client = await dbPool.connect();
+    try {
+        await ensureDepositTables(client);
+        const params = [requestedAddress.toLowerCase(), assetSymbol, network.toLowerCase()];
+        const result = await client.query(`
+            select id, profile_id, asset_symbol, network, address, provider, route_type, status, metadata, last_issued_at
+            from crypto_deposit_addresses
+            where lower(address) = $1
+              and upper(asset_symbol) = $2
+              and lower(network) = $3
+            order by last_issued_at desc
+            limit 1
+        `, params);
+        const row = result.rows[0];
+        if (!row) throw demoTradeError(404, "Deposit address was not found in Autody records.");
+        if (row.route_type !== "self_custody_hd") throw demoTradeError(400, "Only generated self-custody deposit addresses can be swept.");
+
+        const metadata = normalizeDepositMetadata(row.metadata);
+        const derivationIndex = Number(metadata.derivationIndex);
+        if (!Number.isInteger(derivationIndex) || derivationIndex < 0) {
+            throw demoTradeError(400, "This deposit address does not have a derivation index.");
+        }
+
+        const signer = deriveEvmDepositWallet(derivationIndex, providerConfig.provider);
+        if (!signer?.address) throw demoTradeError(500, "Could not derive the deposit signer from the configured seed phrase.");
+        const signerAddress = ethers.getAddress(signer.address);
+        const depositAddress = ethers.getAddress(row.address);
+        if (signerAddress !== depositAddress) {
+            throw demoTradeError(409, "Configured seed phrase does not match this deposit address.");
+        }
+
+        const nativeSymbol = networkConfig.nativeAssets?.[0] || "native";
+        const nativeBalance = await providerConfig.provider.getBalance(depositAddress);
+        const feeData = await providerConfig.provider.getFeeData();
+        const gasPrice = safeBigInt(feeData.gasPrice || feeData.maxFeePerGas, 0n);
+
+        if (token) {
+            const contract = new ethers.Contract(token.address, ERC20_SWEEP_ABI, signer);
+            const tokenBalance = await contract.balanceOf(depositAddress);
+            const amountRaw = body.amount
+                ? ethers.parseUnits(String(body.amount), token.decimals)
+                : tokenBalance;
+            if (amountRaw <= 0n || tokenBalance <= 0n) {
+                return {
+                    success: false,
+                    configured: true,
+                    error: `No ${assetSymbol} balance is available to sweep from this address.`,
+                    address: depositAddress,
+                    balance: ethers.formatUnits(tokenBalance, token.decimals)
+                };
+            }
+            if (amountRaw > tokenBalance) {
+                throw demoTradeError(400, `Sweep amount is greater than the ${assetSymbol} balance.`);
+            }
+
+            const gasLimit = await estimateEvmSweepGas(contract, treasury.address, amountRaw);
+            const requiredGas = gasPrice > 0n ? gasLimit * gasPrice : 0n;
+            const gasReady = requiredGas === 0n || nativeBalance >= requiredGas;
+            const base = {
+                success: gasReady,
+                configured: true,
+                executable: gasReady,
+                asset: assetSymbol,
+                network,
+                address: depositAddress,
+                treasuryAddress: treasury.address,
+                treasurySource: treasury.source,
+                derivationIndex,
+                derivationPath: metadata.derivationPath || `${EVM_DEPOSIT_BASE_PATH}/${derivationIndex}`,
+                tokenBalance: ethers.formatUnits(tokenBalance, token.decimals),
+                sweepAmount: ethers.formatUnits(amountRaw, token.decimals),
+                nativeGasAsset: nativeSymbol,
+                nativeGasBalance: formatNativeAmount(nativeBalance),
+                estimatedGasLimit: gasLimit.toString(),
+                estimatedGasCost: formatNativeAmount(requiredGas),
+                needsGas: !gasReady
+            };
+
+            if (!gasReady) {
+                return {
+                    ...base,
+                    success: false,
+                    error: `Send a small amount of ${nativeSymbol} to the generated deposit address before sweeping ${assetSymbol}.`,
+                    gasDepositAddress: depositAddress
+                };
+            }
+
+            const execute = body.execute === true || body.dryRun === false;
+            if (!execute) {
+                return {
+                    ...base,
+                    success: true,
+                    dryRun: true,
+                    message: "Sweep is ready. Send the same request with execute=true to submit the transfer."
+                };
+            }
+
+            const tx = await contract.transfer(treasury.address, amountRaw);
+            return {
+                ...base,
+                success: true,
+                dryRun: false,
+                txHash: tx.hash,
+                status: "submitted"
+            };
+        }
+
+        const gasLimit = 21000n;
+        const requiredGas = gasPrice > 0n ? gasLimit * gasPrice : 0n;
+        const requestedRaw = body.amount ? ethers.parseEther(String(body.amount)) : null;
+        const sweepableRaw = nativeBalance > requiredGas ? nativeBalance - requiredGas : 0n;
+        const amountRaw = requestedRaw == null ? sweepableRaw : requestedRaw;
+        if (amountRaw <= 0n || amountRaw + requiredGas > nativeBalance) {
+            return {
+                success: false,
+                configured: true,
+                error: `Not enough ${nativeSymbol} balance to sweep after gas.`,
+                asset: assetSymbol,
+                network,
+                address: depositAddress,
+                treasuryAddress: treasury.address,
+                nativeGasAsset: nativeSymbol,
+                nativeGasBalance: formatNativeAmount(nativeBalance),
+                estimatedGasCost: formatNativeAmount(requiredGas),
+                needsGas: true,
+                gasDepositAddress: depositAddress
+            };
+        }
+
+        const base = {
+            success: true,
+            configured: true,
+            executable: true,
+            asset: assetSymbol,
+            network,
+            address: depositAddress,
+            treasuryAddress: treasury.address,
+            treasurySource: treasury.source,
+            derivationIndex,
+            derivationPath: metadata.derivationPath || `${EVM_DEPOSIT_BASE_PATH}/${derivationIndex}`,
+            sweepAmount: ethers.formatEther(amountRaw),
+            nativeGasAsset: nativeSymbol,
+            nativeGasBalance: formatNativeAmount(nativeBalance),
+            estimatedGasLimit: gasLimit.toString(),
+            estimatedGasCost: formatNativeAmount(requiredGas),
+            needsGas: false
+        };
+        const execute = body.execute === true || body.dryRun === false;
+        if (!execute) {
+            return {
+                ...base,
+                dryRun: true,
+                message: "Native sweep is ready. Send the same request with execute=true to submit the transfer."
+            };
+        }
+
+        const tx = await signer.sendTransaction({ to: treasury.address, value: amountRaw });
+        return {
+            ...base,
+            dryRun: false,
+            txHash: tx.hash,
+            status: "submitted"
+        };
+    } finally {
+        client.release();
+    }
 }
 
 async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
@@ -8778,6 +9069,25 @@ app.post("/api/admin/deposits/scan", async (req, res) => {
   } catch (err) {
     console.error("Admin deposit scan failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "Deposit scan failed." });
+  }
+});
+
+app.post("/api/admin/deposits/sweep", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin deposit sweep is not authorized." });
+    }
+    const result = await sweepDatabaseDepositAddress(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin deposit sweep failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Deposit sweep failed." });
   }
 });
 
