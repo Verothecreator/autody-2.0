@@ -1750,7 +1750,8 @@ const EVM_DEPOSIT_NETWORK_CONFIGS = {
         scannerKey: "polygon",
         nativeAssets: ["POL"],
         rpcEnv: ["AUTODY_POLYGON_RPC_URL", "POLYGON_RPC_URL", "POLYGON_RPC"],
-        publicRpcUrl: "https://polygon-bor-rpc.publicnode.com"
+        publicRpcUrl: "https://polygon-bor-rpc.publicnode.com",
+        blockscoutApiUrl: "https://polygon.blockscout.com/api/v2"
     },
     "Avalanche C-Chain": {
         scannerKey: "avalanche",
@@ -3264,6 +3265,102 @@ function activeDepositAddressGroups(rows = []) {
     return groups;
 }
 
+function blockscoutAddressHash(value) {
+    if (!value) return "";
+    if (typeof value === "string") return normalizeEvmAddress(value);
+    return normalizeEvmAddress(value.hash || value.address_hash || value.address || "");
+}
+
+function blockscoutTokenContract(value) {
+    const token = value?.token || {};
+    return normalizeEvmAddress(token.address_hash || token.address || value?.token_address || value?.tokenAddress || "");
+}
+
+function blockscoutTransferAmount(value, fallbackDecimals = 18) {
+    const rawValue = firstPresent(value?.total?.value, value?.value, value?.amount);
+    if (rawValue == null || rawValue === "") return 0;
+    const decimals = Number(value?.total?.decimals ?? value?.token?.decimals ?? fallbackDecimals);
+    const safeDecimals = Number.isFinite(decimals) ? decimals : fallbackDecimals;
+    const rawText = String(rawValue).trim();
+    if (/^\d+$/.test(rawText)) {
+        try {
+            return numberValue(ethers.formatUnits(BigInt(rawText), safeDecimals), 0);
+        } catch (err) {
+            return 0;
+        }
+    }
+    return numberValue(rawText, 0);
+}
+
+function blockscoutTokenTransfersUrl(baseUrl, address, params = {}) {
+    const url = new URL(`${baseUrl.replace(/\/+$/g, "")}/addresses/${encodeURIComponent(address)}/token-transfers`);
+    url.searchParams.set("type", "ERC-20");
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+            url.searchParams.set(key, String(value));
+        }
+    });
+    return url.toString();
+}
+
+async function scanEvmTokenDepositsFromBlockscout(client, config, contract, rows, summary, window, latestBlock) {
+    const baseUrl = String(config?.blockscoutApiUrl || "").replace(/\/+$/g, "");
+    if (!baseUrl) return false;
+
+    const contractAddress = normalizeEvmAddress(contract.address);
+    let detected = 0;
+
+    for (const row of rows) {
+        const rowAddress = normalizeEvmAddress(row.address);
+        if (!rowAddress) continue;
+
+        let url = blockscoutTokenTransfersUrl(baseUrl, rowAddress);
+        for (let page = 0; page < 5 && url; page += 1) {
+            const json = await fetchDepositJson(url);
+            const items = Array.isArray(json?.items) ? json.items : [];
+            for (const item of items) {
+                const blockNumber = Number(item.block_number || item.blockNumber || 0);
+                if (!Number.isFinite(blockNumber) || blockNumber < window.fromBlock || blockNumber > window.toBlock) {
+                    continue;
+                }
+
+                const to = blockscoutAddressHash(item.to);
+                const itemContract = blockscoutTokenContract(item);
+                if (!to || to !== rowAddress || !itemContract || itemContract !== contractAddress) continue;
+
+                const amount = blockscoutTransferAmount(item, contract.decimals);
+                if (amount <= 0) continue;
+
+                const confirmations = Math.max(0, latestBlock - blockNumber + 1);
+                const result = await creditDetectedDepositWithTransaction(client, row, {
+                    amount,
+                    txHash: item.transaction_hash || item.transactionHash,
+                    logIndex: Number(item.log_index ?? item.logIndex ?? 0),
+                    blockNumber,
+                    confirmations,
+                    amountUsd: firstPositive(item.total?.usd_value, item.usd_value, item.value_usd),
+                    metadata: {
+                        scanner: "blockscout-token",
+                        contract: contract.address,
+                        tokenDecimals: contract.decimals,
+                        from: blockscoutAddressHash(item.from),
+                        to,
+                        source: baseUrl
+                    }
+                });
+                if (result.credited) summary.credited.push(result);
+                else summary.duplicates += 1;
+                detected += 1;
+            }
+
+            const nextParams = json?.next_page_params;
+            url = nextParams ? blockscoutTokenTransfersUrl(baseUrl, rowAddress, nextParams) : "";
+        }
+    }
+
+    return detected >= 0;
+}
+
 async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summary, options = {}) {
     const contract = getEvmTokenDepositContract(assetSymbol, network);
     const providerConfig = getEvmDepositProvider(network);
@@ -3301,12 +3398,31 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
     const addressTopics = Array.from(rowsByTopic.keys());
     if (!addressTopics.length) return;
 
-    const logs = await provider.getLogs({
-        address: contract.address,
-        fromBlock: window.fromBlock,
-        toBlock: window.toBlock,
-        topics: [ERC20_TRANSFER_TOPIC, null, addressTopics]
-    });
+    let logs = [];
+    try {
+        logs = await provider.getLogs({
+            address: contract.address,
+            fromBlock: window.fromBlock,
+            toBlock: window.toBlock,
+            topics: [ERC20_TRANSFER_TOPIC, null, addressTopics]
+        });
+    } catch (err) {
+        if (config.blockscoutApiUrl) {
+            try {
+                await scanEvmTokenDepositsFromBlockscout(client, config, contract, rows, summary, window, latestBlock);
+                if (!window.manualOverride) await saveDepositScanState(client, window);
+                return;
+            } catch (fallbackErr) {
+                summary.errors.push({
+                    network,
+                    asset: assetSymbol,
+                    scanner: "blockscout-token",
+                    error: fallbackErr.message || String(fallbackErr)
+                });
+            }
+        }
+        throw err;
+    }
 
     for (const log of logs) {
         const parsed = ERC20_TRANSFER_INTERFACE.parseLog(log);
