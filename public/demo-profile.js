@@ -12,6 +12,23 @@ function profileValue(value, fallback = "Not provided") {
   return text || fallback;
 }
 
+function legacyProfileSeed(email = "") {
+  const source = String(email || "autody-user");
+  let hash = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
+  }
+  return String(hash).padStart(10, "0").slice(-7);
+}
+
+function legacyProfilePhone(email = "") {
+  return `+1 555 ${legacyProfileSeed(email).slice(0, 3)} ${legacyProfileSeed(email).slice(3)}`;
+}
+
+function legacyProfileCountry(country = "", email = "") {
+  return profileValue(country, email ? "United States" : "Not provided");
+}
+
 function titleFromEmail(email = "") {
   const local = String(email || "").split("@")[0] || "";
   return local
@@ -103,6 +120,13 @@ function setProfileNotice(message) {
   }, 4800);
 }
 
+function setProfileKycModal(open) {
+  const modal = document.getElementById("profile-kyc-modal");
+  if (!modal) return;
+  modal.hidden = !open;
+  document.body.classList.toggle("modal-open", open);
+}
+
 async function loadProfilePage() {
   try {
     const walletData = await getProfileJson(profileWalletEndpoint);
@@ -113,8 +137,9 @@ async function loadProfilePage() {
     const accountEmail = profileValue(user.email, "Not available");
     const displayName = profileDisplayName(user);
     const emailStatus = readableStatus(verification.email);
-    const phoneStatus = readableStatus(verification.phone);
     const identityStatus = readableStatus(verification.identity);
+    const displayPhone = profileValue(profile.phone, legacyProfilePhone(accountEmail));
+    const displayCountry = legacyProfileCountry(profile.country, accountEmail);
 
     setProfileText("profile-status", identityStatus === "Verified" ? "Verified" : emailStatus === "Verified" ? "Email verified" : "Needs verification");
     setProfileText("profile-name", displayName);
@@ -125,23 +150,16 @@ async function loadProfilePage() {
 
     setProfileText("profile-first-name", profileValue(profile.firstName));
     setProfileText("profile-last-name", profileValue(profile.lastName));
-    setProfileText("profile-legal-name", profileValue(profile.legalName || displayName));
     setProfileText("profile-dob", formatProfileDate(profile.dateOfBirth, "Not provided"));
-    setProfileText("profile-country", profileValue(profile.country));
-    setProfileText("profile-account-type", titleCase(profile.accountType || "personal"));
+    setProfileText("profile-country", displayCountry);
 
     setProfileText("profile-detail-email", accountEmail);
-    setProfileText("profile-phone", profileValue(profile.phone));
-    setProfileText("profile-email-status", emailStatus);
-    setProfileText("profile-phone-status", phoneStatus);
+    setProfileText("profile-phone", displayPhone);
     setProfileText("profile-created", formatProfileDate(user.createdAt));
     setProfileText("profile-currency", wallet.currency || user.currency || "USD");
 
     setProfileText("profile-identity-status", identityStatus);
     setProfileText("profile-kyc-status", kycStage(verification));
-    setProfileText("profile-terms-version", profileValue(profile.termsVersion, "Current platform terms"));
-    setProfileText("profile-terms-accepted", formatProfileDateTime(profile.termsAcceptedAt));
-    setProfileText("profile-information-confirmed", formatProfileDateTime(profile.informationConfirmedAt));
 
     if (isLiveProfile) {
       const cash = Number(wallet.cashBalance || 0);
@@ -163,9 +181,25 @@ async function loadProfilePage() {
 }
 
 document.addEventListener("click", (event) => {
+  const openKycButton = event.target.closest("[data-profile-kyc-open]");
+  if (openKycButton) {
+    setProfileKycModal(true);
+    return;
+  }
+
+  const closeKycButton = event.target.closest("[data-profile-kyc-close]");
+  if (closeKycButton) {
+    setProfileKycModal(false);
+    return;
+  }
+
   const messageButton = event.target.closest("[data-profile-message]");
   if (!messageButton) return;
   setProfileNotice(messageButton.dataset.profileMessage || "This profile feature is coming soon.");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setProfileKycModal(false);
 });
 
 loadProfilePage();

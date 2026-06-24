@@ -1485,9 +1485,25 @@ h3 {
   min-height: 0;
 }
 
+.profile-combined-card {
+  grid-column: 1 / -1;
+}
+
+.profile-combined-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .profile-info-card .settings-list strong {
   max-width: 58%;
   overflow-wrap: anywhere;
+}
+
+.profile-combined-list strong {
+  max-width: 62%;
+}
+
+.profile-kyc-modal-card {
+  width: min(760px, calc(100vw - 32px));
 }
 
 .profile-kyc-status {
@@ -5076,6 +5092,7 @@ body.modal-open {
   }
 
   .live-form-grid,
+  .profile-combined-list,
   .profile-kyc-status,
   .live-wire-box,
   .live-holdings-table .asset-table-row {

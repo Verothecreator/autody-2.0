@@ -254,15 +254,38 @@ ZW|+263|Zimbabwe
 function populateCountryCodes() {
   if (countryCodeSelect) {
     countryCodeSelect.innerHTML = countryCallingCodes
-      .map(([iso, code, country]) => `<option value="${code}" title="${country}" ${iso === "US" ? "selected" : ""}>${iso} ${code}</option>`)
+      .map(([iso, code, country]) => `<option value="${code}" data-iso="${iso}" data-country="${country}" title="${country}" ${iso === "US" ? "selected" : ""}>${iso} ${code}</option>`)
       .join("");
   }
 
   if (countryResidenceSelect) {
     countryResidenceSelect.innerHTML = countryCallingCodes
-      .map(([iso, , country]) => `<option value="${country}" ${iso === "US" ? "selected" : ""}>${country}</option>`)
+      .map(([iso, , country]) => `<option value="${country}" data-iso="${iso}" ${iso === "US" ? "selected" : ""}>${country}</option>`)
       .join("");
   }
+}
+
+function selectedCountryCodeOption() {
+  return countryCodeSelect?.options?.[countryCodeSelect.selectedIndex] || null;
+}
+
+function selectedResidenceOption() {
+  return countryResidenceSelect?.options?.[countryResidenceSelect.selectedIndex] || null;
+}
+
+function syncCountryCodeToResidence() {
+  const residenceOption = selectedResidenceOption();
+  if (!countryCodeSelect || !residenceOption) return;
+  const targetIso = residenceOption.dataset.iso;
+  const match = Array.from(countryCodeSelect.options).find((option) => option.dataset.iso === targetIso);
+  if (match) countryCodeSelect.selectedIndex = match.index;
+}
+
+function countryCodeMatchesResidence() {
+  const codeOption = selectedCountryCodeOption();
+  const residenceOption = selectedResidenceOption();
+  if (!codeOption || !residenceOption) return true;
+  return codeOption.dataset.country === residenceOption.value;
 }
 
 function setSignUpMessage(type, message) {
@@ -292,6 +315,7 @@ function signUpPayload(form) {
     legalName: `${firstName} ${lastName}`.trim(),
     email: form.get("email"),
     countryCode: form.get("countryCode"),
+    countryCodeCountry: selectedCountryCodeOption()?.dataset?.country || "",
     phone: form.get("phone"),
     country: form.get("country"),
     dateOfBirth: form.get("dateOfBirth"),
@@ -303,6 +327,7 @@ function signUpPayload(form) {
 }
 
 populateCountryCodes();
+countryResidenceSelect?.addEventListener("change", syncCountryCodeToResidence);
 
 function setTermsModal(open) {
   if (!termsModal) return;
@@ -333,6 +358,11 @@ signUpForm?.addEventListener("submit", async (event) => {
 
   if (!window.AutodyCaptcha.isComplete(signUpForm)) {
     setSignUpMessage("error", "Complete the human verification.");
+    return;
+  }
+
+  if (!countryCodeMatchesResidence()) {
+    setSignUpMessage("error", "Select the calling code that matches your country of residence.");
     return;
   }
 

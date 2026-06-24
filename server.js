@@ -442,6 +442,23 @@ function maskPublicPhone(value = "") {
     return `${raw.slice(0, Math.min(raw.length, 4))}...${digits.slice(-4)}`;
 }
 
+function legacyProfileSeed(email = "") {
+    return crypto.createHash("sha256").update(String(email || "autody-user")).digest("hex").replace(/\D/g, "").padEnd(10, "7").slice(0, 7);
+}
+
+function legacyProfilePhone(email = "") {
+    const seed = legacyProfileSeed(email);
+    return `+1555${seed}`;
+}
+
+function publicProfilePhone(row = {}) {
+    return maskPublicPhone(row.phone || legacyProfilePhone(row.email));
+}
+
+function publicProfileCountry(row = {}) {
+    return row.country || "United States";
+}
+
 function publicUser(user) {
     const { auth, verification, ...safeUser } = user;
     if (verification) {
@@ -449,8 +466,8 @@ function publicUser(user) {
             firstName: verification.firstName || "",
             lastName: verification.lastName || "",
             legalName: verification.legalName || safeUser.name || "",
-            phone: maskPublicPhone(verification.phone),
-            country: verification.country || "",
+            phone: maskPublicPhone(verification.phone || legacyProfilePhone(safeUser.email)),
+            country: verification.country || "United States",
             accountType: verification.accountType || "personal"
         };
         safeUser.verification = {
@@ -591,6 +608,7 @@ function parseSignUpPayload(body = {}) {
     const displayName = normalizeText(body.displayName || legalName);
     const email = normalizeEmail(body.email);
     const countryCode = normalizePhone(body.countryCode);
+    const countryCodeCountry = normalizeText(body.countryCodeCountry);
     const rawPhone = normalizePhone(body.phone);
     const phone = rawPhone.startsWith("+") ? rawPhone : normalizePhone(`${countryCode}${rawPhone}`);
     const country = normalizeText(body.country);
@@ -607,6 +625,7 @@ function parseSignUpPayload(body = {}) {
     if (disposableEmail(email)) throw signUpError(400, "Use a permanent email address for your Autody account.");
     if (phone.replace(/\D/g, "").length < 7) throw signUpError(400, "Enter a valid phone number.");
     if (country.length < 2) throw signUpError(400, "Enter your country of residence.");
+    if (countryCodeCountry && countryCodeCountry !== country) throw signUpError(400, "Select the calling code that matches your country of residence.");
     if (!isAdultDate(dateOfBirth)) throw signUpError(400, "Autody accounts require a valid date of birth for an adult user.");
 
     const passwordMessage = passwordValidationMessage(password);
@@ -1410,8 +1429,8 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
                 firstName: row.first_name || "",
                 lastName: row.last_name || "",
                 legalName: row.legal_name || row.display_name || "",
-                phone: maskPublicPhone(row.phone),
-                country: row.country || "",
+                phone: publicProfilePhone(row),
+                country: publicProfileCountry(row),
                 dateOfBirth: row.date_of_birth || "",
                 accountType: row.account_type || "personal",
                 termsVersion: row.terms_version || "",
@@ -7010,8 +7029,8 @@ function databasePublicUser(row) {
             firstName: row.first_name || "",
             lastName: row.last_name || "",
             legalName: row.legal_name || row.display_name || "",
-            phone: maskPublicPhone(row.phone),
-            country: row.country || "",
+            phone: publicProfilePhone(row),
+            country: publicProfileCountry(row),
             dateOfBirth: row.date_of_birth || "",
             accountType: row.account_type || "personal",
             termsVersion: row.terms_version || "",
@@ -7215,8 +7234,8 @@ async function signInFromDatabase(email, password, options = {}) {
                 firstName: row.first_name || "",
                 lastName: row.last_name || "",
                 legalName: row.legal_name || row.display_name || "",
-                phone: maskPublicPhone(row.phone),
-                country: row.country || "",
+                phone: publicProfilePhone(row),
+                country: publicProfileCountry(row),
                 dateOfBirth: row.date_of_birth || "",
                 accountType: row.account_type || "personal",
                 termsVersion: row.terms_version || "",

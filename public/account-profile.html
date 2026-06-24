@@ -57,53 +57,42 @@
           </div>
         </div>
         <div class="profile-hero-actions">
-          <a href="#identity-review" class="btn btn-small">Identity Review</a>
+          <button class="btn btn-small" type="button" data-profile-kyc-open>Identity Review</button>
           <a href="demo-settings.html" class="btn btn-small btn-ghost">Settings</a>
         </div>
       </section>
 
       <section class="settings-grid profile-info-grid">
-        <div class="app-card settings-card profile-info-card">
+        <div class="app-card settings-card profile-info-card profile-combined-card">
           <div class="card-heading">
             <div>
               <span class="muted-label">Personal information</span>
-              <h2>Profile details</h2>
+              <h2>Profile and contact</h2>
             </div>
           </div>
-          <div class="settings-list">
+          <div class="settings-list profile-combined-list">
             <div><span>First name</span><strong id="profile-first-name">Loading</strong></div>
             <div><span>Last name</span><strong id="profile-last-name">Loading</strong></div>
-            <div><span>Legal name</span><strong id="profile-legal-name">Loading</strong></div>
-            <div><span>Date of birth</span><strong id="profile-dob">Not provided</strong></div>
-            <div><span>Country of residence</span><strong id="profile-country">Loading</strong></div>
-            <div><span>Account type</span><strong id="profile-account-type">Personal</strong></div>
-          </div>
-        </div>
-
-        <div class="app-card settings-card profile-info-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Contact</span>
-              <h2>Email and phone</h2>
-            </div>
-          </div>
-          <div class="settings-list">
             <div><span>Email address</span><strong id="profile-detail-email">Loading account</strong></div>
             <div><span>Phone number</span><strong id="profile-phone">Not provided</strong></div>
-            <div><span>Email status</span><strong id="profile-email-status">Checking</strong></div>
-            <div><span>Phone status</span><strong id="profile-phone-status">Checking</strong></div>
+            <div><span>Country of residence</span><strong id="profile-country">Loading</strong></div>
+            <div><span>Date of birth</span><strong id="profile-dob">Not provided</strong></div>
             <div><span>Account created</span><strong id="profile-created">Loading</strong></div>
             <div><span>Preferred currency</span><strong id="profile-currency">USD</strong></div>
           </div>
         </div>
+      </section>
 
-        <div class="app-card settings-card profile-info-card" id="identity-review">
-          <div class="card-heading">
+      <div class="live-wallet-modal profile-kyc-modal" id="profile-kyc-modal" hidden>
+        <div class="live-wallet-modal-backdrop" data-profile-kyc-close></div>
+        <section class="app-card live-wallet-modal-card profile-kyc-modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-kyc-title">
+          <div class="card-heading live-wallet-modal-heading">
             <div>
               <span class="muted-label">KYC</span>
-              <h2>Identity verification</h2>
-              <p class="card-intro">Live funding, higher limits, sends, receives, and withdrawals can use this section for identity review as the platform grows.</p>
+              <h2 id="profile-kyc-title">Identity verification</h2>
+              <p class="card-intro">Live funding, higher limits, sends, receives, and withdrawals can use this review path as the platform grows.</p>
             </div>
+            <button class="asset-more-button" type="button" data-profile-kyc-close aria-label="Close identity review">X</button>
           </div>
           <div class="profile-kyc-status">
             <div>
@@ -140,23 +129,8 @@
           </div>
           <button class="btn btn-full" type="button" data-profile-message="Identity review uploads are coming soon.">Start Identity Review</button>
           <p class="live-notice profile-notice" id="profile-notice" hidden></p>
-        </div>
-
-        <div class="app-card settings-card profile-info-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Agreements</span>
-              <h2>Account records</h2>
-            </div>
-          </div>
-          <div class="settings-list">
-            <div><span>Terms version</span><strong id="profile-terms-version">Loading</strong></div>
-            <div><span>Terms accepted</span><strong id="profile-terms-accepted">Loading</strong></div>
-            <div><span>Information confirmed</span><strong id="profile-information-confirmed">Loading</strong></div>
-            <div><span>Account session</span><strong>Email code protected</strong></div>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   </div>
   <script src="demo-auth.js"></script>
