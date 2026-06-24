@@ -100,6 +100,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
 const FIAT_PAYMENT_PROCESSOR = String(process.env.FIAT_PAYMENT_PROCESSOR || process.env.PAYMENT_PROCESSOR || "stripe").trim().toLowerCase();
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || process.env.PAYMENT_PROCESSOR_SECRET_KEY || "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || process.env.PAYMENT_PROCESSOR_WEBHOOK_SECRET || "";
 const STRIPE_API_BASE = process.env.STRIPE_API_BASE || "https://api.stripe.com/v1";
 const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || "";
 const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
@@ -3553,6 +3554,198 @@ async function updateFiatFundingProcessor(auth, request, processor = {}) {
         return await updateDatabaseFiatFundingProcessor(request.id, processor) || request;
     }
     return updateJsonFiatFundingProcessor(auth, request.id, processor) || request;
+}
+
+function stripeSignatureParts(header = "") {
+    return String(header || "")
+        .split(",")
+        .map((part) => part.split("="))
+        .reduce((acc, [key, value]) => {
+            const name = String(key || "").trim();
+            if (!name) return acc;
+            acc[name] = acc[name] || [];
+            acc[name].push(String(value || "").trim());
+            return acc;
+        }, {});
+}
+
+function verifyStripeWebhookPayload(req) {
+    if (!STRIPE_WEBHOOK_SECRET) {
+        throw demoTradeError(503, "Stripe webhook secret is not configured.");
+    }
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ""), "utf8");
+    const parts = stripeSignatureParts(req.headers["stripe-signature"]);
+    const timestamp = parts.t?.[0];
+    const signatures = parts.v1 || [];
+    if (!timestamp || !signatures.length) throw demoTradeError(400, "Stripe signature is missing.");
+
+    const payload = Buffer.concat([
+        Buffer.from(`${timestamp}.`, "utf8"),
+        rawBody
+    ]);
+    const expected = crypto
+        .createHmac("sha256", STRIPE_WEBHOOK_SECRET)
+        .update(payload)
+        .digest("hex");
+
+    const valid = signatures.some((signature) => {
+        try {
+            const left = Buffer.from(signature, "hex");
+            const right = Buffer.from(expected, "hex");
+            return left.length === right.length && crypto.timingSafeEqual(left, right);
+        } catch (err) {
+            return false;
+        }
+    });
+    if (!valid) throw demoTradeError(400, "Stripe signature is invalid.");
+
+    const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));
+    if (!Number.isFinite(ageSeconds) || ageSeconds > 5 * 60) {
+        throw demoTradeError(400, "Stripe signature is too old.");
+    }
+
+    return JSON.parse(rawBody.toString("utf8") || "{}");
+}
+
+function stripeEventFundingReference(event = {}) {
+    const object = event?.data?.object || {};
+    return normalizeText(
+        object.client_reference_id
+        || object.metadata?.reference_code
+        || object.payment_intent?.metadata?.reference_code
+        || ""
+    );
+}
+
+function stripeEventProcessorReference(event = {}) {
+    const object = event?.data?.object || {};
+    return normalizeText(object.id || object.payment_intent || "");
+}
+
+function stripeEventSucceeded(event = {}) {
+    const object = event?.data?.object || {};
+    if (event.type === "checkout.session.completed") return object.payment_status === "paid";
+    if (event.type === "checkout.session.async_payment_succeeded") return true;
+    if (event.type === "payment_intent.succeeded") return true;
+    return false;
+}
+
+function stripeEventFailed(event = {}) {
+    return event?.type === "checkout.session.async_payment_failed"
+        || event?.type === "payment_intent.payment_failed";
+}
+
+async function markDatabaseFiatFundingFailed(referenceCode, event = {}) {
+    if (!referenceCode) return null;
+    const result = await dbPool.query(`
+        update fiat_funding_requests
+        set status = 'failed',
+            metadata = metadata || $2::jsonb,
+            updated_at = now()
+        where reference_code = $1
+          and settled_at is null
+        returning *
+    `, [
+        referenceCode,
+        JSON.stringify({
+            processorStatus: "failed",
+            processorEventId: event.id || "",
+            processorEventType: event.type || ""
+        })
+    ]);
+    return result.rows[0] ? mapFiatFundingRequest(result.rows[0]) : null;
+}
+
+async function settleDatabaseFiatFundingRequest(referenceCode, event = {}) {
+    if (!referenceCode) throw demoTradeError(400, "Funding reference is missing.");
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        const requestResult = await client.query(`
+            select *
+            from fiat_funding_requests
+            where reference_code = $1
+            for update
+        `, [referenceCode]);
+        const request = requestResult.rows[0];
+        if (!request) {
+            await client.query("commit");
+            return { credited: false, reason: "request_not_found", referenceCode };
+        }
+        if (request.settled_at) {
+            await client.query("commit");
+            return {
+                credited: false,
+                duplicate: true,
+                request: mapFiatFundingRequest(request)
+            };
+        }
+        if (!["card", "ach"].includes(request.method)) {
+            await client.query("commit");
+            return {
+                credited: false,
+                reason: "manual_method",
+                request: mapFiatFundingRequest(request)
+            };
+        }
+
+        const walletResult = await client.query(`
+            select id
+            from wallets
+            where account_mode_id = $1
+            for update
+        `, [request.account_mode_id]);
+        const walletId = walletResult.rows[0]?.id;
+        if (!walletId) throw demoTradeError(404, "Live wallet was not found for this funding request.");
+
+        const creditAmount = numberValue(request.net_usd, 0);
+        if (creditAmount <= 0) throw demoTradeError(400, "Funding request has no net USD to credit.");
+        await adjustDbCash(client, walletId, creditAmount);
+
+        const updateResult = await client.query(`
+            update fiat_funding_requests
+            set status = 'settled',
+                provider = 'stripe',
+                metadata = metadata || $2::jsonb,
+                settled_at = now(),
+                updated_at = now()
+            where id = $1
+            returning *
+        `, [
+            request.id,
+            JSON.stringify({
+                processorStatus: "paid",
+                processorEventId: event.id || "",
+                processorEventType: event.type || "",
+                processorReference: stripeEventProcessorReference(event),
+                creditedUsd: creditAmount
+            })
+        ]);
+
+        await client.query("commit");
+        return {
+            credited: true,
+            amountUsd: creditAmount,
+            request: mapFiatFundingRequest(updateResult.rows[0])
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+async function handleStripeFundingWebhook(event = {}) {
+    const referenceCode = stripeEventFundingReference(event);
+    if (!referenceCode) return { ignored: true, reason: "missing_reference" };
+    if (stripeEventSucceeded(event)) {
+        return await settleDatabaseFiatFundingRequest(referenceCode, event);
+    }
+    if (stripeEventFailed(event)) {
+        return await markDatabaseFiatFundingFailed(referenceCode, event);
+    }
+    return { ignored: true, eventType: event.type, referenceCode };
 }
 
 const evmDepositProviderCache = new Map();
@@ -10508,6 +10701,24 @@ app.post("/api/account/deposits/address", async (req, res) => {
   } catch (err) {
     console.error("Live deposit address error:", err);
     return sendDemoError(res, err, "Deposit route could not be created");
+  }
+});
+
+app.post("/api/payments/stripe/webhook", async (req, res) => {
+  try {
+    if (!databaseConfigured()) {
+      throw demoTradeError(503, "Database is required before payment settlement can run.");
+    }
+    const event = verifyStripeWebhookPayload(req);
+    const result = await handleStripeFundingWebhook(event);
+    return res.json({
+      received: true,
+      success: true,
+      result
+    });
+  } catch (err) {
+    console.error("Stripe funding webhook error:", err);
+    return sendDemoError(res, err, "Payment webhook could not be processed");
   }
 });
 
