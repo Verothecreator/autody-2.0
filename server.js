@@ -1271,6 +1271,19 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             p.email,
             p.display_name,
             p.created_at,
+            pv.first_name,
+            pv.last_name,
+            pv.legal_name,
+            pv.phone,
+            pv.country,
+            pv.date_of_birth,
+            pv.account_type,
+            pv.email_status,
+            pv.phone_status,
+            pv.identity_status,
+            pv.terms_version,
+            pv.terms_accepted_at,
+            pv.information_confirmed_at,
             am.id as account_mode_id,
             w.id as wallet_id,
             w.currency,
@@ -1280,6 +1293,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
         from profiles p
         join account_modes am on am.profile_id = p.id and am.mode = $2
         join wallets w on w.account_mode_id = am.id
+        left join profile_verifications pv on pv.profile_id = p.id
         where p.id = $1
         limit 1
     `, [profileId, accountMode]);
@@ -1292,6 +1306,19 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
                 p.email,
                 p.display_name,
                 p.created_at,
+                pv.first_name,
+                pv.last_name,
+                pv.legal_name,
+                pv.phone,
+                pv.country,
+                pv.date_of_birth,
+                pv.account_type,
+                pv.email_status,
+                pv.phone_status,
+                pv.identity_status,
+                pv.terms_version,
+                pv.terms_accepted_at,
+                pv.information_confirmed_at,
                 am.id as account_mode_id,
                 w.id as wallet_id,
                 w.currency,
@@ -1301,6 +1328,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             from profiles p
             join account_modes am on am.profile_id = p.id and am.mode = $2
             join wallets w on w.account_mode_id = am.id
+            left join profile_verifications pv on pv.profile_id = p.id
             where p.id = $1
             limit 1
         `, [profileId, accountMode]);
@@ -1377,7 +1405,24 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             startingBalance,
             cashBalance,
             reservedCash: numberValue(row.reserved_cash, 0),
-            createdAt: row.created_at
+            createdAt: row.created_at,
+            profile: {
+                firstName: row.first_name || "",
+                lastName: row.last_name || "",
+                legalName: row.legal_name || row.display_name || "",
+                phone: maskPublicPhone(row.phone),
+                country: row.country || "",
+                dateOfBirth: row.date_of_birth || "",
+                accountType: row.account_type || "personal",
+                termsVersion: row.terms_version || "",
+                termsAcceptedAt: row.terms_accepted_at || "",
+                informationConfirmedAt: row.information_confirmed_at || ""
+            },
+            verification: {
+                email: row.email_status || "pending",
+                phone: row.phone_status || "pending",
+                identity: row.identity_status || "pending"
+            }
         },
         wallet: { cash, holdings: nonCashHoldings },
         orders: ordersResult.rows,
@@ -6236,9 +6281,19 @@ async function databaseProfileFromSessionToken(token) {
             p.email,
             p.display_name,
             p.created_at,
+            pv.first_name,
+            pv.last_name,
+            pv.legal_name,
+            pv.phone,
+            pv.country,
+            pv.date_of_birth,
+            pv.account_type,
             pv.email_status,
             pv.phone_status,
-            pv.identity_status
+            pv.identity_status,
+            pv.terms_version,
+            pv.terms_accepted_at,
+            pv.information_confirmed_at
         from app_sessions s
         join profiles p on p.id = s.profile_id
         left join profile_verifications pv on pv.profile_id = p.id
@@ -6697,10 +6752,19 @@ async function databaseProfileVerification(email) {
             p.email,
             p.display_name,
             p.created_at,
+            pv.first_name,
+            pv.last_name,
+            pv.legal_name,
             pv.phone,
+            pv.country,
+            pv.date_of_birth,
+            pv.account_type,
             pv.email_status,
             pv.phone_status,
-            pv.identity_status
+            pv.identity_status,
+            pv.terms_version,
+            pv.terms_accepted_at,
+            pv.information_confirmed_at
         from profiles p
         join profile_verifications pv on pv.profile_id = p.id
         where lower(p.email) = lower($1)
@@ -6936,12 +7000,24 @@ async function resetDatabaseAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
 function databasePublicUser(row) {
     if (!row) return null;
     return {
-        id: row.id,
+        id: row.id || row.profile_id,
         name: row.display_name,
         email: row.email,
         mode: "live",
         currency: "USD",
         createdAt: row.created_at,
+        profile: {
+            firstName: row.first_name || "",
+            lastName: row.last_name || "",
+            legalName: row.legal_name || row.display_name || "",
+            phone: maskPublicPhone(row.phone),
+            country: row.country || "",
+            dateOfBirth: row.date_of_birth || "",
+            accountType: row.account_type || "personal",
+            termsVersion: row.terms_version || "",
+            termsAcceptedAt: row.terms_accepted_at || "",
+            informationConfirmedAt: row.information_confirmed_at || ""
+        },
         verification: {
             email: row.email_status || "pending",
             phone: row.phone_status || "pending",
@@ -7091,9 +7167,19 @@ async function signInFromDatabase(email, password, options = {}) {
             p.email,
             p.display_name,
             p.created_at,
+            pv.first_name,
+            pv.last_name,
+            pv.legal_name,
+            pv.phone,
+            pv.country,
+            pv.date_of_birth,
+            pv.account_type,
             pv.email_status,
             pv.phone_status,
             pv.identity_status,
+            pv.terms_version,
+            pv.terms_accepted_at,
+            pv.information_confirmed_at,
             pc.password_algorithm,
             pc.password_salt,
             pc.password_hash
@@ -7125,6 +7211,18 @@ async function signInFromDatabase(email, password, options = {}) {
             mode: "live",
             currency: "USD",
             createdAt: row.created_at,
+            profile: {
+                firstName: row.first_name || "",
+                lastName: row.last_name || "",
+                legalName: row.legal_name || row.display_name || "",
+                phone: maskPublicPhone(row.phone),
+                country: row.country || "",
+                dateOfBirth: row.date_of_birth || "",
+                accountType: row.account_type || "personal",
+                termsVersion: row.terms_version || "",
+                termsAcceptedAt: row.terms_accepted_at || "",
+                informationConfirmedAt: row.information_confirmed_at || ""
+            },
             verification: {
                 email: row.email_status || "pending",
                 phone: row.phone_status || "pending",

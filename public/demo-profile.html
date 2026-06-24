@@ -37,7 +37,7 @@
         <div>
           <p class="eyebrow">Demo profile</p>
           <h1>Profile</h1>
-          <p class="app-subtitle">Your signed-in demo identity, practice balances, orders, watchlist, and account status in one place.</p>
+          <p class="app-subtitle">Your personal account information, contact details, verification state, and identity review path.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Practice user</span>
@@ -46,11 +46,9 @@
       </header>
 
       <section class="profile-hero app-card">
-        <div class="profile-avatar" aria-hidden="true">
-          <img src="Autody-Logo.png" alt="" />
-        </div>
+        <div class="profile-avatar profile-initials" id="profile-initials" aria-hidden="true">AU</div>
         <div>
-          <span class="muted-label">Signed in as</span>
+          <span class="muted-label">Account holder</span>
           <h2 id="profile-name">Loading profile</h2>
           <p id="profile-email">Loading account</p>
           <div class="profile-badge-row">
@@ -59,94 +57,102 @@
           </div>
         </div>
         <div class="profile-hero-actions">
-          <a href="demo-settings.html" class="btn btn-small">Settings</a>
-          <a href="demo-wallet.html" class="btn btn-small btn-ghost">Wallet</a>
+          <a href="#identity-review" class="btn btn-small">Identity Review</a>
+          <a href="demo-settings.html" class="btn btn-small btn-ghost">Settings</a>
         </div>
       </section>
 
-      <section class="account-kpi-grid">
-        <div class="app-card mini-metric">
-          <span class="muted-label">USD funds</span>
-          <strong id="profile-cash">$50,000</strong>
-          <small>Demo buying power</small>
-        </div>
-        <div class="app-card mini-metric">
-          <span class="muted-label">Account value</span>
-          <strong id="profile-total">$50,000</strong>
-          <small>Cash plus holdings</small>
-        </div>
-        <div class="app-card mini-metric">
-          <span class="muted-label">Held assets</span>
-          <strong id="profile-positions">0</strong>
-          <small>Current positions</small>
-        </div>
-        <div class="app-card mini-metric profit-metric">
-          <span class="muted-label">Demo P/L</span>
-          <strong id="profile-profit-loss" class="flat">$0.00</strong>
-          <small id="profile-return">+0.00% total return</small>
-        </div>
-      </section>
-
-      <section class="settings-grid">
-        <div class="app-card settings-card">
+      <section class="settings-grid profile-info-grid">
+        <div class="app-card settings-card profile-info-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Identity</span>
-              <h2>Account details</h2>
+              <span class="muted-label">Personal information</span>
+              <h2>Profile details</h2>
             </div>
           </div>
           <div class="settings-list">
-            <div><span>Email</span><strong id="profile-detail-email">Loading account</strong></div>
+            <div><span>First name</span><strong id="profile-first-name">Loading</strong></div>
+            <div><span>Last name</span><strong id="profile-last-name">Loading</strong></div>
             <div><span>Legal name</span><strong id="profile-legal-name">Loading</strong></div>
-            <div><span>Country</span><strong id="profile-country">Loading</strong></div>
-            <div><span>Account mode</span><strong>Demo trading</strong></div>
-            <div><span>Currency</span><strong id="profile-currency">USD</strong></div>
-            <div><span>Created</span><strong id="profile-created">Loading</strong></div>
+            <div><span>Date of birth</span><strong id="profile-dob">Not provided</strong></div>
+            <div><span>Country of residence</span><strong id="profile-country">Loading</strong></div>
+            <div><span>Account type</span><strong id="profile-account-type">Personal</strong></div>
           </div>
         </div>
 
-        <div class="app-card settings-card">
+        <div class="app-card settings-card profile-info-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Security</span>
-              <h2>Account checks</h2>
+              <span class="muted-label">Contact</span>
+              <h2>Email and phone</h2>
             </div>
           </div>
           <div class="settings-list">
-            <div><span>Email</span><strong id="profile-email-status">Checking</strong></div>
-            <div><span>Phone</span><strong id="profile-phone-status">Checking</strong></div>
-            <div><span>Identity</span><strong id="profile-identity-status">Checking</strong></div>
-            <div><span>Trusted device</span><strong>Email code protected</strong></div>
+            <div><span>Email address</span><strong id="profile-detail-email">Loading account</strong></div>
+            <div><span>Phone number</span><strong id="profile-phone">Not provided</strong></div>
+            <div><span>Email status</span><strong id="profile-email-status">Checking</strong></div>
+            <div><span>Phone status</span><strong id="profile-phone-status">Checking</strong></div>
+            <div><span>Account created</span><strong id="profile-created">Loading</strong></div>
+            <div><span>Preferred currency</span><strong id="profile-currency">USD</strong></div>
           </div>
         </div>
 
-        <div class="app-card settings-card">
+        <div class="app-card settings-card profile-info-card" id="identity-review">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Storage</span>
-              <h2>Database connection</h2>
+              <span class="muted-label">KYC</span>
+              <h2>Identity verification</h2>
+              <p class="card-intro">Identity review belongs here. Demo mode can show the path before live funding, withdrawals, and limits are enabled.</p>
+            </div>
+          </div>
+          <div class="profile-kyc-status">
+            <div>
+              <span>Identity status</span>
+              <strong id="profile-identity-status">Checking</strong>
+            </div>
+            <div>
+              <span>Review stage</span>
+              <strong id="profile-kyc-status">Not started</strong>
+            </div>
+          </div>
+          <div class="kyc-step-list">
+            <article>
+              <span>1</span>
+              <div>
+                <strong>Confirm personal details</strong>
+                <small>Name, date of birth, country, phone, and email must match the account owner.</small>
+              </div>
+            </article>
+            <article>
+              <span>2</span>
+              <div>
+                <strong>Upload identity document</strong>
+                <small>Government ID, passport, or driver license review will connect here.</small>
+              </div>
+            </article>
+            <article>
+              <span>3</span>
+              <div>
+                <strong>Complete account review</strong>
+                <small>Autody can approve funding, withdrawal, and live account permissions after checks pass.</small>
+              </div>
+            </article>
+          </div>
+          <a class="btn btn-full" href="demo-settings.html">Open Settings</a>
+        </div>
+
+        <div class="app-card settings-card profile-info-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label">Agreements</span>
+              <h2>Account records</h2>
             </div>
           </div>
           <div class="settings-list">
-            <div><span>Provider</span><strong id="profile-source">Checking</strong></div>
-            <div><span>Orders</span><strong id="profile-order-count">Loading</strong></div>
-            <div><span>Watchlist</span><strong id="profile-watchlist-count">Loading</strong></div>
-            <div><span>Session</span><strong>Protected access</strong></div>
-          </div>
-        </div>
-
-        <div class="app-card settings-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Controls</span>
-              <h2>Account shortcuts</h2>
-            </div>
-          </div>
-          <div class="profile-action-list">
-            <a href="demo-wallet.html">Open Wallet</a>
-            <a href="demo-orders.html">Open Orders</a>
-            <a href="demo-watchlist.html">Open Watchlist</a>
-            <a href="demo-research.html">Open Research</a>
+            <div><span>Terms version</span><strong id="profile-terms-version">Loading</strong></div>
+            <div><span>Terms accepted</span><strong id="profile-terms-accepted">Loading</strong></div>
+            <div><span>Information confirmed</span><strong id="profile-information-confirmed">Loading</strong></div>
+            <div><span>Account session</span><strong>Email code protected</strong></div>
           </div>
         </div>
       </section>

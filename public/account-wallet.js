@@ -438,7 +438,7 @@ function liveCategoryLabel(asset) {
 function liveWalletActions(asset) {
   if (asset.symbol === "USD") {
     return [
-      ["Add Funds", "#live-funding"],
+      ["Add Funds", "modal:funding"],
       ["Receive Crypto", "modal:receive"]
     ];
   }
@@ -605,9 +605,14 @@ function liveRenderDetail(asset) {
   if (actions) {
     actions.classList.toggle("wallet-action-grid-crypto", liveWalletUsesCryptoActionGrid(asset));
     actions.innerHTML = liveWalletActions(asset)
-      .map(([label, href]) => href.startsWith("modal:")
-        ? `<button type="button" data-live-wallet-transfer="${escapeLiveWalletHtml(href.replace("modal:", ""))}">${escapeLiveWalletHtml(label)}</button>`
-        : `<a href="${escapeLiveWalletHtml(href)}">${escapeLiveWalletHtml(label)}</a>`)
+      .map(([label, href]) => {
+        if (href === "modal:funding") {
+          return `<button type="button" data-live-wallet-funding>${escapeLiveWalletHtml(label)}</button>`;
+        }
+        return href.startsWith("modal:")
+          ? `<button type="button" data-live-wallet-transfer="${escapeLiveWalletHtml(href.replace("modal:", ""))}">${escapeLiveWalletHtml(label)}</button>`
+          : `<a href="${escapeLiveWalletHtml(href)}">${escapeLiveWalletHtml(label)}</a>`;
+      })
       .join("");
   }
 }
@@ -792,6 +797,18 @@ function closeLiveTransferModal() {
 }
 
 document.addEventListener("click", (event) => {
+  const fundingButton = event.target.closest("[data-live-wallet-funding]");
+  if (fundingButton) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (typeof window.openAutodyLiveFundingModal === "function") {
+      window.openAutodyLiveFundingModal("card");
+    } else {
+      window.location.href = "account-wallet.html#live-funding";
+    }
+    return;
+  }
+
   const transferButton = event.target.closest("[data-live-wallet-transfer]");
   if (transferButton) {
     event.preventDefault();

@@ -125,6 +125,24 @@ function setFundingTab(tabName) {
   });
 }
 
+function openAutodyLiveFundingModal(tabName = "card") {
+  const modal = document.getElementById("live-funding-modal");
+  if (!modal) return false;
+  setFundingTab(tabName || "card");
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+  return true;
+}
+
+function closeAutodyLiveFundingModal() {
+  const modal = document.getElementById("live-funding-modal");
+  if (!modal) return;
+  modal.hidden = true;
+  if (document.getElementById("live-crypto")?.hidden !== false) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
 function fundingMethodLabel(method) {
   return {
     card: "Card",
@@ -143,39 +161,7 @@ function fundingSourceValue(method) {
 
 async function createFundingRequest(method, button) {
   const normalized = String(method || "").trim().toLowerCase();
-  const originalText = button?.textContent || "";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Preparing...";
-  }
-
-  try {
-    const data = await postLiveAccountJson("/api/account/funding/request", {
-      method: normalized,
-      amountUsd: fundingAmountValue(normalized),
-      fundingSource: fundingSourceValue(normalized)
-    });
-    const request = data.request || {};
-    const feeText = request.feeUsd ? ` Estimated fee: $${Number(request.feeUsd).toFixed(2)}.` : "";
-    const referenceText = request.referenceCode ? ` Reference ${request.referenceCode}.` : "";
-    if (data.checkoutUrl) {
-      showLiveNotice(`Opening ${fundingMethodLabel(normalized)} checkout.${referenceText}${feeText}`, "success");
-      window.location.href = data.checkoutUrl;
-      return;
-    }
-    const processorText = data.providerConfigured === false && normalized !== "wire"
-      ? " Processor is not connected yet."
-      : "";
-    const nextStepText = data.nextStep ? ` ${data.nextStep}` : "";
-    showLiveNotice(`${fundingMethodLabel(normalized)} funding request saved.${referenceText}${feeText}${processorText}${nextStepText}`, "success");
-  } catch (err) {
-    showLiveNotice(err.message || `${fundingMethodLabel(normalized)} funding request could not be saved.`, "warning");
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  }
+  showLiveNotice(`${fundingMethodLabel(normalized)} funding is coming soon. Crypto receive stays available in the separate receive flow.`, "info");
 }
 
 function updateReceiveNetworks() {
@@ -404,6 +390,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-live-funding-close]")) {
+    event.preventDefault();
+    closeAutodyLiveFundingModal();
+    return;
+  }
+
   const liveMessage = event.target.closest("[data-live-message]");
   if (liveMessage) {
     showLiveNotice(liveMessage.dataset.liveMessage, "info");
@@ -417,14 +409,10 @@ document.addEventListener("click", (event) => {
       openAutodyLiveTransferModal("receive");
       return;
     }
-    const targetId = "live-funding";
-    const target = document.getElementById(targetId);
-    if (!target) {
-      window.location.href = `account-wallet.html#${targetId}`;
-      return;
+    if (liveFocus.dataset.liveFocus === "funding") {
+      event.preventDefault();
+      if (!openAutodyLiveFundingModal("card")) window.location.href = "account-wallet.html#live-funding";
     }
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    if (liveFocus.dataset.liveFocus === "funding") setFundingTab("card");
     return;
   }
 
@@ -466,6 +454,11 @@ document.getElementById("generate-receive-address")?.addEventListener("click", g
 document.getElementById("copy-receive-address")?.addEventListener("click", copyReceiveAddress);
 document.getElementById("review-send")?.addEventListener("click", reviewLiveSend);
 
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  closeAutodyLiveFundingModal();
+});
+
 populateLiveCryptoSelects();
 setLiveTransferAsset(new URLSearchParams(location.search).get("asset") || defaultLiveCryptoSymbol());
 updateReceiveNetworks();
@@ -473,6 +466,8 @@ updateReceiveNetworks();
 window.ensureLiveReceiveAddress = () => requestReceiveAddress({ fresh: false, showNotice: false });
 window.openAutodyLiveTransferModal = openAutodyLiveTransferModal;
 window.closeAutodyLiveTransferModal = closeAutodyLiveTransferModal;
+window.openAutodyLiveFundingModal = openAutodyLiveFundingModal;
+window.closeAutodyLiveFundingModal = closeAutodyLiveFundingModal;
 
 if (location.hash === "#live-crypto") {
   openAutodyLiveTransferModal(
@@ -482,5 +477,5 @@ if (location.hash === "#live-crypto") {
 }
 
 if (location.hash === "#live-funding") {
-  setFundingTab("card");
+  openAutodyLiveFundingModal("card");
 }

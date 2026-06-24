@@ -104,7 +104,7 @@
             </div>
             <div class="wallet-detail-list" id="live-wallet-detail-list"></div>
             <div class="wallet-action-grid" id="live-wallet-detail-actions">
-              <a href="#live-funding">Add Funds</a>
+              <button type="button" data-live-wallet-funding>Add Funds</button>
               <a href="#live-crypto">Receive Crypto</a>
             </div>
           </div>
@@ -123,14 +123,16 @@
         </div>
       </section>
 
-      <section class="account-grid live-wallet-tools">
-        <div class="app-card live-funding-card wide-card" id="live-funding">
-          <div class="card-heading">
+      <div class="live-wallet-modal" id="live-funding-modal" hidden>
+        <div class="live-wallet-modal-backdrop" data-live-funding-close></div>
+        <div class="app-card live-funding-card live-wallet-modal-card live-funding-modal-card" id="live-funding">
+          <div class="card-heading live-wallet-modal-heading">
             <div>
               <span class="muted-label">Funding</span>
               <h2>Add funds</h2>
               <p class="card-intro">These flows prepare fiat funding for a live account. Crypto deposits stay in the separate receive flow.</p>
             </div>
+            <button class="asset-more-button" type="button" data-live-funding-close aria-label="Close funding panel">x</button>
           </div>
 
           <div class="live-method-tabs" role="tablist" aria-label="Funding methods">
@@ -155,9 +157,9 @@
             </div>
             <div class="live-method-summary">
               <strong>Card checkout</strong>
-              <span>When the processor is connected, this opens secure card checkout. The estimated card fee is shown before confirmation.</span>
+              <span>Debit and credit card funding is coming soon. When connected, secure checkout and fees will show before confirmation.</span>
             </div>
-            <button class="btn btn-full" type="button" data-funding-request="card">Prepare Card Deposit</button>
+            <button class="btn btn-full" type="button" data-funding-request="card">Card Coming Soon</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="ach" hidden>
@@ -176,9 +178,9 @@
             </div>
             <div class="live-method-summary">
               <strong>ACH checkout</strong>
-              <span>Bank transfers will start as pending USD and become available only after settlement and return-risk checks pass.</span>
+              <span>ACH funding is coming soon. Bank transfers will become available only after settlement and return-risk checks pass.</span>
             </div>
-            <button class="btn btn-full" type="button" data-funding-request="ach">Prepare ACH Deposit</button>
+            <button class="btn btn-full" type="button" data-funding-request="ach">ACH Coming Soon</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="wire" hidden>
@@ -196,12 +198,12 @@
               <span>Status</span>
               <strong>Bank rail not connected</strong>
             </div>
-            <button class="btn btn-full" type="button" data-funding-request="wire">View Wire Instructions</button>
+            <button class="btn btn-full" type="button" data-funding-request="wire">Wire Coming Soon</button>
           </div>
 
           <p class="live-notice" id="live-notice" hidden></p>
         </div>
-      </section>
+      </div>
 
       <div class="live-wallet-modal" id="live-crypto" hidden>
         <div class="live-wallet-modal-backdrop" data-live-transfer-close></div>

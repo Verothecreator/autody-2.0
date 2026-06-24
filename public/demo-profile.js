@@ -1,62 +1,15 @@
-const profileMoney = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2
-});
-
-const profileWholeMoney = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0
-});
-
 const isLiveProfile = document.body?.dataset?.profileMode === "live" || location.pathname.endsWith("account-profile.html");
 const profileModeLabel = isLiveProfile ? "Live account" : "Demo trading";
 const profileWalletEndpoint = isLiveProfile ? "/api/account/wallet" : "/api/demo/wallet";
-const profileOrdersEndpoint = isLiveProfile ? "/api/account/orders" : "/api/demo/orders";
-const profileWatchlistEndpoint = isLiveProfile ? "/api/account/watchlist" : "/api/demo/watchlist";
-
-function formatProfileMoney(value, whole = false) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return whole ? "$0" : "$0.00";
-  return whole ? profileWholeMoney.format(number) : profileMoney.format(number);
-}
-
-function formatProfileMove(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "+0.00%";
-  const sign = number > 0 ? "+" : "";
-  return `${sign}${number.toFixed(2)}%`;
-}
-
-function profileTone(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number === 0) return "flat";
-  return number > 0 ? "gain" : "loss";
-}
-
-function formatProfileDate(value) {
-  const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return "Not available";
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric"
-  });
-}
-
-async function getProfileJson(url) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: window.AutodyAuth?.headers?.() || {}
-  });
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-  return response.json();
-}
 
 function setProfileText(id, value) {
   const node = document.getElementById(id);
   if (node) node.textContent = value;
+}
+
+function profileValue(value, fallback = "Not provided") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
 }
 
 function titleFromEmail(email = "") {
@@ -65,6 +18,38 @@ function titleFromEmail(email = "") {
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
     .trim();
+}
+
+function titleCase(value = "") {
+  return profileValue(value)
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function readableStatus(value = "") {
+  return titleCase(value || "pending");
+}
+
+function formatProfileDate(value, fallback = "Not recorded") {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return fallback;
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function formatProfileDateTime(value, fallback = "Not recorded") {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return fallback;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 
 function profileDisplayName(user = {}) {
@@ -81,68 +66,90 @@ function profileDisplayName(user = {}) {
   return candidates.find((name) => name && String(name).trim().toLowerCase() !== "vero demo") || "Autody account";
 }
 
-function readableStatus(value = "") {
-  const text = String(value || "pending").replace(/[_-]+/g, " ");
-  return text.replace(/\b\w/g, (letter) => letter.toUpperCase());
+function profileInitials(name = "", email = "") {
+  const source = String(name || titleFromEmail(email) || "Autody User").trim();
+  const parts = source.split(/\s+/).filter(Boolean);
+  const initials = parts.length > 1
+    ? `${parts[0][0] || ""}${parts[1][0] || ""}`
+    : `${source[0] || "A"}${source[1] || "U"}`;
+  return initials.toUpperCase();
 }
 
-function countWatchlistAssets(watchlist = {}) {
-  return ["crypto", "stocks", "etfs", "commodities"]
-    .reduce((sum, key) => sum + (Array.isArray(watchlist[key]) ? watchlist[key].length : 0), 0);
+function kycStage(verification = {}) {
+  const email = String(verification.email || "").toLowerCase();
+  const identity = String(verification.identity || "").toLowerCase();
+  if (identity === "verified" || identity === "approved") return "Verified";
+  if (identity === "reviewing" || identity === "in_review") return "In review";
+  if (email === "verified") return "Ready to start";
+  return "Email required";
+}
+
+async function getProfileJson(url) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: window.AutodyAuth?.headers?.() || {}
+  });
+  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+  return response.json();
+}
+
+function setProfileNotice(message) {
+  const notice = document.getElementById("profile-notice");
+  if (!notice) return;
+  notice.textContent = message;
+  notice.hidden = false;
+  setTimeout(() => {
+    notice.hidden = true;
+  }, 4800);
 }
 
 async function loadProfilePage() {
   try {
-    const [walletData, ordersData, watchlistData, dbData] = await Promise.all([
-      getProfileJson(profileWalletEndpoint),
-      getProfileJson(profileOrdersEndpoint).catch(() => ({ orders: [] })),
-      getProfileJson(profileWatchlistEndpoint).catch(() => ({ watchlist: {} })),
-      getProfileJson("/api/db/status").catch(() => ({ configured: false, provider: "local" }))
-    ]);
+    const walletData = await getProfileJson(profileWalletEndpoint);
     const wallet = walletData.wallet || {};
     const user = walletData.user || {};
     const profile = user.profile || {};
     const verification = user.verification || {};
-    const starting = Number(wallet.startingBalance || user.startingBalance || (isLiveProfile ? 0 : 50000));
-    const total = Number(wallet.totalValue || starting);
-    const profitLoss = total - starting;
-    const profitLossPct = starting > 0 ? (profitLoss / starting) * 100 : 0;
-    const tone = profileTone(profitLoss);
-    const orderCount = Array.isArray(ordersData.orders) ? ordersData.orders.length : 0;
-    const watchlistCount = countWatchlistAssets(watchlistData.watchlist || {});
-    const accountEmail = user.email || "Not available";
-    const legalName = profile.legalName || profileDisplayName(user);
-    const country = profile.country || "Not available";
+    const accountEmail = profileValue(user.email, "Not available");
+    const displayName = profileDisplayName(user);
     const emailStatus = readableStatus(verification.email);
     const phoneStatus = readableStatus(verification.phone);
     const identityStatus = readableStatus(verification.identity);
 
-    setProfileText("profile-status", walletData.source || (isLiveProfile ? "Live ready" : "Demo active"));
-    setProfileText("profile-name", profileDisplayName(user));
+    setProfileText("profile-status", identityStatus === "Verified" ? "Verified" : emailStatus === "Verified" ? "Email verified" : "Needs verification");
+    setProfileText("profile-name", displayName);
     setProfileText("profile-email", accountEmail);
-    setProfileText("profile-detail-email", accountEmail);
-    setProfileText("profile-legal-name", legalName);
-    setProfileText("profile-country", country);
+    setProfileText("profile-initials", profileInitials(displayName, accountEmail));
     setProfileText("profile-mode-badge", profileModeLabel);
     setProfileText("profile-verification-badge", `Email ${emailStatus}`);
-    setProfileText("profile-cash", formatProfileMoney(wallet.cashBalance, true));
-    setProfileText("profile-total", formatProfileMoney(total, true));
-    setProfileText("profile-positions", String(wallet.positionsCount || 0));
-    setProfileText("profile-profit-loss", formatProfileMoney(profitLoss));
-    const profitLossNode = document.getElementById("profile-profit-loss");
-    if (profitLossNode) profitLossNode.className = tone;
-    setProfileText("profile-return", `${formatProfileMove(profitLossPct)} total return`);
-    setProfileText("profile-currency", wallet.currency || user.currency || "USD");
-    setProfileText("profile-created", formatProfileDate(user.createdAt));
+
+    setProfileText("profile-first-name", profileValue(profile.firstName));
+    setProfileText("profile-last-name", profileValue(profile.lastName));
+    setProfileText("profile-legal-name", profileValue(profile.legalName || displayName));
+    setProfileText("profile-dob", formatProfileDate(profile.dateOfBirth, "Not provided"));
+    setProfileText("profile-country", profileValue(profile.country));
+    setProfileText("profile-account-type", titleCase(profile.accountType || "personal"));
+
+    setProfileText("profile-detail-email", accountEmail);
+    setProfileText("profile-phone", profileValue(profile.phone));
     setProfileText("profile-email-status", emailStatus);
     setProfileText("profile-phone-status", phoneStatus);
+    setProfileText("profile-created", formatProfileDate(user.createdAt));
+    setProfileText("profile-currency", wallet.currency || user.currency || "USD");
+
     setProfileText("profile-identity-status", identityStatus);
-    setProfileText("profile-source", dbData.configured ? dbData.provider || "Supabase Postgres" : "Local fallback");
-    setProfileText("profile-order-count", `${orderCount} ${orderCount === 1 ? "order" : "orders"}`);
-    setProfileText("profile-watchlist-count", `${watchlistCount} saved`);
+    setProfileText("profile-kyc-status", kycStage(verification));
+    setProfileText("profile-terms-version", profileValue(profile.termsVersion, "Current platform terms"));
+    setProfileText("profile-terms-accepted", formatProfileDateTime(profile.termsAcceptedAt));
+    setProfileText("profile-information-confirmed", formatProfileDateTime(profile.informationConfirmedAt));
 
     if (isLiveProfile) {
-      const balanceText = `${profileWholeMoney.format(Number(wallet.cashBalance || 0))} USD`;
+      const cash = Number(wallet.cashBalance || 0);
+      const balanceText = `${new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2
+      }).format(cash)} USD`;
       document.querySelectorAll("[data-live-balance]").forEach((node) => {
         node.textContent = balanceText;
       });
@@ -150,7 +157,15 @@ async function loadProfilePage() {
   } catch (err) {
     console.warn("Profile page failed:", err);
     setProfileText("profile-status", "Warming up");
+    setProfileText("profile-name", "Autody account");
+    setProfileText("profile-email", "Account details are loading");
   }
 }
+
+document.addEventListener("click", (event) => {
+  const messageButton = event.target.closest("[data-profile-message]");
+  if (!messageButton) return;
+  setProfileNotice(messageButton.dataset.profileMessage || "This profile feature is coming soon.");
+});
 
 loadProfilePage();
