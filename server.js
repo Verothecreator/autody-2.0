@@ -6,6 +6,7 @@ const bodyParser = require("body-parser");
 const { ethers } = require("ethers");
 const { Pool } = require("pg");
 const QRCode = require("qrcode");
+const fetch = global.fetch || require("node-fetch");
 const bip39 = require("bip39");
 const { BIP32Factory } = require("bip32");
 const ecc = require("tiny-secp256k1");
@@ -97,6 +98,9 @@ const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
 const APP_BASE_URL = process.env.APP_BASE_URL || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
+const FIAT_PAYMENT_PROCESSOR = String(process.env.FIAT_PAYMENT_PROCESSOR || process.env.PAYMENT_PROCESSOR || "stripe").trim().toLowerCase();
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || process.env.PAYMENT_PROCESSOR_SECRET_KEY || "";
+const STRIPE_API_BASE = process.env.STRIPE_API_BASE || "https://api.stripe.com/v1";
 const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || "";
 const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
 const REMEMBER_SESSION_HOURS = Number(process.env.REMEMBER_SESSION_HOURS || 24 * 30);
@@ -114,12 +118,11 @@ const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBAC
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
 const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
-const FIAT_FUNDING_METHODS = new Set(["card", "ach", "wire", "direct"]);
+const FIAT_FUNDING_METHODS = new Set(["card", "ach", "wire"]);
 const FIAT_FUNDING_LABELS = {
     card: "Debit card",
     ach: "ACH",
-    wire: "Wire",
-    direct: "Direct deposit"
+    wire: "Wire"
 };
 const DEPOSIT_ROUTE_PROVIDER = process.env.DEPOSIT_ROUTE_PROVIDER || process.env.CUSTODY_PROVIDER || "manual";
 const DEPOSIT_ROUTE_MODE = String(process.env.AUTODY_DEPOSIT_ROUTE_MODE || process.env.DEPOSIT_ROUTE_MODE || "self_custody")
@@ -3181,11 +3184,11 @@ function normalizeFiatFundingMethod(method) {
         credit_card: "card",
         bank: "ach",
         bank_link: "ach",
-        direct_deposit: "direct"
+        bank_transfer: "ach"
     };
     const normalized = aliases[raw] || raw;
     if (!FIAT_FUNDING_METHODS.has(normalized)) {
-        throw demoTradeError(400, "Choose debit card, ACH, wire, or direct deposit.");
+        throw demoTradeError(400, "Choose debit card, ACH, or wire.");
     }
     return normalized;
 }
@@ -3211,7 +3214,6 @@ function estimateFiatFundingFee(method, amountUsd) {
 
 function fiatFundingStatus(method) {
     if (method === "wire") return "instructions_pending";
-    if (method === "direct") return "details_pending";
     return "provider_pending";
 }
 
@@ -3231,6 +3233,9 @@ function mapFiatFundingRequest(row) {
         referenceCode: row.reference_code,
         provider: row.provider,
         metadata: row.metadata || {},
+        checkoutUrl: row.metadata?.checkoutUrl || "",
+        processorConfigured: Boolean(row.metadata?.processorConfigured),
+        processorStatus: row.metadata?.processorStatus || "",
         createdAt: row.created_at,
         updatedAt: row.updated_at
     };
@@ -3238,11 +3243,22 @@ function mapFiatFundingRequest(row) {
 
 async function ensureFiatFundingTables(client = dbPool) {
     await client.query(`
+        do $$
+        begin
+          if to_regclass('fiat_funding_requests') is not null then
+            execute 'update fiat_funding_requests
+              set method = ''wire'',
+                  status = ''instructions_pending'',
+                  updated_at = now()
+              where method = ''direct''';
+          end if;
+        end $$;
+
         create table if not exists fiat_funding_requests (
           id uuid primary key default gen_random_uuid(),
           profile_id uuid not null references profiles(id) on delete cascade,
           account_mode_id uuid references account_modes(id) on delete cascade,
-          method text not null check (method in ('card', 'ach', 'wire', 'direct')),
+          method text not null check (method in ('card', 'ach', 'wire')),
           status text not null default 'provider_pending',
           amount_usd numeric(18, 2) not null default 0,
           fee_usd numeric(18, 2) not null default 0,
@@ -3257,6 +3273,22 @@ async function ensureFiatFundingTables(client = dbPool) {
 
         create index if not exists fiat_funding_requests_profile_idx
           on fiat_funding_requests (profile_id, created_at desc);
+
+        do $$
+        begin
+          if exists (
+            select 1
+            from pg_constraint
+            where conname = 'fiat_funding_requests_method_check'
+              and conrelid = 'fiat_funding_requests'::regclass
+          ) then
+            alter table fiat_funding_requests drop constraint fiat_funding_requests_method_check;
+          end if;
+
+          alter table fiat_funding_requests
+            add constraint fiat_funding_requests_method_check
+            check (method in ('card', 'ach', 'wire'));
+        end $$;
     `);
 }
 
@@ -3340,6 +3372,187 @@ function createJsonFiatFundingRequest(auth, body = {}) {
 async function createLiveFiatFundingRequest(auth, body = {}) {
     if (auth.source === "supabase") return createDatabaseFiatFundingRequest(auth, body);
     return createJsonFiatFundingRequest(auth, body);
+}
+
+function appAbsoluteUrl(pathname, params = {}) {
+    const base = String(APP_BASE_URL || "").trim().replace(/\/+$/, "");
+    if (!base) return "";
+    const url = new URL(pathname, `${base}/`);
+    Object.entries(params).forEach(([key, value]) => {
+        if (value != null && value !== "") url.searchParams.set(key, String(value));
+    });
+    return url.toString();
+}
+
+function stripeFundingConfigured() {
+    return Boolean(STRIPE_SECRET_KEY && APP_BASE_URL);
+}
+
+function stripePaymentMethodForFunding(method) {
+    if (method === "ach") return "us_bank_account";
+    if (method === "card") return "card";
+    return "";
+}
+
+async function createStripeFundingCheckout(auth, request) {
+    const paymentMethodType = stripePaymentMethodForFunding(request.method);
+    if (!paymentMethodType) return null;
+    if (!stripeFundingConfigured()) {
+        return {
+            provider: "stripe",
+            configured: false,
+            processorStatus: "not_configured",
+            message: "Stripe funding is not configured yet."
+        };
+    }
+
+    const amountCents = Math.round(numberValue(request.amountUsd, 0) * 100);
+    if (amountCents <= 0) throw demoTradeError(400, "Enter a USD amount to start this funding request.");
+
+    const successUrl = appAbsoluteUrl("account-wallet.html", {
+        funding: "success",
+        reference: request.referenceCode
+    });
+    const cancelUrl = appAbsoluteUrl("account-wallet.html", {
+        funding: "cancelled",
+        reference: request.referenceCode
+    });
+    if (!successUrl || !cancelUrl) {
+        return {
+            provider: "stripe",
+            configured: false,
+            processorStatus: "missing_return_url",
+            message: "APP_BASE_URL is required before checkout can open."
+        };
+    }
+
+    const params = new URLSearchParams();
+    params.append("mode", "payment");
+    params.append("success_url", successUrl);
+    params.append("cancel_url", cancelUrl);
+    params.append("payment_method_types[]", paymentMethodType);
+    params.append("line_items[0][price_data][currency]", "usd");
+    params.append("line_items[0][price_data][unit_amount]", String(amountCents));
+    params.append("line_items[0][price_data][product_data][name]", `${request.label} Autody USD funding`);
+    params.append("line_items[0][quantity]", "1");
+    params.append("client_reference_id", request.referenceCode);
+    params.append("metadata[profile_id]", auth.profileId || auth.userId || "");
+    params.append("metadata[email]", auth.user?.email || "");
+    params.append("metadata[reference_code]", request.referenceCode || "");
+    params.append("metadata[funding_method]", request.method || "");
+    if (auth.user?.email) params.append("customer_email", auth.user.email);
+
+    const response = await fetch(`${STRIPE_API_BASE}/checkout/sessions`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: params
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = data?.error?.message || "Payment processor could not create checkout.";
+        throw demoTradeError(502, message);
+    }
+
+    return {
+        provider: "stripe",
+        configured: true,
+        checkoutUrl: data.url || "",
+        checkoutSessionId: data.id || "",
+        processorStatus: data.status || "checkout_created",
+        message: "Checkout session created."
+    };
+}
+
+async function prepareFiatPaymentProcessor(auth, request) {
+    if (request.method === "wire") {
+        return {
+            provider: "wire",
+            configured: false,
+            processorStatus: "instructions_pending",
+            message: "Wire funding request saved for manual instructions."
+        };
+    }
+
+    if (FIAT_PAYMENT_PROCESSOR !== "stripe") {
+        return {
+            provider: FIAT_PAYMENT_PROCESSOR || "pending",
+            configured: false,
+            processorStatus: "processor_not_supported",
+            message: `${FIAT_PAYMENT_PROCESSOR || "Payment"} processor is not connected in this build.`
+        };
+    }
+
+    return createStripeFundingCheckout(auth, request);
+}
+
+async function updateDatabaseFiatFundingProcessor(requestId, processor = {}) {
+    const result = await dbPool.query(`
+        update fiat_funding_requests
+        set provider = $2,
+            status = case
+              when $3 = 'checkout_created' or $3 = 'open' then 'checkout_pending'
+              when $3 = 'not_configured' then 'provider_pending'
+              when $3 = 'instructions_pending' then 'instructions_pending'
+              else status
+            end,
+            metadata = metadata || $4::jsonb,
+            updated_at = now()
+        where id = $1
+        returning *
+    `, [
+        requestId,
+        processor.provider || "pending",
+        processor.processorStatus || "",
+        JSON.stringify({
+            processorConfigured: Boolean(processor.configured),
+            processorStatus: processor.processorStatus || "",
+            checkoutUrl: processor.checkoutUrl || "",
+            checkoutSessionId: processor.checkoutSessionId || "",
+            processorMessage: processor.message || ""
+        })
+    ]);
+    return result.rows[0] ? mapFiatFundingRequest(result.rows[0]) : null;
+}
+
+function updateJsonFiatFundingProcessor(auth, requestId, processor = {}) {
+    const db = loadDemoDb();
+    const requests = db.fiatFundingRequests?.[auth.userId] || [];
+    const index = requests.findIndex((request) => request.id === requestId);
+    if (index === -1) return null;
+    requests[index] = {
+        ...requests[index],
+        provider: processor.provider || requests[index].provider || "pending",
+        status: processor.processorStatus === "checkout_created" || processor.processorStatus === "open"
+            ? "checkout_pending"
+            : processor.processorStatus === "instructions_pending"
+              ? "instructions_pending"
+              : requests[index].status,
+        metadata: {
+            ...(requests[index].metadata || {}),
+            processorConfigured: Boolean(processor.configured),
+            processorStatus: processor.processorStatus || "",
+            checkoutUrl: processor.checkoutUrl || "",
+            checkoutSessionId: processor.checkoutSessionId || "",
+            processorMessage: processor.message || ""
+        },
+        checkoutUrl: processor.checkoutUrl || "",
+        processorConfigured: Boolean(processor.configured),
+        processorStatus: processor.processorStatus || "",
+        updatedAt: new Date().toISOString()
+    };
+    saveDemoDb(db);
+    return requests[index];
+}
+
+async function updateFiatFundingProcessor(auth, request, processor = {}) {
+    if (!request?.id) return request;
+    if (auth.source === "supabase") {
+        return await updateDatabaseFiatFundingProcessor(request.id, processor) || request;
+    }
+    return updateJsonFiatFundingProcessor(auth, request.id, processor) || request;
 }
 
 const evmDepositProviderCache = new Map();
@@ -10302,15 +10515,20 @@ app.post("/api/account/funding/request", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     const auth = await authenticatedAccountContext(req);
-    const request = await createLiveFiatFundingRequest(auth, body);
+    let request = await createLiveFiatFundingRequest(auth, body);
+    const processor = await prepareFiatPaymentProcessor(auth, request);
+    request = await updateFiatFundingProcessor(auth, request, processor);
     return res.json({
       success: true,
       request,
-      nextStep: request.method === "wire"
-        ? "Wire instructions will be completed after a compliant receiving account is connected."
-        : request.method === "direct"
-          ? "Direct deposit routing details will be assigned after a banking provider is connected."
-          : `${request.label} checkout is pending provider connection.`
+      provider: processor.provider,
+      providerConfigured: Boolean(processor.configured),
+      checkoutUrl: processor.checkoutUrl || "",
+      nextStep: processor.checkoutUrl
+        ? "Continue to secure checkout."
+        : request.method === "wire"
+          ? "Wire reference saved. Bank instructions can be completed from the admin side."
+          : processor.message || `${request.label} checkout is pending provider connection.`
     });
   } catch (err) {
     console.error("Live fiat funding request error:", err);

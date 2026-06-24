@@ -137,7 +137,6 @@
             <button type="button" class="active" data-funding-tab="card">Debit card</button>
             <button type="button" data-funding-tab="ach">ACH</button>
             <button type="button" data-funding-tab="wire">Wire</button>
-            <button type="button" data-funding-tab="direct">Direct deposit</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="card">
@@ -155,8 +154,8 @@
               </label>
             </div>
             <div class="live-method-summary">
-              <strong>Card funding provider pending</strong>
-              <span>When connected, this opens a regulated checkout. The estimated card fee will be shown before confirmation.</span>
+              <strong>Card checkout</strong>
+              <span>When the processor is connected, this opens secure card checkout. The estimated card fee is shown before confirmation.</span>
             </div>
             <button class="btn btn-full" type="button" data-funding-request="card">Prepare Card Deposit</button>
           </div>
@@ -176,7 +175,7 @@
               </label>
             </div>
             <div class="live-method-summary">
-              <strong>ACH funding provider pending</strong>
+              <strong>ACH checkout</strong>
               <span>Bank transfers will start as pending USD and become available only after settlement and return-risk checks pass.</span>
             </div>
             <button class="btn btn-full" type="button" data-funding-request="ach">Prepare ACH Deposit</button>
@@ -198,22 +197,6 @@
               <strong>Bank rail not connected</strong>
             </div>
             <button class="btn btn-full" type="button" data-funding-request="wire">View Wire Instructions</button>
-          </div>
-
-          <div class="live-method-panel" data-funding-panel="direct" hidden>
-            <div class="live-wire-box">
-              <span>Routing number</span>
-              <strong>Pending provider</strong>
-              <span>Account number</span>
-              <strong>Generated per user after setup</strong>
-              <span>Posting rule</span>
-              <strong>Pending first, available after bank confirmation</strong>
-            </div>
-            <div class="live-method-summary">
-              <strong>Direct deposit rail pending</strong>
-              <span>When connected, each user can receive assigned account details for payroll-style ACH deposits into their Autody USD balance.</span>
-            </div>
-            <button class="btn btn-full" type="button" data-funding-request="direct">Prepare Direct Deposit</button>
           </div>
 
           <p class="live-notice" id="live-notice" hidden></p>

@@ -129,8 +129,7 @@ function fundingMethodLabel(method) {
   return {
     card: "Card",
     ach: "ACH",
-    wire: "Wire",
-    direct: "Direct deposit"
+    wire: "Wire"
   }[method] || "Funding";
 }
 
@@ -159,7 +158,16 @@ async function createFundingRequest(method, button) {
     const request = data.request || {};
     const feeText = request.feeUsd ? ` Estimated fee: $${Number(request.feeUsd).toFixed(2)}.` : "";
     const referenceText = request.referenceCode ? ` Reference ${request.referenceCode}.` : "";
-    showLiveNotice(`${fundingMethodLabel(normalized)} funding request saved.${referenceText}${feeText}`, "success");
+    if (data.checkoutUrl) {
+      showLiveNotice(`Opening ${fundingMethodLabel(normalized)} checkout.${referenceText}${feeText}`, "success");
+      window.location.href = data.checkoutUrl;
+      return;
+    }
+    const processorText = data.providerConfigured === false && normalized !== "wire"
+      ? " Processor is not connected yet."
+      : "";
+    const nextStepText = data.nextStep ? ` ${data.nextStep}` : "";
+    showLiveNotice(`${fundingMethodLabel(normalized)} funding request saved.${referenceText}${feeText}${processorText}${nextStepText}`, "success");
   } catch (err) {
     showLiveNotice(err.message || `${fundingMethodLabel(normalized)} funding request could not be saved.`, "warning");
   } finally {
