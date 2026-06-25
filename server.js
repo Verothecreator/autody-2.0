@@ -491,7 +491,7 @@ function legacyProfileDateOfBirth(email = "") {
 }
 
 function publicProfilePhone(row = {}) {
-    return maskPublicPhone(firstProfileValue(row.phone) || legacyProfilePhone(row.email));
+    return firstProfileValue(row.phone) || legacyProfilePhone(row.email);
 }
 
 function publicProfileCountry(row = {}) {
@@ -517,7 +517,7 @@ function publicUser(user) {
             firstName: nameParts.firstName,
             lastName: nameParts.lastName,
             legalName: nameParts.legalName,
-            phone: maskPublicPhone(firstProfileValue(verification.phone) || legacyProfilePhone(safeUser.email)),
+            phone: firstProfileValue(verification.phone) || legacyProfilePhone(safeUser.email),
             country: firstProfileValue(verification.country) || "United States",
             dateOfBirth: firstProfileValue(verification.dateOfBirth) || legacyProfileDateOfBirth(safeUser.email),
             accountType: verification.accountType || "personal"
