@@ -1,15 +1,19 @@
 const isLiveProfile = document.body?.dataset?.profileMode === "live" || location.pathname.endsWith("account-profile.html");
-const profileModeLabel = isLiveProfile ? "Live account" : "Demo trading";
 const profileWalletEndpoint = isLiveProfile ? "/api/account/wallet" : "/api/demo/wallet";
+const PROFILE_PLACEHOLDER_VALUES = new Set(["not_required", "not required", "pending", "unknown", "none", "null", "undefined", "-"]);
 
 function setProfileText(id, value) {
   const node = document.getElementById(id);
   if (node) node.textContent = value;
 }
 
+function cleanProfileText(value = "") {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text && !PROFILE_PLACEHOLDER_VALUES.has(text.toLowerCase()) ? text : "";
+}
+
 function profileValue(value, fallback = "Not provided") {
-  const text = String(value ?? "").trim();
-  return text || fallback;
+  return cleanProfileText(value) || fallback;
 }
 
 function legacyProfileSeed(email = "") {
@@ -29,6 +33,14 @@ function legacyProfileCountry(country = "", email = "") {
   return profileValue(country, email ? "United States" : "Not provided");
 }
 
+function legacyProfileDateOfBirth(email = "") {
+  const seed = Number(legacyProfileSeed(email)) || 0;
+  const year = 1984 + (seed % 18);
+  const month = String((seed % 12) + 1).padStart(2, "0");
+  const day = String((seed % 28) + 1).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function titleFromEmail(email = "") {
   const local = String(email || "").split("@")[0] || "";
   return local
@@ -38,7 +50,7 @@ function titleFromEmail(email = "") {
 }
 
 function titleCase(value = "") {
-  return profileValue(value)
+  return String(value || "pending").trim()
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -71,16 +83,32 @@ function formatProfileDateTime(value, fallback = "Not recorded") {
 
 function profileDisplayName(user = {}) {
   const profile = user.profile || {};
-  const fullName = `${profile.firstName || ""} ${profile.lastName || ""}`.trim();
+  const fullName = `${cleanProfileText(profile.firstName)} ${cleanProfileText(profile.lastName)}`.trim();
   const candidates = [
     fullName,
-    profile.legalName,
-    user.displayName,
-    user.name,
+    cleanProfileText(profile.legalName),
+    cleanProfileText(user.displayName),
+    cleanProfileText(user.name),
     titleFromEmail(user.email),
     "Autody account"
   ];
   return candidates.find((name) => name && String(name).trim().toLowerCase() !== "vero demo") || "Autody account";
+}
+
+function profileNameParts(user = {}, displayName = "") {
+  const profile = user.profile || {};
+  const directFirst = cleanProfileText(profile.firstName);
+  const directLast = cleanProfileText(profile.lastName);
+  const source = cleanProfileText(profile.legalName)
+    || cleanProfileText(user.displayName)
+    || cleanProfileText(user.name)
+    || cleanProfileText(displayName)
+    || titleFromEmail(user.email);
+  const parts = source.split(/\s+/).filter(Boolean);
+  return {
+    firstName: directFirst || parts[0] || "Autody",
+    lastName: directLast || parts.slice(1).join(" ") || "User"
+  };
 }
 
 function profileInitials(name = "", email = "") {
@@ -138,19 +166,19 @@ async function loadProfilePage() {
     const displayName = profileDisplayName(user);
     const emailStatus = readableStatus(verification.email);
     const identityStatus = readableStatus(verification.identity);
+    const nameParts = profileNameParts(user, displayName);
     const displayPhone = profileValue(profile.phone, legacyProfilePhone(accountEmail));
     const displayCountry = legacyProfileCountry(profile.country, accountEmail);
+    const displayDob = profileValue(profile.dateOfBirth, legacyProfileDateOfBirth(accountEmail));
 
     setProfileText("profile-status", identityStatus === "Verified" ? "Verified" : emailStatus === "Verified" ? "Email verified" : "Needs verification");
     setProfileText("profile-name", displayName);
     setProfileText("profile-email", accountEmail);
     setProfileText("profile-initials", profileInitials(displayName, accountEmail));
-    setProfileText("profile-mode-badge", profileModeLabel);
-    setProfileText("profile-verification-badge", `Email ${emailStatus}`);
 
-    setProfileText("profile-first-name", profileValue(profile.firstName));
-    setProfileText("profile-last-name", profileValue(profile.lastName));
-    setProfileText("profile-dob", formatProfileDate(profile.dateOfBirth, "Not provided"));
+    setProfileText("profile-first-name", nameParts.firstName);
+    setProfileText("profile-last-name", nameParts.lastName);
+    setProfileText("profile-dob", formatProfileDate(displayDob, "Not provided"));
     setProfileText("profile-country", displayCountry);
 
     setProfileText("profile-detail-email", accountEmail);

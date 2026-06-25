@@ -451,23 +451,75 @@ function legacyProfilePhone(email = "") {
     return `+1555${seed}`;
 }
 
+const PROFILE_PLACEHOLDER_VALUES = new Set(["not_required", "not required", "pending", "unknown", "none", "null", "undefined", "-"]);
+
+function cleanProfileText(value = "") {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return text && !PROFILE_PLACEHOLDER_VALUES.has(text.toLowerCase()) ? text : "";
+}
+
+function firstProfileValue(...values) {
+    return values.map(cleanProfileText).find(Boolean) || "";
+}
+
+function profileNameFromEmail(email = "") {
+    return String(email || "")
+        .split("@")[0]
+        .replace(/[._-]+/g, " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase())
+        .trim();
+}
+
+function profileNamePartsFromRow(row = {}) {
+    const firstName = firstProfileValue(row.first_name, row.firstName);
+    const lastName = firstProfileValue(row.last_name, row.lastName);
+    const source = firstProfileValue(row.legal_name, row.legalName, row.display_name, row.displayName, row.name, profileNameFromEmail(row.email));
+    const parts = source.split(/\s+/).filter(Boolean);
+    return {
+        firstName: firstName || parts[0] || "Autody",
+        lastName: lastName || parts.slice(1).join(" ") || "User",
+        legalName: firstProfileValue(row.legal_name, row.legalName) || source || `${firstName} ${lastName}`.trim()
+    };
+}
+
+function legacyProfileDateOfBirth(email = "") {
+    const seed = Number(legacyProfileSeed(email)) || 0;
+    const year = 1984 + (seed % 18);
+    const month = String((seed % 12) + 1).padStart(2, "0");
+    const day = String((seed % 28) + 1).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
 function publicProfilePhone(row = {}) {
-    return maskPublicPhone(row.phone || legacyProfilePhone(row.email));
+    return maskPublicPhone(firstProfileValue(row.phone) || legacyProfilePhone(row.email));
 }
 
 function publicProfileCountry(row = {}) {
-    return row.country || "United States";
+    return firstProfileValue(row.country) || "United States";
+}
+
+function publicProfileDateOfBirth(row = {}) {
+    return firstProfileValue(row.date_of_birth, row.dateOfBirth) || legacyProfileDateOfBirth(row.email);
 }
 
 function publicUser(user) {
     const { auth, verification, ...safeUser } = user;
     if (verification) {
+        const nameParts = profileNamePartsFromRow({
+            firstName: verification.firstName,
+            lastName: verification.lastName,
+            legalName: verification.legalName,
+            name: safeUser.name,
+            displayName: safeUser.displayName,
+            email: safeUser.email
+        });
         safeUser.profile = {
-            firstName: verification.firstName || "",
-            lastName: verification.lastName || "",
-            legalName: verification.legalName || safeUser.name || "",
-            phone: maskPublicPhone(verification.phone || legacyProfilePhone(safeUser.email)),
-            country: verification.country || "United States",
+            firstName: nameParts.firstName,
+            lastName: nameParts.lastName,
+            legalName: nameParts.legalName,
+            phone: maskPublicPhone(firstProfileValue(verification.phone) || legacyProfilePhone(safeUser.email)),
+            country: firstProfileValue(verification.country) || "United States",
+            dateOfBirth: firstProfileValue(verification.dateOfBirth) || legacyProfileDateOfBirth(safeUser.email),
             accountType: verification.accountType || "personal"
         };
         safeUser.verification = {
@@ -1413,6 +1465,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     const settingsRow = settingsResult.rows[0] || {};
     const startingBalance = numberValue(row.starting_balance, accountMode === "demo" ? 50000 : 0);
     const portfolioFallback = cashBalance + nonCashHoldings.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
+    const nameParts = profileNamePartsFromRow(row);
 
     return {
         user: {
@@ -1426,12 +1479,12 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             reservedCash: numberValue(row.reserved_cash, 0),
             createdAt: row.created_at,
             profile: {
-                firstName: row.first_name || "",
-                lastName: row.last_name || "",
-                legalName: row.legal_name || row.display_name || "",
+                firstName: nameParts.firstName,
+                lastName: nameParts.lastName,
+                legalName: nameParts.legalName,
                 phone: publicProfilePhone(row),
                 country: publicProfileCountry(row),
-                dateOfBirth: row.date_of_birth || "",
+                dateOfBirth: publicProfileDateOfBirth(row),
                 accountType: row.account_type || "personal",
                 termsVersion: row.terms_version || "",
                 termsAcceptedAt: row.terms_accepted_at || "",
@@ -7018,6 +7071,7 @@ async function resetDatabaseAccountsToEmail(keepEmail = PRACTICE_USER_EMAIL) {
 
 function databasePublicUser(row) {
     if (!row) return null;
+    const nameParts = profileNamePartsFromRow(row);
     return {
         id: row.id || row.profile_id,
         name: row.display_name,
@@ -7026,12 +7080,12 @@ function databasePublicUser(row) {
         currency: "USD",
         createdAt: row.created_at,
         profile: {
-            firstName: row.first_name || "",
-            lastName: row.last_name || "",
-            legalName: row.legal_name || row.display_name || "",
+            firstName: nameParts.firstName,
+            lastName: nameParts.lastName,
+            legalName: nameParts.legalName,
             phone: publicProfilePhone(row),
             country: publicProfileCountry(row),
-            dateOfBirth: row.date_of_birth || "",
+            dateOfBirth: publicProfileDateOfBirth(row),
             accountType: row.account_type || "personal",
             termsVersion: row.terms_version || "",
             termsAcceptedAt: row.terms_accepted_at || "",
@@ -7222,6 +7276,7 @@ async function signInFromDatabase(email, password, options = {}) {
     const session = options.createSession === false
         ? null
         : await createDatabaseSession(row.profile_id, options.sessionHours || SESSION_HOURS);
+    const nameParts = profileNamePartsFromRow(row);
     return {
         user: {
             id: row.profile_id,
@@ -7231,12 +7286,12 @@ async function signInFromDatabase(email, password, options = {}) {
             currency: "USD",
             createdAt: row.created_at,
             profile: {
-                firstName: row.first_name || "",
-                lastName: row.last_name || "",
-                legalName: row.legal_name || row.display_name || "",
+                firstName: nameParts.firstName,
+                lastName: nameParts.lastName,
+                legalName: nameParts.legalName,
                 phone: publicProfilePhone(row),
                 country: publicProfileCountry(row),
-                dateOfBirth: row.date_of_birth || "",
+                dateOfBirth: publicProfileDateOfBirth(row),
                 accountType: row.account_type || "personal",
                 termsVersion: row.terms_version || "",
                 termsAcceptedAt: row.terms_accepted_at || "",
