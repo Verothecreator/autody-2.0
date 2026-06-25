@@ -6415,6 +6415,62 @@ async function authenticatedAccountContext(req) {
     };
 }
 
+async function ensureSupportTicketTables(client = dbPool) {
+    await client.query(`
+        create table if not exists support_tickets (
+          id uuid primary key,
+          profile_id uuid references profiles(id) on delete set null,
+          account_mode text not null default 'live',
+          category text not null,
+          priority text not null default 'normal',
+          message text not null,
+          status text not null default 'open',
+          created_at timestamptz not null default now()
+        );
+
+        create index if not exists support_tickets_profile_idx
+          on support_tickets (profile_id, created_at desc);
+    `);
+}
+
+async function createSupportTicket(auth, body = {}) {
+    const category = normalizeText(body.category || body.type || "Other").slice(0, 80) || "Other";
+    const priority = normalizeText(body.priority || "Normal").slice(0, 40) || "Normal";
+    const message = normalizeText(body.message).slice(0, 4000);
+    const accountMode = normalizeWatchlistMode(body.mode || body.accountMode || (String(body.live).toLowerCase() === "true" ? "live" : "demo"));
+    if (!message || message.length < 6) throw demoTradeError(400, "Write a short message before submitting a ticket.");
+
+    const ticket = {
+        id: crypto.randomUUID(),
+        profileId: auth.profileId || auth.userId || null,
+        email: auth.user?.email || "",
+        accountMode,
+        category,
+        priority,
+        message,
+        status: "open",
+        createdAt: new Date().toISOString()
+    };
+
+    if (databaseConfigured() && auth.source === "supabase") {
+        await ensureSupportTicketTables();
+        await dbPool.query(`
+            insert into support_tickets (
+                id, profile_id, account_mode, category, priority, message, status, created_at
+            )
+            values ($1, $2, $3, $4, $5, $6, 'open', now())
+        `, [ticket.id, auth.profileId, accountMode, category, priority, message]);
+        return ticket;
+    }
+
+    const db = loadDemoDb();
+    db.supportTickets = Array.isArray(db.supportTickets) ? db.supportTickets : [];
+    db.supportTickets.unshift(ticket);
+    db.supportTickets = db.supportTickets.slice(0, 500);
+    saveDemoDb(db);
+    return ticket;
+}
+
 async function createDatabaseSession(profileId, sessionHours = SESSION_HOURS) {
     return createDatabaseSessionWithClient(dbPool, profileId, sessionHours);
 }
@@ -11023,6 +11079,21 @@ app.get("/api/demo/performance", async (req, res) => {
   } catch (err) {
     console.error("Demo performance API error:", err);
     return sendDemoError(res, err, "Demo performance unavailable");
+  }
+});
+
+app.post("/api/support/tickets", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const ticket = await createSupportTicket(auth, body);
+    return res.json({
+      success: true,
+      ticket
+    });
+  } catch (err) {
+    console.error("Support ticket error:", err);
+    return sendDemoError(res, err, "Support ticket could not be submitted");
   }
 });
 

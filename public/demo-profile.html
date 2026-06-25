@@ -86,7 +86,7 @@
             <div>
               <span class="muted-label">KYC</span>
               <h2 id="profile-kyc-title">Identity verification</h2>
-              <p class="card-intro">Identity review belongs here. Demo mode can show the path before live funding, withdrawals, and limits are enabled.</p>
+              <p class="card-intro">Demo mode previews how identity review will work before live funding, sends, withdrawals, and higher limits are enabled.</p>
             </div>
             <button class="asset-more-button" type="button" data-profile-kyc-close aria-label="Close identity review">X</button>
           </div>
@@ -100,6 +100,26 @@
               <strong id="profile-kyc-status">Not started</strong>
             </div>
           </div>
+          <div class="kyc-guidance-grid">
+            <article>
+              <span class="muted-label">Accepted documents</span>
+              <ul>
+                <li>Passport</li>
+                <li>Government identity card</li>
+                <li>Driver license</li>
+                <li>Residence permit where supported</li>
+              </ul>
+            </article>
+            <article>
+              <span class="muted-label">Not accepted</span>
+              <ul>
+                <li>Expired documents</li>
+                <li>Scans with cropped corners</li>
+                <li>Student or work ID</li>
+                <li>Edited, blurry, or unreadable photos</li>
+              </ul>
+            </article>
+          </div>
           <div class="kyc-step-list">
             <article>
               <span>1</span>
@@ -112,18 +132,44 @@
               <span>2</span>
               <div>
                 <strong>Upload identity document</strong>
-                <small>Government ID, passport, or driver license review will connect here.</small>
+                <small>Submit front and back when the document has two sides.</small>
               </div>
             </article>
             <article>
               <span>3</span>
               <div>
-                <strong>Complete account review</strong>
-                <small>Autody can approve funding, withdrawal, and live account permissions after checks pass.</small>
+                <strong>Face match check</strong>
+                <small>Take a live selfie so the face can be matched against the identity document.</small>
+              </div>
+            </article>
+            <article>
+              <span>4</span>
+              <div>
+                <strong>Review decision</strong>
+                <small>Autody can approve, reject, or request a clearer document before live permissions expand.</small>
               </div>
             </article>
           </div>
-          <button class="btn btn-full" type="button" data-profile-message="Identity review uploads are coming soon.">Start Identity Review</button>
+          <form class="kyc-review-form">
+            <label>
+              <span>Document type</span>
+              <select>
+                <option>Passport</option>
+                <option>Government identity card</option>
+                <option>Driver license</option>
+                <option>Residence permit</option>
+              </select>
+            </label>
+            <label>
+              <span>Identity document</span>
+              <input type="file" accept="image/*,.pdf" />
+            </label>
+            <label>
+              <span>Selfie / face check</span>
+              <input type="file" accept="image/*" capture="user" />
+            </label>
+          </form>
+          <button class="btn btn-full" type="button" data-profile-message="Identity review upload storage and manual approval queue are ready to connect next.">Submit Identity Review</button>
           <p class="live-notice profile-notice" id="profile-notice" hidden></p>
         </section>
       </div>

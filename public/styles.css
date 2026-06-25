@@ -1503,7 +1503,7 @@ h3 {
 }
 
 .profile-kyc-modal-card {
-  width: min(760px, calc(100vw - 32px));
+  width: min(840px, calc(100vw - 32px));
 }
 
 .profile-kyc-status {
@@ -1514,7 +1514,8 @@ h3 {
 }
 
 .profile-kyc-status div,
-.kyc-step-list article {
+.kyc-step-list article,
+.kyc-guidance-grid article {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
@@ -1533,6 +1534,24 @@ h3 {
 
 .profile-kyc-status strong {
   font-size: 1.15rem;
+}
+
+.kyc-guidance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.kyc-guidance-grid article {
+  padding: 14px;
+}
+
+.kyc-guidance-grid ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+  line-height: 1.65;
 }
 
 .kyc-step-list {
@@ -1567,6 +1586,37 @@ h3 {
 
 .profile-notice {
   margin-top: 12px;
+}
+
+.kyc-review-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.kyc-review-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.kyc-review-form select,
+.kyc-review-form input {
+  min-height: 52px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 850;
+}
+
+.kyc-review-form input[type="file"] {
+  padding: 14px;
 }
 
 .asset-table {
@@ -2416,8 +2466,18 @@ body.modal-open {
   gap: 18px;
 }
 
+.settings-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
 .settings-card {
   min-height: 280px;
+}
+
+.settings-control-card {
+  min-height: 0;
 }
 
 .settings-list {
@@ -2444,6 +2504,93 @@ body.modal-open {
 .settings-list strong {
   color: var(--text);
   text-align: right;
+}
+
+.settings-inline-button,
+.settings-toggle-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(93, 95, 239, 0.36);
+  border-radius: 999px;
+  background: rgba(93, 95, 239, 0.14);
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.settings-toggle-button {
+  min-width: 74px;
+  background: rgba(255, 82, 119, 0.13);
+  border-color: rgba(255, 82, 119, 0.34);
+  color: #ff6b87;
+}
+
+.settings-toggle-button.is-on {
+  background: rgba(40, 218, 123, 0.14);
+  border-color: rgba(40, 218, 123, 0.38);
+  color: #28da7b;
+}
+
+.settings-support-card {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.settings-ticket-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.settings-ticket-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.settings-ticket-form select,
+.settings-ticket-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  padding: 12px 14px;
+  font: inherit;
+  font-weight: 850;
+}
+
+.settings-ticket-form select {
+  min-height: 52px;
+}
+
+.settings-ticket-message {
+  grid-column: 1 / -1;
+}
+
+.settings-ticket-form .btn {
+  grid-column: 1 / -1;
+}
+
+.settings-notice {
+  margin-top: 12px;
+}
+
+.settings-notice[data-tone="success"] {
+  border-color: rgba(40, 218, 123, 0.35);
+  background: rgba(40, 218, 123, 0.12);
+  color: #9cffc6;
+}
+
+.settings-notice[data-tone="error"] {
+  border-color: rgba(255, 82, 119, 0.35);
+  background: rgba(255, 82, 119, 0.12);
+  color: #ff9aad;
 }
 
 .vision-steps {
@@ -5074,6 +5221,10 @@ body.modal-open {
   .asset-detail-layout,
   .research-page-grid,
   .settings-grid,
+  .settings-control-grid,
+  .settings-ticket-form,
+  .kyc-guidance-grid,
+  .kyc-review-form,
   .auth-shell,
   .demo-step-grid,
   .research-columns {

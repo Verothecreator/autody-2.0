@@ -95,6 +95,7 @@ function ensureDemoSidebarTools() {
   if (!sidebar) return;
 
   sidebar.querySelector('.app-nav a[href="demo-settings.html"]')?.remove();
+  sidebar.querySelector('.app-nav a[href="account-settings.html"]')?.remove();
   prepareDemoNavLabels(sidebar);
   prepareDemoActionLabels(sidebar);
 
@@ -105,6 +106,7 @@ function ensureDemoSidebarTools() {
 
   const page = location.pathname.split("/").pop() || "";
   const isLivePage = page === "account.html" || page.startsWith("account-");
+  const settingsHref = isLivePage ? "account-settings.html" : "demo-settings.html";
   const profileHref = isLivePage ? "account-profile.html" : "demo-profile.html";
   const profileActive = page === "account-profile.html" || page === "demo-profile.html";
   const profileIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>`;
@@ -135,7 +137,7 @@ function ensureDemoSidebarTools() {
     const bottomTools = document.createElement("div");
     bottomTools.className = "sidebar-bottom-tools";
     bottomTools.setAttribute("aria-label", "Settings");
-    bottomTools.innerHTML = sidebarIconMarkup("demo-settings.html", "Settings", settingsIcon, page === "demo-settings.html");
+    bottomTools.innerHTML = sidebarIconMarkup(settingsHref, "Settings", settingsIcon, page === settingsHref);
     actions.insertAdjacentElement("beforebegin", bottomTools);
   }
 

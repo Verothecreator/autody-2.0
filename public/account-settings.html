@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autody Demo Account | Settings</title>
+  <title>Autody Live Account | Settings</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body class="account-body" data-settings-mode="demo">
+<body class="account-body" data-settings-mode="live">
   <div class="app-layout">
     <aside class="app-sidebar">
       <a href="index.html" class="brand app-brand" aria-label="Autody home">
@@ -14,33 +14,33 @@
         <span>Autody</span>
       </a>
       <nav class="app-nav" aria-label="Account navigation">
-        <a href="demo-account.html">Overview</a>
-        <a href="demo-wallet.html">Wallet</a>
-        <a href="demo-markets.html">Markets</a>
-        <a href="demo-orders.html">Orders</a>
-        <a href="demo-watchlist.html">Watchlist</a>
-        <a href="demo-research.html">Research</a>
-        <a href="demo-settings.html" class="active">Settings</a>
+        <a href="account.html">Overview</a>
+        <a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html">Markets</a>
+        <a href="account-orders.html">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a>
+        <a href="account-research.html">Research</a>
+        <a href="account-settings.html" class="active">Settings</a>
       </nav>
       <div class="sidebar-profile">
-        <span>Demo mode</span>
-        <strong>$50,000 USD</strong>
+        <span>Account balance</span>
+        <strong data-live-balance>$0.00 USD</strong>
       </div>
       <div class="sidebar-actions">
-        <a href="account.html" class="btn sidebar-return">Live Account</a>
-        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-demo-sign-out>Sign Out</a>
+        <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
+        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a>
       </div>
     </aside>
 
     <main class="app-main">
       <header class="app-topbar">
         <div>
-          <p class="eyebrow">Demo settings</p>
+          <p class="eyebrow">Live settings</p>
           <h1>Settings</h1>
-          <p class="app-subtitle">Manage security, notifications, demo controls, and support from one account settings area.</p>
+          <p class="app-subtitle">Manage account security, notification behavior, verification controls, and support requests.</p>
         </div>
         <div class="account-mode-stack">
-          <span class="status-pill">Practice mode</span>
+          <span class="status-pill">Live account</span>
           <strong id="settings-status">Loading</strong>
         </div>
       </header>
@@ -107,17 +107,17 @@
             <div>
               <span class="muted-label">Mode</span>
               <h2>Live and demo</h2>
-              <p class="card-intro">Move between the real account and the practice workspace.</p>
+              <p class="card-intro">Move between verified balances and the practice workspace.</p>
             </div>
           </div>
           <div class="settings-list">
             <div>
               <span>Current mode</span>
-              <strong id="settings-current-mode">Demo trading</strong>
+              <strong id="settings-current-mode">Live account</strong>
             </div>
             <div>
               <span>Available funds</span>
-              <strong id="settings-buying-power">$50,000 USD</strong>
+              <strong id="settings-buying-power">$0 USD</strong>
             </div>
             <div>
               <span>Account email</span>
@@ -125,7 +125,7 @@
             </div>
             <div>
               <span>Switch workspace</span>
-              <a href="account.html" class="btn btn-small">Open Live Account</a>
+              <a href="demo-account.html" class="btn btn-small">Open Demo</a>
             </div>
           </div>
         </article>
@@ -135,7 +135,7 @@
             <div>
               <span class="muted-label">Verification</span>
               <h2>Identity and limits</h2>
-              <p class="card-intro">KYC belongs in the profile identity review flow.</p>
+              <p class="card-intro">Identity review unlocks safer live account permissions.</p>
             </div>
           </div>
           <div class="settings-list">
@@ -145,10 +145,10 @@
             </div>
             <div>
               <span>Identity review</span>
-              <a href="demo-profile.html" class="btn btn-small btn-ghost">Open Profile</a>
+              <a href="account-profile.html" class="btn btn-small btn-ghost">Open Profile</a>
             </div>
             <div>
-              <span>Live withdrawals</span>
+              <span>Withdrawals</span>
               <strong>After review</strong>
             </div>
             <div>
@@ -199,6 +199,7 @@
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>
+  <script src="live-account.js"></script>
   <script src="demo-settings.js"></script>
 </body>
 </html>
