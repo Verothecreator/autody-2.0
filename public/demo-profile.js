@@ -492,8 +492,6 @@ async function submitKycReview(event) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) throw new Error(data.error || "Identity review could not be submitted.");
-    setProfileText("profile-identity-status", "In Review");
-    setProfileText("profile-kyc-status", "In review");
     currentKycIdentityStatus = "in_review";
     currentKycReviewNote = "";
     setProfileNotice("Identity review submitted. Reviews usually take 2-3 business days.");
@@ -547,8 +545,6 @@ async function loadProfilePage() {
     setProfileText("profile-created", formatProfileDate(user.createdAt));
     setProfileText("profile-currency", wallet.currency || user.currency || "USD");
 
-    setProfileText("profile-identity-status", identityStatus);
-    setProfileText("profile-kyc-status", kycStage(verification));
     setKycReviewState(currentKycIdentityStatus);
 
     if (isLiveProfile) {

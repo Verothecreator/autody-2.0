@@ -1510,24 +1510,14 @@ h3 {
   width: min(840px, calc(100vw - 32px));
 }
 
-.profile-kyc-status {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.profile-kyc-modal[data-kyc-active-step="face"] .profile-kyc-status,
 .profile-kyc-modal[data-kyc-active-step="face"] .kyc-step-list {
   display: none;
 }
 
-.profile-kyc-modal[data-kyc-locked="true"] .profile-kyc-status,
 .profile-kyc-modal[data-kyc-locked="true"] .kyc-step-list {
   display: none;
 }
 
-.profile-kyc-status div,
 .kyc-step-list article,
 .kyc-guidance-grid article {
   border: 1px solid var(--line);
@@ -1535,19 +1525,8 @@ h3 {
   background: rgba(255, 255, 255, 0.035);
 }
 
-.profile-kyc-status div {
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-}
-
-.profile-kyc-status span,
 .kyc-step-list small {
   color: var(--muted);
-}
-
-.profile-kyc-status strong {
-  font-size: 1.15rem;
 }
 
 .kyc-guidance-grid {
@@ -5616,7 +5595,6 @@ body.modal-open {
 
   .live-form-grid,
   .profile-combined-list,
-  .profile-kyc-status,
   .kyc-face-actions,
   .kyc-submit-row,
   .live-wire-box,
