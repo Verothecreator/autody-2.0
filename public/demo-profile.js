@@ -305,7 +305,6 @@ function goToKycFaceStep() {
 function setKycFaceState(state = "idle") {
   const video = kycNode("kyc-face-video");
   const preview = kycNode("kyc-face-preview");
-  const placeholder = kycNode("kyc-face-placeholder");
   const startButton = document.querySelector("[data-kyc-camera-start]");
   const captureButton = document.querySelector("[data-kyc-camera-capture]");
   const retakeButton = document.querySelector("[data-kyc-camera-retake]");
@@ -314,10 +313,6 @@ function setKycFaceState(state = "idle") {
 
   if (video) video.hidden = !hasCamera;
   if (preview) preview.hidden = !hasPreview;
-  if (placeholder) {
-    placeholder.hidden = hasCamera || hasPreview;
-    if (!hasCamera && !hasPreview) placeholder.textContent = state === "unsupported" ? "Camera access is required for the face scan." : "Camera preview appears here.";
-  }
   if (startButton) startButton.hidden = hasCamera;
   if (captureButton) {
     captureButton.hidden = !hasCamera;

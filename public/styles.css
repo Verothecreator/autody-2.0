@@ -1757,8 +1757,9 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
-    radial-gradient(circle at 50% 35%, rgba(91, 95, 239, 0.22), transparent 34%),
-    linear-gradient(145deg, rgba(5, 10, 18, 0.92), rgba(17, 24, 39, 0.96));
+    radial-gradient(circle at 50% 42%, rgba(59, 130, 246, 0.28), transparent 36%),
+    radial-gradient(circle at 50% 50%, rgba(125, 211, 252, 0.12), transparent 54%),
+    linear-gradient(145deg, rgba(1, 5, 12, 0.98), rgba(8, 14, 28, 0.98));
 }
 
 .kyc-face-stage video,
@@ -1776,54 +1777,58 @@ h3 {
 
 .kyc-scan-frame {
   position: absolute;
-  inset: 8%;
-  border-radius: 26px;
+  width: 72%;
+  height: 72%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 10px;
+  background:
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left top / 30% 4px no-repeat,
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left top / 4px 30% no-repeat,
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right top / 30% 4px no-repeat,
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right top / 4px 30% no-repeat,
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left bottom / 30% 4px no-repeat,
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left bottom / 4px 30% no-repeat,
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right bottom / 30% 4px no-repeat,
+    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right bottom / 4px 30% no-repeat;
   box-shadow:
-    0 0 0 999px rgba(0, 0, 0, 0.16),
-    0 0 40px rgba(34, 211, 238, 0.34);
+    0 0 0 999px rgba(0, 0, 0, 0.22),
+    inset 0 0 22px rgba(96, 165, 250, 0.18),
+    0 0 28px rgba(96, 165, 250, 0.58),
+    0 0 68px rgba(34, 211, 238, 0.3);
   pointer-events: none;
 }
 
 .kyc-scan-frame::before {
   content: "";
   position: absolute;
-  left: -8%;
-  right: -8%;
-  top: 18%;
-  height: 3px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.92), transparent);
-  box-shadow: 0 0 18px rgba(34, 211, 238, 0.72);
-  animation: kyc-scan-line 2.2s ease-in-out infinite;
+  left: 50%;
+  top: 50%;
+  width: 48%;
+  height: 56%;
+  transform: translate(-50%, -34%);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(241, 245, 249, 0.96) 0 18%, rgba(191, 219, 254, 0.92) 18.5% 25%, transparent 25.5%),
+    radial-gradient(ellipse at 50% 78%, rgba(241, 245, 249, 0.96) 0 35%, rgba(191, 219, 254, 0.92) 35.5% 44%, transparent 44.5%);
+  filter:
+    drop-shadow(0 0 10px rgba(191, 219, 254, 0.52))
+    drop-shadow(0 0 22px rgba(56, 189, 248, 0.35));
 }
 
 .kyc-scan-frame::after {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left top / 28% 4px no-repeat,
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left top / 4px 28% no-repeat,
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right top / 28% 4px no-repeat,
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right top / 4px 28% no-repeat,
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left bottom / 28% 4px no-repeat,
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left bottom / 4px 28% no-repeat,
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right bottom / 28% 4px no-repeat,
-    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right bottom / 4px 28% no-repeat,
-    radial-gradient(circle at 50% 32%, transparent 0 11%, rgba(191, 219, 254, 0.72) 11.5% 18%, transparent 18.5%),
-    radial-gradient(ellipse at 50% 74%, transparent 0 24%, rgba(191, 219, 254, 0.64) 24.5% 39%, transparent 39.5%);
-  filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.48));
-}
-
-#kyc-face-placeholder {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  max-width: 320px;
-  color: var(--muted);
-  text-align: center;
-  font-weight: 850;
+  left: -4%;
+  right: -4%;
+  top: 42%;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.96), transparent);
+  box-shadow:
+    0 0 14px rgba(125, 211, 252, 0.86),
+    0 0 28px rgba(59, 130, 246, 0.54);
+  animation: kyc-scan-line 2.35s ease-in-out infinite;
 }
 
 .kyc-face-actions {
@@ -1846,11 +1851,11 @@ h3 {
 @keyframes kyc-scan-line {
   0%,
   100% {
-    top: 18%;
+    top: 30%;
     opacity: 0.55;
   }
   50% {
-    top: 78%;
+    top: 66%;
     opacity: 1;
   }
 }
