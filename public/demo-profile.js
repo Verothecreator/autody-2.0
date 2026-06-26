@@ -4,6 +4,7 @@ const PROFILE_PLACEHOLDER_VALUES = new Set(["not_required", "not required", "pen
 let kycFaceStream = null;
 let kycCapturedFaceDataUrl = "";
 let currentKycIdentityStatus = "pending";
+let currentKycReviewNote = "";
 let kycReviewLocked = false;
 
 function setProfileText(id, value) {
@@ -141,12 +142,38 @@ function profileInitials(name = "", email = "") {
 }
 
 function kycStage(verification = {}) {
-  const email = String(verification.email || "").toLowerCase();
-  const identity = String(verification.identity || "").toLowerCase();
+  const email = String(verification.email || verification.emailStatus || "").toLowerCase();
+  const identity = String(verification.identity || verification.identityStatus || "").toLowerCase();
   if (identity === "verified" || identity === "approved") return "Verified";
   if (identity === "reviewing" || identity === "in_review") return "In review";
   if (email === "verified") return "Ready to start";
   return "Email required";
+}
+
+function setKycButtonState(identityStatus = currentKycIdentityStatus) {
+  const button = document.getElementById("profile-kyc-button") || document.querySelector("[data-profile-kyc-open]");
+  if (!button) return;
+  const normalized = normalizeKycStatus(identityStatus);
+  button.disabled = false;
+  button.classList.remove("profile-kyc-button-verified", "profile-kyc-button-rejected", "profile-kyc-button-reviewing");
+
+  if (isKycVerified(normalized)) {
+    button.textContent = "Verified";
+    button.disabled = true;
+    button.classList.add("profile-kyc-button-verified");
+    return;
+  }
+  if (isKycRejected(normalized)) {
+    button.textContent = "Rejected";
+    button.classList.add("profile-kyc-button-rejected");
+    return;
+  }
+  if (isKycInReview(normalized)) {
+    button.textContent = "In Review";
+    button.classList.add("profile-kyc-button-reviewing");
+    return;
+  }
+  button.textContent = "Verify Identity";
 }
 
 async function getProfileJson(url) {
@@ -206,12 +233,15 @@ function setKycReviewState(identityStatus = currentKycIdentityStatus) {
   const copy = kycNode("kyc-review-state-copy");
   const time = kycNode("kyc-review-state-time");
   const next = kycNode("kyc-review-state-next");
+  const retryButton = document.querySelector("[data-kyc-retry]");
   const locked = isKycInReview(normalized) || isKycVerified(normalized) || isKycRejected(normalized);
 
   kycReviewLocked = locked;
   if (modal) modal.dataset.kycLocked = locked ? "true" : "false";
   if (form) form.hidden = locked;
   if (reviewState) reviewState.hidden = !locked;
+  if (retryButton) retryButton.hidden = true;
+  setKycButtonState(normalized);
 
   if (!locked) return;
 
@@ -226,10 +256,13 @@ function setKycReviewState(identityStatus = currentKycIdentityStatus) {
   }
   if (isKycRejected(normalized)) {
     if (label) label.textContent = "Review decision";
-    if (title) title.textContent = "Identity review needs attention";
-    if (copy) copy.textContent = "Autody could not approve this submission. Wait for support instructions before sending another document.";
-    if (time) time.textContent = "Support review";
-    if (next) next.textContent = "Wait for instructions";
+    if (title) title.textContent = "Identity review was rejected";
+    if (copy) copy.textContent = currentKycReviewNote
+      ? `Reason: ${currentKycReviewNote}`
+      : "Autody could not approve this submission. Upload a clearer document and face scan to try again.";
+    if (time) time.textContent = "Action needed";
+    if (next) next.textContent = "Upload again";
+    if (retryButton) retryButton.hidden = false;
     return;
   }
   if (label) label.textContent = "Review submitted";
@@ -237,6 +270,27 @@ function setKycReviewState(identityStatus = currentKycIdentityStatus) {
   if (copy) copy.textContent = "We received your identity document and face scan. Reviews usually take 2-3 business days. You do not need to upload anything else unless Autody asks for a clearer document.";
   if (time) time.textContent = "2-3 business days";
   if (next) next.textContent = "Wait for admin review";
+}
+
+function beginKycRetryUpload() {
+  const modal = document.getElementById("profile-kyc-modal");
+  const form = document.querySelector("[data-kyc-form]");
+  const reviewState = document.querySelector("[data-kyc-review-state]");
+  const retryButton = document.querySelector("[data-kyc-retry]");
+  kycReviewLocked = false;
+  if (modal) modal.dataset.kycLocked = "false";
+  if (form) {
+    form.hidden = false;
+    form.reset();
+  }
+  if (reviewState) reviewState.hidden = true;
+  if (retryButton) retryButton.hidden = true;
+  kycCapturedFaceDataUrl = "";
+  const preview = kycNode("kyc-face-preview");
+  if (preview) preview.removeAttribute("src");
+  setKycFaceState("idle");
+  setKycStep("document");
+  setProfileNotice("Upload a clearer document and fresh face scan for another review.");
 }
 
 function goToKycFaceStep() {
@@ -309,7 +363,48 @@ async function startKycCamera() {
   }
 }
 
-function captureKycFace() {
+async function kycFaceGuideCheck(canvas) {
+  if (!("FaceDetector" in window)) return { ok: true };
+  let bitmap = null;
+  try {
+    const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 2 });
+    const source = window.createImageBitmap ? await createImageBitmap(canvas) : canvas;
+    bitmap = source !== canvas ? source : null;
+    const faces = await detector.detect(source);
+    if (!faces.length) {
+      return { ok: false, message: "No face detected. Center your face inside the guide and capture again." };
+    }
+    if (faces.length > 1) {
+      return { ok: false, message: "Only one face should be visible in the scan." };
+    }
+    const box = faces[0].boundingBox;
+    const centerX = box.x + (box.width / 2);
+    const centerY = box.y + (box.height / 2);
+    const width = canvas.width || 1;
+    const height = canvas.height || 1;
+    const faceWidthRatio = box.width / width;
+    const faceHeightRatio = box.height / height;
+    const centered = centerX > width * 0.33
+      && centerX < width * 0.67
+      && centerY > height * 0.22
+      && centerY < height * 0.62;
+    const sized = faceWidthRatio > 0.18
+      && faceWidthRatio < 0.55
+      && faceHeightRatio > 0.18
+      && faceHeightRatio < 0.62;
+    if (!centered || !sized) {
+      return { ok: false, message: "Move your face into the center of the guide, then capture again." };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.warn("KYC face guide check unavailable:", err);
+    return { ok: true };
+  } finally {
+    bitmap?.close?.();
+  }
+}
+
+async function captureKycFace() {
   const video = kycNode("kyc-face-video");
   const canvas = kycNode("kyc-face-canvas");
   const preview = kycNode("kyc-face-preview");
@@ -324,6 +419,11 @@ function captureKycFace() {
   canvas.height = squareSize;
   const context = canvas.getContext("2d");
   context.drawImage(video, sourceX, sourceY, squareSize, squareSize, 0, 0, squareSize, squareSize);
+  const guideCheck = await kycFaceGuideCheck(canvas);
+  if (!guideCheck.ok) {
+    setProfileNotice(guideCheck.message || "Center your face inside the guide and capture again.");
+    return;
+  }
   kycCapturedFaceDataUrl = canvas.toDataURL("image/jpeg", 0.9);
   preview.src = kycCapturedFaceDataUrl;
   stopKycCamera();
@@ -370,7 +470,7 @@ async function submitKycReview(event) {
     return;
   }
 
-  const originalText = submitButton?.textContent || "Submit Identity Review";
+  const originalText = submitButton?.textContent || "Submit Verification";
   if (submitButton) {
     submitButton.disabled = true;
     submitButton.textContent = "Submitting review...";
@@ -396,6 +496,7 @@ async function submitKycReview(event) {
     setProfileText("profile-identity-status", "In Review");
     setProfileText("profile-kyc-status", "In review");
     currentKycIdentityStatus = "in_review";
+    currentKycReviewNote = "";
     setProfileNotice("Identity review submitted. Reviews usually take 2-3 business days.");
     form.reset();
     kycCapturedFaceDataUrl = "";
@@ -421,11 +522,12 @@ async function loadProfilePage() {
     const user = walletData.user || {};
     const profile = user.profile || {};
     const verification = user.verification || {};
-    currentKycIdentityStatus = normalizeKycStatus(verification.identity || "pending");
+    currentKycIdentityStatus = normalizeKycStatus(verification.identity || verification.identityStatus || "pending");
+    currentKycReviewNote = cleanProfileText(verification.reviewNote || verification.rejectionReason || "");
     const accountEmail = profileValue(user.email, "Not available");
     const displayName = profileDisplayName(user);
-    const emailStatus = readableStatus(verification.email);
-    const identityStatus = readableStatus(verification.identity);
+    const emailStatus = readableStatus(verification.email || verification.emailStatus);
+    const identityStatus = readableStatus(verification.identity || verification.identityStatus);
     const nameParts = profileNameParts(user, displayName);
     const displayPhone = profileValue(profile.phone, legacyProfilePhone(accountEmail));
     const displayCountry = legacyProfileCountry(profile.country, accountEmail);
@@ -503,6 +605,12 @@ document.addEventListener("click", (event) => {
   const cameraCapture = event.target.closest("[data-kyc-camera-capture]");
   if (cameraCapture) {
     captureKycFace();
+    return;
+  }
+
+  const kycRetryButton = event.target.closest("[data-kyc-retry]");
+  if (kycRetryButton) {
+    beginKycRetryUpload();
     return;
   }
 

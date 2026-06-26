@@ -190,6 +190,10 @@ function kycDownloadButton(row = {}, kind = "document", label = "Download") {
   return `<button type="button" class="admin-download" data-kyc-download="${adminEscape(row.id)}" data-kyc-file-kind="${adminEscape(kind)}" data-kyc-file-name="${adminEscape(fileName || label)}">${adminEscape(label)}</button>`;
 }
 
+function kycDeleteButton(row = {}) {
+  return `<button type="button" class="btn btn-ghost admin-danger" data-kyc-delete="${adminEscape(row.id)}">Delete files</button>`;
+}
+
 function renderAddresses(rows = []) {
   const target = document.getElementById("admin-addresses");
   const count = document.querySelector('[data-count="addresses"]');
@@ -362,6 +366,7 @@ function renderKycSubmissions(rows = []) {
       <div class="admin-kyc-actions">
         <button type="button" class="btn" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="approved">Approve</button>
         <button type="button" class="btn btn-ghost" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="rejected">Reject</button>
+        ${kycDeleteButton(row)}
         <small>${adminEscape(row.reviewNote || row.reviewer || "Waiting for manual review")}</small>
       </div>
     </article>
@@ -406,6 +411,16 @@ async function reviewKycSubmission(submissionId, status) {
   });
   setAdminOutput(result);
   setAdminNotice(`KYC submission ${action === "approve" ? "approved" : "rejected"}.`, "success");
+  await loadAdminKycOverview();
+}
+
+async function deleteKycSubmission(submissionId) {
+  if (!submissionId) return;
+  const confirmed = window.confirm("Delete this KYC submission and its private files? This cannot be undone.");
+  if (!confirmed) return;
+  const result = await adminPost("/api/admin/kyc/delete", { submissionId });
+  setAdminOutput(result);
+  setAdminNotice("KYC submission files deleted.", "success");
   await loadAdminKycOverview();
 }
 
@@ -497,6 +512,7 @@ function wireAdminPortal() {
     const button = event.target.closest("[data-copy]");
     const kycButton = event.target.closest("[data-kyc-review]");
     const kycDownload = event.target.closest("[data-kyc-download]");
+    const kycDelete = event.target.closest("[data-kyc-delete]");
     if (kycDownload) {
       const original = kycDownload.textContent;
       try {
@@ -514,6 +530,15 @@ function wireAdminPortal() {
       } finally {
         kycDownload.disabled = false;
         kycDownload.textContent = original;
+      }
+      return;
+    }
+    if (kycDelete) {
+      try {
+        await deleteKycSubmission(kycDelete.dataset.kycDelete);
+      } catch (err) {
+        setAdminOutput(err.message || String(err));
+        setAdminNotice(err.message || "KYC delete failed.", "error");
       }
       return;
     }

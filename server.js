@@ -1416,7 +1416,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     const row = accountResult.rows[0];
     if (!row) return null;
 
-    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult] = await Promise.all([
+    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult] = await Promise.all([
         dbPool.query(`
             select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at
             from holdings
@@ -1455,7 +1455,14 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             from account_settings
             where profile_id = $1
             limit 1
-        `, [row.profile_id])
+        `, [row.profile_id]),
+        dbPool.query(`
+            select status, review_note, reviewer, created_at, updated_at, reviewed_at
+            from kyc_submissions
+            where profile_id = $1
+            order by created_at desc
+            limit 1
+        `, [row.profile_id]).catch(() => ({ rows: [] }))
     ]);
 
     const holdings = holdingsResult.rows.map(mapDbHolding);
@@ -1471,6 +1478,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     const nonCashHoldings = holdings.filter((holding) => holding.symbol !== "USD");
     const performanceRow = performanceResult.rows[0] || {};
     const settingsRow = settingsResult.rows[0] || {};
+    const latestKycRow = latestKycResult.rows[0] || {};
     const startingBalance = numberValue(row.starting_balance, accountMode === "demo" ? 50000 : 0);
     const portfolioFallback = cashBalance + nonCashHoldings.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
     const nameParts = profileNamePartsFromRow(row);
@@ -1501,7 +1509,12 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             verification: {
                 email: row.email_status || "pending",
                 phone: row.phone_status || "pending",
-                identity: row.identity_status || "pending"
+                identity: row.identity_status || "pending",
+                reviewStatus: latestKycRow.status || "",
+                reviewNote: latestKycRow.review_note || "",
+                reviewer: latestKycRow.reviewer || "",
+                submittedAt: latestKycRow.created_at || "",
+                reviewedAt: latestKycRow.reviewed_at || ""
             }
         },
         wallet: { cash, holdings: nonCashHoldings },
@@ -6644,6 +6657,27 @@ async function fetchKycObject(storagePath) {
     return Buffer.from(await response.arrayBuffer());
 }
 
+async function deleteKycObject(storagePath) {
+    if (!storagePath) return { path: "", deleted: false, skipped: true };
+    if (!kycStorageConfigured()) {
+        throw demoTradeError(503, "KYC private storage is not configured yet.");
+    }
+    const endpoint = `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(KYC_STORAGE_BUCKET)}/${encodeStoragePath(storagePath)}`;
+    const response = await fetch(endpoint, {
+        method: "DELETE",
+        headers: {
+            "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            "apikey": SUPABASE_SERVICE_ROLE_KEY
+        }
+    });
+    if (!response.ok && response.status !== 404) {
+        const detail = await response.text().catch(() => "");
+        console.error("KYC storage delete failed:", response.status, detail.slice(0, 300));
+        throw demoTradeError(502, "KYC private storage delete failed.");
+    }
+    return { path: storagePath, deleted: response.ok, missing: response.status === 404 };
+}
+
 async function createKycSubmission(auth, body = {}) {
     if (!databaseConfigured()) {
         throw demoTradeError(503, "KYC review needs the secured account database first.");
@@ -6844,6 +6878,53 @@ async function getAdminKycDownload(body = {}) {
         bytes,
         contentType: contentType || "application/octet-stream",
         fileName
+    };
+}
+
+async function deleteAdminKycSubmission(body = {}) {
+    if (!databaseConfigured()) {
+        throw demoTradeError(503, "KYC admin delete needs the secured database.");
+    }
+    await ensureSignUpTables();
+    await ensureKycTables();
+    const submissionId = normalizeText(body.submissionId || body.id);
+    if (!submissionId) throw demoTradeError(400, "Submission ID is required.");
+
+    const result = await dbPool.query(`
+        select id, profile_id, status, document_path, selfie_path
+        from kyc_submissions
+        where id = $1
+        limit 1
+    `, [submissionId]);
+    const row = result.rows[0];
+    if (!row) throw demoTradeError(404, "KYC submission was not found.");
+
+    const deletedFiles = [];
+    deletedFiles.push(await deleteKycObject(row.document_path));
+    deletedFiles.push(await deleteKycObject(row.selfie_path));
+
+    await dbPool.query(`delete from kyc_submissions where id = $1`, [submissionId]);
+    const remaining = await dbPool.query(`
+        select status
+        from kyc_submissions
+        where profile_id = $1
+        order by created_at desc
+        limit 1
+    `, [row.profile_id]);
+    const remainingStatus = remaining.rows[0]?.status || "pending";
+    const identityStatus = remainingStatus === "approved" ? "verified" : remainingStatus;
+    await dbPool.query(`
+        update profile_verifications
+        set identity_status = $2,
+            updated_at = now()
+        where profile_id = $1
+    `, [row.profile_id, identityStatus]);
+
+    return {
+        success: true,
+        deletedSubmission: submissionId,
+        deletedFiles,
+        identityStatus
     };
 }
 
@@ -10807,6 +10888,25 @@ app.post("/api/admin/kyc/download", async (req, res) => {
   } catch (err) {
     console.error("Admin KYC download failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "KYC download failed." });
+  }
+});
+
+app.post("/api/admin/kyc/delete", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin KYC delete is not authorized." });
+    }
+    const result = await deleteAdminKycSubmission(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin KYC delete failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "KYC delete failed." });
   }
 });
 

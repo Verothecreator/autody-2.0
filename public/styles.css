@@ -1657,6 +1657,12 @@ h3 {
   color: var(--muted);
 }
 
+.kyc-review-state-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .kyc-form-step {
   grid-column: 1 / -1;
   display: grid;
@@ -1689,6 +1695,28 @@ h3 {
 
 .kyc-review-form input[type="file"] {
   padding: 14px;
+}
+
+.kyc-review-form select option {
+  background: #111827;
+  color: #f8fafc;
+}
+
+.profile-kyc-button-verified {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(16, 185, 129, 0.44);
+  color: #34d399;
+  cursor: default;
+}
+
+.profile-kyc-button-rejected {
+  background: rgba(255, 88, 116, 0.18);
+  border-color: rgba(255, 88, 116, 0.46);
+  color: var(--danger);
+}
+
+.profile-kyc-button-reviewing {
+  background: rgba(91, 95, 239, 0.18);
 }
 
 .kyc-face-scan {
@@ -1748,12 +1776,11 @@ h3 {
 
 .kyc-scan-frame {
   position: absolute;
-  inset: 10%;
-  border: 2px solid rgba(91, 95, 239, 0.82);
-  border-radius: 22px;
+  inset: 8%;
+  border-radius: 26px;
   box-shadow:
-    0 0 0 999px rgba(0, 0, 0, 0.18),
-    0 0 34px rgba(91, 95, 239, 0.34);
+    0 0 0 999px rgba(0, 0, 0, 0.16),
+    0 0 40px rgba(34, 211, 238, 0.34);
   pointer-events: none;
 }
 
@@ -1768,6 +1795,25 @@ h3 {
   background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.92), transparent);
   box-shadow: 0 0 18px rgba(34, 211, 238, 0.72);
   animation: kyc-scan-line 2.2s ease-in-out infinite;
+}
+
+.kyc-scan-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left top / 28% 4px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left top / 4px 28% no-repeat,
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right top / 28% 4px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right top / 4px 28% no-repeat,
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left bottom / 28% 4px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) left bottom / 4px 28% no-repeat,
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right bottom / 28% 4px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 0.96), rgba(191, 219, 254, 0.96)) right bottom / 4px 28% no-repeat,
+    radial-gradient(circle at 50% 32%, transparent 0 11%, rgba(191, 219, 254, 0.72) 11.5% 18%, transparent 18.5%),
+    radial-gradient(ellipse at 50% 74%, transparent 0 24%, rgba(191, 219, 254, 0.64) 24.5% 39%, transparent 39.5%);
+  filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.48));
 }
 
 #kyc-face-placeholder {
@@ -5178,6 +5224,16 @@ body.modal-open {
 
 .admin-kyc-actions {
   align-content: start;
+}
+
+.admin-danger {
+  border-color: rgba(255, 88, 116, 0.38);
+  color: var(--danger);
+}
+
+.admin-danger:hover {
+  border-color: rgba(255, 88, 116, 0.7);
+  background: rgba(255, 88, 116, 0.12);
 }
 
 @media (max-width: 1180px) {
