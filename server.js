@@ -6504,6 +6504,10 @@ async function ensureKycTables(client = dbPool) {
           document_file_name text,
           document_content_type text,
           document_size_bytes integer not null default 0,
+          document_back_path text,
+          document_back_file_name text,
+          document_back_content_type text,
+          document_back_size_bytes integer not null default 0,
           selfie_path text not null,
           selfie_file_name text,
           selfie_content_type text,
@@ -6520,6 +6524,12 @@ async function ensureKycTables(client = dbPool) {
 
         create index if not exists kyc_submissions_status_idx
           on kyc_submissions (status, created_at desc);
+
+        alter table kyc_submissions
+          add column if not exists document_back_path text,
+          add column if not exists document_back_file_name text,
+          add column if not exists document_back_content_type text,
+          add column if not exists document_back_size_bytes integer not null default 0;
     `);
 }
 
@@ -6689,28 +6699,58 @@ async function createKycSubmission(auth, body = {}) {
         throw demoTradeError(503, "KYC private storage is not configured yet.");
     }
 
+    await ensureSignUpTables();
+    await ensureKycTables();
+
+    const verification = await dbPool.query(`
+        select identity_status
+        from profile_verifications
+        where profile_id = $1
+        limit 1
+    `, [auth.profileId]);
+    const activeIdentityStatus = normalizeText(verification.rows[0]?.identity_status).toLowerCase();
+    if (["in_review", "verified"].includes(activeIdentityStatus)) {
+        throw demoTradeError(
+            409,
+            activeIdentityStatus === "verified"
+                ? "Identity is already verified."
+                : "Identity review is already in progress."
+        );
+    }
+
     const documentType = normalizeKycDocumentType(body.documentType);
     const accountMode = normalizeWatchlistMode(body.mode || body.accountMode || "live");
-    const documentFile = decodeKycUpload(body.documentFile, { label: "Identity document", allowPdf: true });
+    const documentUploads = Array.isArray(body.documentFiles) && body.documentFiles.length
+        ? body.documentFiles
+        : [body.documentFile].filter(Boolean);
+    if (!documentUploads.length) throw demoTradeError(400, "Identity document is required.");
+    if (documentUploads.length > 2) throw demoTradeError(400, "Upload no more than 2 identity document files.");
+    const documentFile = decodeKycUpload(documentUploads[0], { label: "Identity document", allowPdf: true });
+    const documentBackFile = documentUploads[1]
+        ? decodeKycUpload(documentUploads[1], { label: "Identity document back", allowPdf: true })
+        : null;
     const selfieFile = decodeKycUpload(body.selfieFile || body.faceFile, { label: "Face scan", allowPdf: false });
     const submissionId = crypto.randomUUID();
     const profileId = auth.profileId;
     const basePath = `profiles/${profileId}/${submissionId}`;
     const documentPath = `${basePath}/document.${kycContentExtension(documentFile.contentType)}`;
+    const documentBackPath = documentBackFile
+        ? `${basePath}/document-back.${kycContentExtension(documentBackFile.contentType)}`
+        : null;
     const selfiePath = `${basePath}/face-scan.${kycContentExtension(selfieFile.contentType)}`;
 
-    await ensureSignUpTables();
-    await ensureKycTables();
     await uploadKycObject(documentPath, documentFile);
+    if (documentBackFile && documentBackPath) await uploadKycObject(documentBackPath, documentBackFile);
     await uploadKycObject(selfiePath, selfieFile);
     await dbPool.query(`
         insert into kyc_submissions (
             id, profile_id, account_mode, document_type, status,
             document_path, document_file_name, document_content_type, document_size_bytes,
+            document_back_path, document_back_file_name, document_back_content_type, document_back_size_bytes,
             selfie_path, selfie_file_name, selfie_content_type, selfie_size_bytes,
             created_at, updated_at
         )
-        values ($1, $2, $3, $4, 'in_review', $5, $6, $7, $8, $9, $10, $11, $12, now(), now())
+        values ($1, $2, $3, $4, 'in_review', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), now())
     `, [
         submissionId,
         profileId,
@@ -6720,6 +6760,10 @@ async function createKycSubmission(auth, body = {}) {
         documentFile.name,
         documentFile.contentType,
         documentFile.size,
+        documentBackPath,
+        documentBackFile?.name || null,
+        documentBackFile?.contentType || null,
+        documentBackFile?.size || 0,
         selfiePath,
         selfieFile.name,
         selfieFile.contentType,
@@ -6769,6 +6813,10 @@ async function getAdminKycOverview(body = {}) {
             ks.document_file_name,
             ks.document_content_type,
             ks.document_size_bytes,
+            ks.document_back_path,
+            ks.document_back_file_name,
+            ks.document_back_content_type,
+            ks.document_back_size_bytes,
             ks.selfie_path,
             ks.selfie_file_name,
             ks.selfie_content_type,
@@ -6814,10 +6862,14 @@ async function getAdminKycOverview(body = {}) {
             documentFileName: row.document_file_name || "Identity document",
             documentContentType: row.document_content_type || "",
             documentSizeBytes: Number(row.document_size_bytes || 0),
+            documentBackFileName: row.document_back_file_name || "Identity document back",
+            documentBackContentType: row.document_back_content_type || "",
+            documentBackSizeBytes: Number(row.document_back_size_bytes || 0),
             selfieFileName: row.selfie_file_name || "Face scan",
             selfieContentType: row.selfie_content_type || "",
             selfieSizeBytes: Number(row.selfie_size_bytes || 0),
             documentUrl: await signedKycObjectUrl(row.document_path),
+            documentBackUrl: await signedKycObjectUrl(row.document_back_path),
             selfieUrl: await signedKycObjectUrl(row.selfie_path),
             reviewNote: row.review_note || "",
             reviewer: row.reviewer || "",
@@ -6844,7 +6896,11 @@ async function getAdminKycDownload(body = {}) {
     await ensureKycTables();
     const submissionId = normalizeText(body.submissionId || body.id);
     const requestedKind = normalizeText(body.kind || body.fileKind || body.type).toLowerCase();
-    const kind = ["selfie", "face", "face_scan", "face-scan"].includes(requestedKind) ? "selfie" : "document";
+    const kind = ["selfie", "face", "face_scan", "face-scan"].includes(requestedKind)
+        ? "selfie"
+        : ["document_back", "document-back", "back", "documentback"].includes(requestedKind)
+            ? "document_back"
+            : "document";
     if (!submissionId) throw demoTradeError(400, "Submission ID is required.");
 
     const result = await dbPool.query(`
@@ -6853,6 +6909,9 @@ async function getAdminKycDownload(body = {}) {
             ks.document_path,
             ks.document_file_name,
             ks.document_content_type,
+            ks.document_back_path,
+            ks.document_back_file_name,
+            ks.document_back_content_type,
             ks.selfie_path,
             ks.selfie_file_name,
             ks.selfie_content_type,
@@ -6865,14 +6924,33 @@ async function getAdminKycDownload(body = {}) {
     const row = result.rows[0];
     if (!row) throw demoTradeError(404, "KYC submission was not found.");
 
-    const storagePath = kind === "selfie" ? row.selfie_path : row.document_path;
-    const contentType = kind === "selfie" ? row.selfie_content_type : row.document_content_type;
-    const originalName = kind === "selfie" ? row.selfie_file_name : row.document_file_name;
-    const fallbackName = `${kind === "selfie" ? "face-scan" : "identity-document"}-${submissionId}.${kycContentExtension(contentType)}`;
-    const safeName = safeKycFileName(originalName, fallbackName);
+    const fileMeta = {
+        document: {
+            storagePath: row.document_path,
+            contentType: row.document_content_type,
+            originalName: row.document_file_name,
+            prefix: "identity-document"
+        },
+        document_back: {
+            storagePath: row.document_back_path,
+            contentType: row.document_back_content_type,
+            originalName: row.document_back_file_name,
+            prefix: "identity-document-back"
+        },
+        selfie: {
+            storagePath: row.selfie_path,
+            contentType: row.selfie_content_type,
+            originalName: row.selfie_file_name,
+            prefix: "face-scan"
+        }
+    }[kind];
+    if (!fileMeta?.storagePath) throw demoTradeError(404, "Requested KYC file was not found.");
+    const contentType = fileMeta.contentType || "application/octet-stream";
+    const fallbackName = `${fileMeta.prefix}-${submissionId}.${kycContentExtension(contentType)}`;
+    const safeName = safeKycFileName(fileMeta.originalName, fallbackName);
     const accountPrefix = safeKycFileName(String(row.email || "autody-account").split("@")[0], "autody-account");
-    const fileName = `${accountPrefix}-${kind === "selfie" ? "face-scan" : "identity-document"}-${safeName}`;
-    const bytes = await fetchKycObject(storagePath);
+    const fileName = `${accountPrefix}-${fileMeta.prefix}-${safeName}`;
+    const bytes = await fetchKycObject(fileMeta.storagePath);
 
     return {
         bytes,
@@ -6891,7 +6969,7 @@ async function deleteAdminKycSubmission(body = {}) {
     if (!submissionId) throw demoTradeError(400, "Submission ID is required.");
 
     const result = await dbPool.query(`
-        select id, profile_id, status, document_path, selfie_path
+        select id, profile_id, status, document_path, document_back_path, selfie_path
         from kyc_submissions
         where id = $1
         limit 1
@@ -6901,6 +6979,7 @@ async function deleteAdminKycSubmission(body = {}) {
 
     const deletedFiles = [];
     deletedFiles.push(await deleteKycObject(row.document_path));
+    deletedFiles.push(await deleteKycObject(row.document_back_path));
     deletedFiles.push(await deleteKycObject(row.selfie_path));
 
     await dbPool.query(`delete from kyc_submissions where id = $1`, [submissionId]);

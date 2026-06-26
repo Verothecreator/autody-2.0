@@ -1659,8 +1659,8 @@ h3 {
 
 .kyc-review-state-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  max-width: 360px;
 }
 
 .kyc-form-step {

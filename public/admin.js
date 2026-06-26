@@ -186,7 +186,11 @@ function copyButton(value, label = "Copy") {
 }
 
 function kycDownloadButton(row = {}, kind = "document", label = "Download") {
-  const fileName = kind === "selfie" ? row.selfieFileName : row.documentFileName;
+  const fileName = kind === "selfie"
+    ? row.selfieFileName
+    : kind === "document_back"
+      ? row.documentBackFileName
+      : row.documentFileName;
   return `<button type="button" class="admin-download" data-kyc-download="${adminEscape(row.id)}" data-kyc-file-kind="${adminEscape(kind)}" data-kyc-file-name="${adminEscape(fileName || label)}">${adminEscape(label)}</button>`;
 }
 
@@ -357,6 +361,13 @@ function renderKycSubmissions(rows = []) {
           ${renderKycPreview(row.documentUrl, row.documentContentType, "Identity document")}
           ${kycDownloadButton(row, "document", "Download ID")}
         </div>
+        ${row.documentBackUrl ? `
+          <div>
+            <small>Document back</small>
+            ${renderKycPreview(row.documentBackUrl, row.documentBackContentType, "Identity document back")}
+            ${kycDownloadButton(row, "document_back", "Download back")}
+          </div>
+        ` : ""}
         <div>
           <small>Face scan</small>
           ${renderKycPreview(row.selfieUrl, row.selfieContentType, "Face scan")}

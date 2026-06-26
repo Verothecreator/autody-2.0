@@ -1,6 +1,7 @@
 const isLiveProfile = document.body?.dataset?.profileMode === "live" || location.pathname.endsWith("account-profile.html");
 const profileWalletEndpoint = isLiveProfile ? "/api/account/wallet" : "/api/demo/wallet";
 const PROFILE_PLACEHOLDER_VALUES = new Set(["not_required", "not required", "pending", "unknown", "none", "null", "undefined", "-"]);
+const KYC_MAX_DOCUMENT_FILES = 2;
 let kycFaceStream = null;
 let kycCapturedFaceDataUrl = "";
 let currentKycIdentityStatus = "pending";
@@ -231,8 +232,6 @@ function setKycReviewState(identityStatus = currentKycIdentityStatus) {
   const label = kycNode("kyc-review-state-label");
   const title = kycNode("kyc-review-state-title");
   const copy = kycNode("kyc-review-state-copy");
-  const time = kycNode("kyc-review-state-time");
-  const next = kycNode("kyc-review-state-next");
   const retryButton = document.querySelector("[data-kyc-retry]");
   const locked = isKycInReview(normalized) || isKycVerified(normalized) || isKycRejected(normalized);
 
@@ -250,8 +249,6 @@ function setKycReviewState(identityStatus = currentKycIdentityStatus) {
     if (label) label.textContent = "Review complete";
     if (title) title.textContent = "Identity verified";
     if (copy) copy.textContent = "Your identity review is complete. No additional upload is needed right now.";
-    if (time) time.textContent = "Complete";
-    if (next) next.textContent = "Live permissions can expand";
     return;
   }
   if (isKycRejected(normalized)) {
@@ -260,16 +257,12 @@ function setKycReviewState(identityStatus = currentKycIdentityStatus) {
     if (copy) copy.textContent = currentKycReviewNote
       ? `Reason: ${currentKycReviewNote}`
       : "Autody could not approve this submission. Upload a clearer document and face scan to try again.";
-    if (time) time.textContent = "Action needed";
-    if (next) next.textContent = "Upload again";
     if (retryButton) retryButton.hidden = false;
     return;
   }
   if (label) label.textContent = "Review submitted";
   if (title) title.textContent = "Verification is in review";
   if (copy) copy.textContent = "We received your identity document and face scan. Reviews usually take 2-3 business days. You do not need to upload anything else unless Autody asks for a clearer document.";
-  if (time) time.textContent = "2-3 business days";
-  if (next) next.textContent = "Wait for admin review";
 }
 
 function beginKycRetryUpload() {
@@ -294,9 +287,13 @@ function beginKycRetryUpload() {
 }
 
 function goToKycFaceStep() {
-  const documentFile = kycNode("kyc-document-file")?.files?.[0] || null;
-  if (!documentFile) {
+  const documentFiles = Array.from(kycNode("kyc-document-file")?.files || []);
+  if (!documentFiles.length) {
     setProfileNotice("Upload an identity document before moving to the face scan.");
+    return;
+  }
+  if (documentFiles.length > KYC_MAX_DOCUMENT_FILES) {
+    setProfileNotice("Upload no more than 2 identity document files.");
     return;
   }
   setKycStep("face");
@@ -454,10 +451,14 @@ async function submitKycReview(event) {
   const form = event.currentTarget;
   const submitButton = kycNode("kyc-submit-button");
   const documentInput = kycNode("kyc-document-file");
-  const documentFile = documentInput?.files?.[0] || null;
+  const documentFiles = Array.from(documentInput?.files || []);
 
-  if (!documentFile) {
+  if (!documentFiles.length) {
     setProfileNotice("Upload an identity document before submitting.");
+    return;
+  }
+  if (documentFiles.length > KYC_MAX_DOCUMENT_FILES) {
+    setProfileNotice("Upload no more than 2 identity document files.");
     return;
   }
   if (!kycCapturedFaceDataUrl) {
@@ -472,12 +473,15 @@ async function submitKycReview(event) {
   }
 
   try {
-    const documentPayload = await fileToKycPayload(documentFile, "identity-document");
+    const documentPayloads = await Promise.all(
+      documentFiles.map((file, index) => fileToKycPayload(file, index ? "identity-document-back" : "identity-document"))
+    );
     const selfiePayload = { name: "face-scan.jpg", type: "image/jpeg", data: kycCapturedFaceDataUrl };
     const body = {
       mode: isLiveProfile ? "live" : "demo",
       documentType: form.documentType?.value || "government_id",
-      documentFile: documentPayload,
+      documentFile: documentPayloads[0],
+      documentFiles: documentPayloads,
       selfieFile: selfiePayload
     };
     const response = await fetch("/api/kyc/submissions", {

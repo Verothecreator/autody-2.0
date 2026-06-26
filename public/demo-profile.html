@@ -163,7 +163,8 @@
               </label>
               <label>
                 <span>Identity document</span>
-                <input id="kyc-document-file" type="file" accept="image/*,.pdf" />
+                <input id="kyc-document-file" type="file" accept="image/*,.pdf" multiple />
+                <small>Upload the front and back when your document has two sides. Maximum 2 files.</small>
               </label>
               <button class="btn btn-full" type="button" data-kyc-next>Next</button>
             </section>
@@ -193,20 +194,9 @@
           <section class="kyc-review-state" data-kyc-review-state hidden>
             <span class="muted-label" id="kyc-review-state-label">Review submitted</span>
             <h3 id="kyc-review-state-title">Verification is in review</h3>
-            <p id="kyc-review-state-copy">We received your identity document and face scan. Reviews usually take 2-3 business days.</p>
-            <div class="kyc-review-state-grid">
-              <div>
-                <span>Review time</span>
-                <strong id="kyc-review-state-time">2-3 business days</strong>
-              </div>
-              <div>
-                <span>Next step</span>
-                <strong id="kyc-review-state-next">Wait for admin review</strong>
-              </div>
-            </div>
+            <p id="kyc-review-state-copy">We received your identity document and face scan. Reviews usually take 2-3 business days. You do not need to upload anything else unless Autody asks for a clearer document.</p>
             <div class="kyc-review-state-actions">
               <button class="btn btn-full" type="button" data-kyc-retry hidden>Upload again</button>
-              <button class="btn btn-full btn-ghost" type="button" data-profile-kyc-close>Close</button>
             </div>
           </section>
           <p class="live-notice profile-notice" id="profile-notice" hidden></p>
