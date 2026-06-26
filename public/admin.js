@@ -107,6 +107,41 @@ async function adminPost(path, body = {}) {
   return json;
 }
 
+function fileNameFromDisposition(disposition = "") {
+  const utfMatch = String(disposition).match(/filename\*=UTF-8''([^;]+)/i);
+  if (utfMatch) return decodeURIComponent(utfMatch[1].replace(/"/g, ""));
+  const match = String(disposition).match(/filename="?([^";]+)"?/i);
+  return match ? match[1] : "";
+}
+
+async function adminDownload(path, body = {}, fallbackName = "autody-download") {
+  const key = adminKey();
+  if (!key) throw new Error("Enter the admin key first.");
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-reset-key": key
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error(json.error || `${path} returned ${response.status}`);
+  }
+  const blob = await response.blob();
+  const fileName = fileNameFromDisposition(response.headers.get("Content-Disposition") || "") || fallbackName;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { success: true, fileName };
+}
+
 function populateDatalists(assets = []) {
   const assetList = document.getElementById("admin-asset-options");
   const networkList = document.getElementById("admin-network-options");
@@ -148,6 +183,11 @@ function renderEmpty(target, message) {
 function copyButton(value, label = "Copy") {
   if (!value) return "";
   return `<button type="button" class="admin-copy" data-copy="${adminEscape(value)}" data-copy-label="${adminEscape(label)}">${adminEscape(label)}</button>`;
+}
+
+function kycDownloadButton(row = {}, kind = "document", label = "Download") {
+  const fileName = kind === "selfie" ? row.selfieFileName : row.documentFileName;
+  return `<button type="button" class="admin-download" data-kyc-download="${adminEscape(row.id)}" data-kyc-file-kind="${adminEscape(kind)}" data-kyc-file-name="${adminEscape(fileName || label)}">${adminEscape(label)}</button>`;
 }
 
 function renderAddresses(rows = []) {
@@ -311,10 +351,12 @@ function renderKycSubmissions(rows = []) {
         <div>
           <small>${adminEscape(formatKycDocumentType(row.documentType))}</small>
           ${renderKycPreview(row.documentUrl, row.documentContentType, "Identity document")}
+          ${kycDownloadButton(row, "document", "Download ID")}
         </div>
         <div>
           <small>Face scan</small>
           ${renderKycPreview(row.selfieUrl, row.selfieContentType, "Face scan")}
+          ${kycDownloadButton(row, "selfie", "Download face scan")}
         </div>
       </div>
       <div class="admin-kyc-actions">
@@ -454,6 +496,27 @@ function wireAdminPortal() {
   document.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-copy]");
     const kycButton = event.target.closest("[data-kyc-review]");
+    const kycDownload = event.target.closest("[data-kyc-download]");
+    if (kycDownload) {
+      const original = kycDownload.textContent;
+      try {
+        kycDownload.disabled = true;
+        kycDownload.textContent = "Downloading...";
+        const result = await adminDownload("/api/admin/kyc/download", {
+          submissionId: kycDownload.dataset.kycDownload,
+          kind: kycDownload.dataset.kycFileKind
+        }, kycDownload.dataset.kycFileName || "autody-kyc-file");
+        setAdminOutput(result);
+        setAdminNotice("KYC file downloaded.", "success");
+      } catch (err) {
+        setAdminOutput(err.message || String(err));
+        setAdminNotice(err.message || "KYC download failed.", "error");
+      } finally {
+        kycDownload.disabled = false;
+        kycDownload.textContent = original;
+      }
+      return;
+    }
     if (kycButton) {
       try {
         await reviewKycSubmission(kycButton.dataset.kycReview, kycButton.dataset.kycStatus);

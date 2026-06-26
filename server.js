@@ -6625,6 +6625,25 @@ async function signedKycObjectUrl(storagePath, expiresIn = 600) {
         : `${SUPABASE_URL}/storage/v1${signedUrl.startsWith("/") ? signedUrl : `/${signedUrl}`}`;
 }
 
+async function fetchKycObject(storagePath) {
+    if (!kycStorageConfigured() || !storagePath) {
+        throw demoTradeError(503, "KYC private storage is not configured yet.");
+    }
+    const endpoint = `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(KYC_STORAGE_BUCKET)}/${encodeStoragePath(storagePath)}`;
+    const response = await fetch(endpoint, {
+        headers: {
+            "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            "apikey": SUPABASE_SERVICE_ROLE_KEY
+        }
+    });
+    if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        console.error("KYC storage download failed:", response.status, detail.slice(0, 300));
+        throw demoTradeError(response.status === 404 ? 404 : 502, "KYC private storage download failed.");
+    }
+    return Buffer.from(await response.arrayBuffer());
+}
+
 async function createKycSubmission(auth, body = {}) {
     if (!databaseConfigured()) {
         throw demoTradeError(503, "KYC review needs the secured account database first.");
@@ -6780,6 +6799,51 @@ async function getAdminKycOverview(body = {}) {
         bucket: KYC_STORAGE_BUCKET,
         submissions: rows,
         generatedAt: new Date().toISOString()
+    };
+}
+
+async function getAdminKycDownload(body = {}) {
+    if (!databaseConfigured()) {
+        throw demoTradeError(503, "KYC admin download needs the secured database.");
+    }
+    await ensureSignUpTables();
+    await ensureKycTables();
+    const submissionId = normalizeText(body.submissionId || body.id);
+    const requestedKind = normalizeText(body.kind || body.fileKind || body.type).toLowerCase();
+    const kind = ["selfie", "face", "face_scan", "face-scan"].includes(requestedKind) ? "selfie" : "document";
+    if (!submissionId) throw demoTradeError(400, "Submission ID is required.");
+
+    const result = await dbPool.query(`
+        select
+            ks.id,
+            ks.document_path,
+            ks.document_file_name,
+            ks.document_content_type,
+            ks.selfie_path,
+            ks.selfie_file_name,
+            ks.selfie_content_type,
+            p.email
+        from kyc_submissions ks
+        join profiles p on p.id = ks.profile_id
+        where ks.id = $1
+        limit 1
+    `, [submissionId]);
+    const row = result.rows[0];
+    if (!row) throw demoTradeError(404, "KYC submission was not found.");
+
+    const storagePath = kind === "selfie" ? row.selfie_path : row.document_path;
+    const contentType = kind === "selfie" ? row.selfie_content_type : row.document_content_type;
+    const originalName = kind === "selfie" ? row.selfie_file_name : row.document_file_name;
+    const fallbackName = `${kind === "selfie" ? "face-scan" : "identity-document"}-${submissionId}.${kycContentExtension(contentType)}`;
+    const safeName = safeKycFileName(originalName, fallbackName);
+    const accountPrefix = safeKycFileName(String(row.email || "autody-account").split("@")[0], "autody-account");
+    const fileName = `${accountPrefix}-${kind === "selfie" ? "face-scan" : "identity-document"}-${safeName}`;
+    const bytes = await fetchKycObject(storagePath);
+
+    return {
+        bytes,
+        contentType: contentType || "application/octet-stream",
+        fileName
     };
 }
 
@@ -10721,6 +10785,28 @@ app.post("/api/admin/kyc/overview", async (req, res) => {
   } catch (err) {
     console.error("Admin KYC overview failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "KYC overview failed." });
+  }
+});
+
+app.post("/api/admin/kyc/download", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin KYC download is not authorized." });
+    }
+    const file = await getAdminKycDownload(body);
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Length", file.bytes.length);
+    res.setHeader("Content-Disposition", `attachment; filename="${file.fileName.replace(/"/g, "")}"`);
+    return res.send(file.bytes);
+  } catch (err) {
+    console.error("Admin KYC download failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "KYC download failed." });
   }
 });
 
