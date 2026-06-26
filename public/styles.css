@@ -1513,6 +1513,11 @@ h3 {
   margin-bottom: 14px;
 }
 
+.profile-kyc-modal[data-kyc-active-step="face"] .profile-kyc-status,
+.profile-kyc-modal[data-kyc-active-step="face"] .kyc-step-list {
+  display: none;
+}
+
 .profile-kyc-status div,
 .kyc-step-list article,
 .kyc-guidance-grid article {

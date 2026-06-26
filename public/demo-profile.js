@@ -165,6 +165,8 @@ function kycNode(id) {
 
 function setKycStep(step = "document") {
   const normalized = step === "face" ? "face" : "document";
+  const modal = document.getElementById("profile-kyc-modal");
+  if (modal) modal.dataset.kycActiveStep = normalized;
   document.querySelectorAll("[data-kyc-step-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.kycStepPanel !== normalized;
   });
