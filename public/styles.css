@@ -1777,26 +1777,26 @@ h3 {
 
 .kyc-scan-frame {
   position: absolute;
-  width: 72%;
-  height: 72%;
+  width: 76%;
+  height: 76%;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  border-radius: 10px;
+  border-radius: 12px;
   background:
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left top / 30% 4px no-repeat,
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left top / 4px 30% no-repeat,
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right top / 30% 4px no-repeat,
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right top / 4px 30% no-repeat,
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left bottom / 30% 4px no-repeat,
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) left bottom / 4px 30% no-repeat,
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right bottom / 30% 4px no-repeat,
-    linear-gradient(rgba(147, 197, 253, 0.98), rgba(147, 197, 253, 0.98)) right bottom / 4px 30% no-repeat;
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) left top / 36% 8px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) left top / 8px 36% no-repeat,
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) right top / 36% 8px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) right top / 8px 36% no-repeat,
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) left bottom / 36% 8px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) left bottom / 8px 36% no-repeat,
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) right bottom / 36% 8px no-repeat,
+    linear-gradient(rgba(191, 219, 254, 1), rgba(191, 219, 254, 1)) right bottom / 8px 36% no-repeat;
   box-shadow:
-    0 0 0 999px rgba(0, 0, 0, 0.22),
-    inset 0 0 22px rgba(96, 165, 250, 0.18),
-    0 0 28px rgba(96, 165, 250, 0.58),
-    0 0 68px rgba(34, 211, 238, 0.3);
+    0 0 0 999px rgba(0, 0, 0, 0.24),
+    inset 0 0 30px rgba(96, 165, 250, 0.2),
+    0 0 30px rgba(96, 165, 250, 0.72),
+    0 0 78px rgba(34, 211, 238, 0.38);
   pointer-events: none;
 }
 
@@ -1805,15 +1805,15 @@ h3 {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 48%;
-  height: 56%;
-  transform: translate(-50%, -34%);
+  width: 62%;
+  height: 66%;
+  transform: translate(-50%, -32%);
   background:
-    radial-gradient(circle at 50% 18%, rgba(241, 245, 249, 0.96) 0 18%, rgba(191, 219, 254, 0.92) 18.5% 25%, transparent 25.5%),
-    radial-gradient(ellipse at 50% 78%, rgba(241, 245, 249, 0.96) 0 35%, rgba(191, 219, 254, 0.92) 35.5% 44%, transparent 44.5%);
+    radial-gradient(circle at 50% 18%, rgba(241, 245, 249, 0.98) 0 20%, rgba(191, 219, 254, 0.94) 20.5% 27%, transparent 27.5%),
+    radial-gradient(ellipse at 50% 77%, rgba(241, 245, 249, 0.98) 0 43%, rgba(191, 219, 254, 0.94) 43.5% 51%, transparent 51.5%);
   filter:
-    drop-shadow(0 0 10px rgba(191, 219, 254, 0.52))
-    drop-shadow(0 0 22px rgba(56, 189, 248, 0.35));
+    drop-shadow(0 0 12px rgba(191, 219, 254, 0.64))
+    drop-shadow(0 0 28px rgba(56, 189, 248, 0.42));
 }
 
 .kyc-scan-frame::after {
@@ -1822,12 +1822,12 @@ h3 {
   left: -4%;
   right: -4%;
   top: 42%;
-  height: 3px;
+  height: 7px;
   border-radius: 999px;
-  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.96), transparent);
+  background: linear-gradient(90deg, transparent, rgba(191, 219, 254, 0.94), rgba(125, 211, 252, 1), rgba(191, 219, 254, 0.94), transparent);
   box-shadow:
-    0 0 14px rgba(125, 211, 252, 0.86),
-    0 0 28px rgba(59, 130, 246, 0.54);
+    0 0 18px rgba(125, 211, 252, 0.9),
+    0 0 34px rgba(59, 130, 246, 0.64);
   animation: kyc-scan-line 2.35s ease-in-out infinite;
 }
 
