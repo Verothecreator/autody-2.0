@@ -150,26 +150,45 @@
               </div>
             </article>
           </div>
-          <form class="kyc-review-form">
+          <form class="kyc-review-form" id="kyc-review-form" data-kyc-form>
             <label>
               <span>Document type</span>
-              <select>
-                <option>Passport</option>
-                <option>Government identity card</option>
-                <option>Driver license</option>
-                <option>Residence permit</option>
+              <select id="kyc-document-type" name="documentType">
+                <option value="passport">Passport</option>
+                <option value="government_id">Government identity card</option>
+                <option value="driver_license">Driver license</option>
+                <option value="residence_permit">Residence permit</option>
               </select>
             </label>
             <label>
               <span>Identity document</span>
-              <input type="file" accept="image/*,.pdf" />
+              <input id="kyc-document-file" type="file" accept="image/*,.pdf" />
             </label>
-            <label>
-              <span>Selfie / face check</span>
-              <input type="file" accept="image/*" capture="user" />
-            </label>
+            <div class="kyc-face-scan">
+              <div class="kyc-face-copy">
+                <span>Face scan</span>
+                <strong>Live camera check</strong>
+                <small>Open the camera, center your face, then capture a fresh review image.</small>
+              </div>
+              <div class="kyc-face-stage">
+                <video id="kyc-face-video" playsinline muted hidden></video>
+                <canvas id="kyc-face-canvas" hidden></canvas>
+                <img id="kyc-face-preview" alt="Captured face scan preview" hidden />
+                <div class="kyc-scan-frame" aria-hidden="true"></div>
+                <p id="kyc-face-placeholder">Camera preview appears here.</p>
+              </div>
+              <div class="kyc-face-actions">
+                <button class="btn btn-small" type="button" data-kyc-camera-start>Start camera</button>
+                <button class="btn btn-small btn-ghost" type="button" data-kyc-camera-capture disabled>Capture scan</button>
+                <button class="btn btn-small btn-ghost" type="button" data-kyc-camera-retake hidden>Retake</button>
+              </div>
+              <label class="kyc-selfie-fallback">
+                <span>Fallback selfie upload</span>
+                <input id="kyc-selfie-file" type="file" accept="image/*" capture="user" />
+              </label>
+            </div>
+            <button class="btn btn-full" type="submit" id="kyc-submit-button">Submit Identity Review</button>
           </form>
-          <button class="btn btn-full" type="button" data-profile-message="Identity review upload storage and manual approval queue are ready to connect next.">Submit Identity Review</button>
           <p class="live-notice profile-notice" id="profile-notice" hidden></p>
         </section>
       </div>

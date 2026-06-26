@@ -98,6 +98,10 @@ const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
 const APP_BASE_URL = process.env.APP_BASE_URL || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
+const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL || "").replace(/\/+$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
+const KYC_STORAGE_BUCKET = process.env.KYC_STORAGE_BUCKET || "autody-kyc";
+const KYC_MAX_FILE_BYTES = Number(process.env.KYC_MAX_FILE_BYTES || 8 * 1024 * 1024);
 const FIAT_PAYMENT_PROCESSOR = String(process.env.FIAT_PAYMENT_PROCESSOR || process.env.PAYMENT_PROCESSOR || "stripe").trim().toLowerCase();
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || process.env.PAYMENT_PROCESSOR_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || process.env.PAYMENT_PROCESSOR_WEBHOOK_SECRET || "";
@@ -899,6 +903,10 @@ function getPracticeAccount() {
 
 function databaseConfigured() {
     return Boolean(dbPool);
+}
+
+function kycStorageConfigured() {
+    return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && KYC_STORAGE_BUCKET);
 }
 
 function cloneDemoAccount(account) {
@@ -6471,6 +6479,367 @@ async function createSupportTicket(auth, body = {}) {
     return ticket;
 }
 
+async function ensureKycTables(client = dbPool) {
+    await client.query(`
+        create table if not exists kyc_submissions (
+          id uuid primary key,
+          profile_id uuid not null references profiles(id) on delete cascade,
+          account_mode text not null default 'live',
+          document_type text not null,
+          status text not null default 'in_review',
+          document_path text not null,
+          document_file_name text,
+          document_content_type text,
+          document_size_bytes integer not null default 0,
+          selfie_path text not null,
+          selfie_file_name text,
+          selfie_content_type text,
+          selfie_size_bytes integer not null default 0,
+          review_note text,
+          reviewer text,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          reviewed_at timestamptz
+        );
+
+        create index if not exists kyc_submissions_profile_idx
+          on kyc_submissions (profile_id, created_at desc);
+
+        create index if not exists kyc_submissions_status_idx
+          on kyc_submissions (status, created_at desc);
+    `);
+}
+
+function normalizeKycDocumentType(value = "") {
+    const allowed = new Set(["passport", "government_id", "driver_license", "residence_permit"]);
+    const normalized = String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_");
+    return allowed.has(normalized) ? normalized : "government_id";
+}
+
+function kycContentExtension(contentType = "") {
+    const type = String(contentType || "").toLowerCase();
+    if (type === "image/jpeg" || type === "image/jpg") return "jpg";
+    if (type === "image/png") return "png";
+    if (type === "image/webp") return "webp";
+    if (type === "application/pdf") return "pdf";
+    return "bin";
+}
+
+function safeKycFileName(value = "", fallback = "upload") {
+    return String(value || fallback)
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 120) || fallback;
+}
+
+function decodeKycUpload(file = {}, options = {}) {
+    const label = options.label || "File";
+    const allowPdf = Boolean(options.allowPdf);
+    const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (allowPdf) allowedTypes.add("application/pdf");
+    if (!file || typeof file !== "object") throw demoTradeError(400, `${label} is required.`);
+
+    let data = String(file.data || "");
+    let contentType = String(file.type || "").trim().toLowerCase();
+    const dataUrlMatch = data.match(/^data:([^;,]+);base64,(.*)$/);
+    if (dataUrlMatch) {
+        contentType = contentType || dataUrlMatch[1].toLowerCase();
+        data = dataUrlMatch[2];
+    }
+    if (!data) throw demoTradeError(400, `${label} is empty.`);
+    if (!allowedTypes.has(contentType)) {
+        const expected = allowPdf ? "JPG, PNG, WEBP, or PDF" : "JPG, PNG, or WEBP";
+        throw demoTradeError(400, `${label} must be ${expected}.`);
+    }
+
+    const bytes = Buffer.from(data, "base64");
+    if (!bytes.length) throw demoTradeError(400, `${label} could not be read.`);
+    if (bytes.length > KYC_MAX_FILE_BYTES) {
+        throw demoTradeError(413, `${label} is too large. Keep it under ${Math.round(KYC_MAX_FILE_BYTES / 1024 / 1024)} MB.`);
+    }
+
+    return {
+        bytes,
+        name: safeKycFileName(file.name, `${label.toLowerCase().replace(/\s+/g, "-")}.${kycContentExtension(contentType)}`),
+        contentType,
+        size: bytes.length
+    };
+}
+
+function encodeStoragePath(storagePath = "") {
+    return String(storagePath || "")
+        .split("/")
+        .filter(Boolean)
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+}
+
+async function uploadKycObject(storagePath, file) {
+    if (!kycStorageConfigured()) {
+        throw demoTradeError(503, "KYC private storage is not configured yet.");
+    }
+    const endpoint = `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(KYC_STORAGE_BUCKET)}/${encodeStoragePath(storagePath)}`;
+    const response = await fetch(endpoint, {
+        method: "PUT",
+        headers: {
+            "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": file.contentType,
+            "x-upsert": "false"
+        },
+        body: file.bytes
+    });
+    if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        console.error("KYC storage upload failed:", response.status, detail.slice(0, 300));
+        throw demoTradeError(502, "KYC private storage upload failed.");
+    }
+    return storagePath;
+}
+
+async function signedKycObjectUrl(storagePath, expiresIn = 600) {
+    if (!kycStorageConfigured() || !storagePath) return "";
+    const endpoint = `${SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent(KYC_STORAGE_BUCKET)}/${encodeStoragePath(storagePath)}`;
+    const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ expiresIn })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        console.error("KYC signed URL failed:", response.status, result);
+        return "";
+    }
+    const signedUrl = result.signedURL || result.signedUrl || "";
+    if (!signedUrl) return "";
+    return signedUrl.startsWith("http")
+        ? signedUrl
+        : `${SUPABASE_URL}/storage/v1${signedUrl.startsWith("/") ? signedUrl : `/${signedUrl}`}`;
+}
+
+async function createKycSubmission(auth, body = {}) {
+    if (!databaseConfigured()) {
+        throw demoTradeError(503, "KYC review needs the secured account database first.");
+    }
+    if (auth.source !== "supabase") {
+        throw demoTradeError(403, "Sign in with your Autody account before starting identity review.");
+    }
+    if (!kycStorageConfigured()) {
+        throw demoTradeError(503, "KYC private storage is not configured yet.");
+    }
+
+    const documentType = normalizeKycDocumentType(body.documentType);
+    const accountMode = normalizeWatchlistMode(body.mode || body.accountMode || "live");
+    const documentFile = decodeKycUpload(body.documentFile, { label: "Identity document", allowPdf: true });
+    const selfieFile = decodeKycUpload(body.selfieFile || body.faceFile, { label: "Face scan", allowPdf: false });
+    const submissionId = crypto.randomUUID();
+    const profileId = auth.profileId;
+    const basePath = `profiles/${profileId}/${submissionId}`;
+    const documentPath = `${basePath}/document.${kycContentExtension(documentFile.contentType)}`;
+    const selfiePath = `${basePath}/face-scan.${kycContentExtension(selfieFile.contentType)}`;
+
+    await ensureSignUpTables();
+    await ensureKycTables();
+    await uploadKycObject(documentPath, documentFile);
+    await uploadKycObject(selfiePath, selfieFile);
+    await dbPool.query(`
+        insert into kyc_submissions (
+            id, profile_id, account_mode, document_type, status,
+            document_path, document_file_name, document_content_type, document_size_bytes,
+            selfie_path, selfie_file_name, selfie_content_type, selfie_size_bytes,
+            created_at, updated_at
+        )
+        values ($1, $2, $3, $4, 'in_review', $5, $6, $7, $8, $9, $10, $11, $12, now(), now())
+    `, [
+        submissionId,
+        profileId,
+        accountMode,
+        documentType,
+        documentPath,
+        documentFile.name,
+        documentFile.contentType,
+        documentFile.size,
+        selfiePath,
+        selfieFile.name,
+        selfieFile.contentType,
+        selfieFile.size
+    ]);
+    await dbPool.query(`
+        update profile_verifications
+        set identity_status = 'in_review',
+            updated_at = now()
+        where profile_id = $1
+    `, [profileId]);
+
+    return {
+        id: submissionId,
+        status: "in_review",
+        documentType,
+        accountMode,
+        createdAt: new Date().toISOString()
+    };
+}
+
+async function getAdminKycOverview(body = {}) {
+    if (!databaseConfigured()) {
+        throw demoTradeError(503, "KYC admin review needs the secured database.");
+    }
+    await ensureSignUpTables();
+    await ensureKycTables();
+    const limit = Math.max(1, Math.min(Number(body.limit || 25), 75));
+    const status = normalizeText(body.status || "all").toLowerCase();
+    const statusFilter = ["in_review", "approved", "rejected"].includes(status) ? status : "";
+    const values = [];
+    let where = "";
+    if (statusFilter) {
+        values.push(statusFilter);
+        where = "where ks.status = $1";
+    }
+    values.push(limit);
+    const limitPlaceholder = `$${values.length}`;
+    const result = await dbPool.query(`
+        select
+            ks.id,
+            ks.profile_id,
+            ks.account_mode,
+            ks.document_type,
+            ks.status,
+            ks.document_path,
+            ks.document_file_name,
+            ks.document_content_type,
+            ks.document_size_bytes,
+            ks.selfie_path,
+            ks.selfie_file_name,
+            ks.selfie_content_type,
+            ks.selfie_size_bytes,
+            ks.review_note,
+            ks.reviewer,
+            ks.created_at,
+            ks.updated_at,
+            ks.reviewed_at,
+            p.email,
+            p.display_name,
+            pv.first_name,
+            pv.last_name,
+            pv.legal_name,
+            pv.country,
+            pv.date_of_birth,
+            pv.identity_status
+        from kyc_submissions ks
+        join profiles p on p.id = ks.profile_id
+        left join profile_verifications pv on pv.profile_id = p.id
+        ${where}
+        order by
+          case when ks.status = 'in_review' then 0 else 1 end,
+          ks.created_at desc
+        limit ${limitPlaceholder}
+    `, values);
+
+    const rows = await Promise.all(result.rows.map(async (row) => {
+        const displayName = normalizeText(row.display_name || row.legal_name || `${row.first_name || ""} ${row.last_name || ""}`) || titleFromEmail(row.email);
+        return {
+            id: row.id,
+            profileId: row.profile_id,
+            email: row.email,
+            displayName,
+            firstName: row.first_name || "",
+            lastName: row.last_name || "",
+            country: row.country || "",
+            dateOfBirth: row.date_of_birth || "",
+            accountMode: row.account_mode,
+            documentType: row.document_type,
+            status: row.status,
+            identityStatus: row.identity_status || "pending",
+            documentFileName: row.document_file_name || "Identity document",
+            documentContentType: row.document_content_type || "",
+            documentSizeBytes: Number(row.document_size_bytes || 0),
+            selfieFileName: row.selfie_file_name || "Face scan",
+            selfieContentType: row.selfie_content_type || "",
+            selfieSizeBytes: Number(row.selfie_size_bytes || 0),
+            documentUrl: await signedKycObjectUrl(row.document_path),
+            selfieUrl: await signedKycObjectUrl(row.selfie_path),
+            reviewNote: row.review_note || "",
+            reviewer: row.reviewer || "",
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            reviewedAt: row.reviewed_at
+        };
+    }));
+
+    return {
+        success: true,
+        configured: kycStorageConfigured(),
+        bucket: KYC_STORAGE_BUCKET,
+        submissions: rows,
+        generatedAt: new Date().toISOString()
+    };
+}
+
+async function reviewKycSubmission(body = {}) {
+    if (!databaseConfigured()) {
+        throw demoTradeError(503, "KYC admin review needs the secured database.");
+    }
+    await ensureSignUpTables();
+    await ensureKycTables();
+    const submissionId = normalizeText(body.submissionId || body.id);
+    const requestedStatus = normalizeText(body.status || body.action).toLowerCase();
+    const statusMap = {
+        approve: "approved",
+        approved: "approved",
+        verify: "approved",
+        verified: "approved",
+        reject: "rejected",
+        rejected: "rejected",
+        review: "in_review",
+        in_review: "in_review"
+    };
+    const status = statusMap[requestedStatus] || "";
+    if (!submissionId) throw demoTradeError(400, "Submission ID is required.");
+    if (!status) throw demoTradeError(400, "Choose approved, rejected, or in_review.");
+
+    const reviewer = normalizeText(body.reviewer || "Autody admin") || "Autody admin";
+    const reviewNote = normalizeText(body.reviewNote || body.note);
+    const identityStatus = status === "approved" ? "verified" : status;
+    const result = await dbPool.query(`
+        update kyc_submissions
+        set status = $2,
+            review_note = $3,
+            reviewer = $4,
+            reviewed_at = case when $2 = 'in_review' then null else now() end,
+            updated_at = now()
+        where id = $1
+        returning id, profile_id, status, reviewed_at
+    `, [submissionId, status, reviewNote, reviewer]);
+    const row = result.rows[0];
+    if (!row) throw demoTradeError(404, "KYC submission was not found.");
+
+    await dbPool.query(`
+        update profile_verifications
+        set identity_status = $2,
+            updated_at = now()
+        where profile_id = $1
+    `, [row.profile_id, identityStatus]);
+
+    return {
+        success: true,
+        submission: {
+            id: row.id,
+            profileId: row.profile_id,
+            status: row.status,
+            identityStatus,
+            reviewedAt: row.reviewed_at
+        }
+    };
+}
+
 async function createDatabaseSession(profileId, sessionHours = SESSION_HOURS) {
     return createDatabaseSessionWithClient(dbPool, profileId, sessionHours);
 }
@@ -7966,8 +8335,8 @@ function cacheLiveMarketAssets(assets = [], provider = "live-provider") {
 
 // ------------------ EXPRESS --------------------
 
-// Transak requires raw body for signature hashing
-app.use(bodyParser.raw({ type: "*/*" }));
+// Transak requires raw body for signature hashing. KYC uploads use JSON with base64 files.
+app.use(bodyParser.raw({ type: "*/*", limit: process.env.REQUEST_BODY_LIMIT || "18mb" }));
 
 app.use("/api", (req, res, next) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -10336,6 +10705,44 @@ app.post("/api/admin/deposits/credit", async (req, res) => {
   }
 });
 
+app.post("/api/admin/kyc/overview", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin KYC overview is not authorized." });
+    }
+    const result = await getAdminKycOverview(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin KYC overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "KYC overview failed." });
+  }
+});
+
+app.post("/api/admin/kyc/review", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin KYC review is not authorized." });
+    }
+    const result = await reviewKycSubmission(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin KYC review failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "KYC review failed." });
+  }
+});
+
 app.post("/api/auth/resend-email", async (req, res) => {
   try {
     const email = normalizeEmail(parseJsonBody(req).email);
@@ -11064,6 +11471,21 @@ app.delete("/api/account/watchlist/:symbol", async (req, res) => {
   } catch (err) {
     console.error("Live watchlist remove error:", err);
     return sendDemoError(res, err, "Watchlist could not be updated");
+  }
+});
+
+app.post("/api/kyc/submissions", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const submission = await createKycSubmission(auth, body);
+    return res.json({
+      success: true,
+      submission
+    });
+  } catch (err) {
+    console.error("KYC submission error:", err);
+    return sendDemoError(res, err, "Identity review could not be submitted");
   }
 });
 

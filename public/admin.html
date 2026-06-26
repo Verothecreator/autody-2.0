@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autody Admin | Deposits</title>
+  <title>Autody Admin | Deposits and KYC</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="account-body admin-body">
@@ -16,7 +16,7 @@
       <div>
         <p class="eyebrow">Admin control</p>
         <h1>Deposit portal</h1>
-        <p>Watch generated addresses, credited deposits, scan state, manual credits, and sweep readiness.</p>
+        <p>Watch generated addresses, credited deposits, scan state, manual credits, KYC submissions, and sweep readiness.</p>
       </div>
       <div class="admin-key-card">
         <label>
@@ -131,6 +131,26 @@
         <button type="button" class="btn btn-ghost" id="admin-clear-output">Clear</button>
       </div>
       <pre id="admin-output">No action run yet.</pre>
+    </section>
+
+    <section class="app-card admin-table-card admin-kyc-card">
+      <div class="card-heading">
+        <div>
+          <span class="muted-label">Identity review</span>
+          <h2>KYC submissions</h2>
+        </div>
+        <div class="admin-filter-actions">
+          <select id="admin-kyc-status" aria-label="KYC status filter">
+            <option value="all">All reviews</option>
+            <option value="in_review">In review</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button type="button" class="btn btn-ghost" id="admin-kyc-refresh">Refresh KYC</button>
+          <span class="status-pill" data-count="kyc">0</span>
+        </div>
+      </div>
+      <div class="admin-table admin-kyc-table" id="admin-kyc-submissions"></div>
     </section>
 
     <section class="admin-data-grid">

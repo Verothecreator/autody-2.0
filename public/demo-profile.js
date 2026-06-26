@@ -1,6 +1,8 @@
 const isLiveProfile = document.body?.dataset?.profileMode === "live" || location.pathname.endsWith("account-profile.html");
 const profileWalletEndpoint = isLiveProfile ? "/api/account/wallet" : "/api/demo/wallet";
 const PROFILE_PLACEHOLDER_VALUES = new Set(["not_required", "not required", "pending", "unknown", "none", "null", "undefined", "-"]);
+let kycFaceStream = null;
+let kycCapturedFaceDataUrl = "";
 
 function setProfileText(id, value) {
   const node = document.getElementById(id);
@@ -153,6 +155,178 @@ function setProfileKycModal(open) {
   if (!modal) return;
   modal.hidden = !open;
   document.body.classList.toggle("modal-open", open);
+  if (!open) stopKycCamera();
+}
+
+function kycNode(id) {
+  return document.getElementById(id);
+}
+
+function setKycFaceState(state = "idle") {
+  const video = kycNode("kyc-face-video");
+  const preview = kycNode("kyc-face-preview");
+  const placeholder = kycNode("kyc-face-placeholder");
+  const startButton = document.querySelector("[data-kyc-camera-start]");
+  const captureButton = document.querySelector("[data-kyc-camera-capture]");
+  const retakeButton = document.querySelector("[data-kyc-camera-retake]");
+  const hasPreview = state === "captured";
+  const hasCamera = state === "camera";
+
+  if (video) video.hidden = !hasCamera;
+  if (preview) preview.hidden = !hasPreview;
+  if (placeholder) {
+    placeholder.hidden = hasCamera || hasPreview;
+    if (!hasCamera && !hasPreview) placeholder.textContent = state === "unsupported" ? "Camera access is unavailable. Use the fallback selfie upload." : "Camera preview appears here.";
+  }
+  if (startButton) startButton.hidden = hasCamera;
+  if (captureButton) {
+    captureButton.hidden = !hasCamera;
+    captureButton.disabled = !hasCamera;
+  }
+  if (retakeButton) retakeButton.hidden = !hasPreview;
+}
+
+function stopKycCamera() {
+  if (kycFaceStream) {
+    kycFaceStream.getTracks().forEach((track) => track.stop());
+    kycFaceStream = null;
+  }
+  const video = kycNode("kyc-face-video");
+  if (video) video.srcObject = null;
+  if (!kycCapturedFaceDataUrl) setKycFaceState("idle");
+}
+
+async function startKycCamera() {
+  const video = kycNode("kyc-face-video");
+  if (!video) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setKycFaceState("unsupported");
+    setProfileNotice("Camera access is not available here. Use the fallback selfie upload.");
+    return;
+  }
+  try {
+    kycCapturedFaceDataUrl = "";
+    const preview = kycNode("kyc-face-preview");
+    if (preview) preview.removeAttribute("src");
+    stopKycCamera();
+    kycFaceStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = kycFaceStream;
+    await video.play();
+    setKycFaceState("camera");
+  } catch (err) {
+    console.warn("KYC camera failed:", err);
+    setKycFaceState("unsupported");
+    setProfileNotice("Camera permission was not granted. Use the fallback selfie upload.");
+  }
+}
+
+function captureKycFace() {
+  const video = kycNode("kyc-face-video");
+  const canvas = kycNode("kyc-face-canvas");
+  const preview = kycNode("kyc-face-preview");
+  if (!video || !canvas || !preview || !video.videoWidth) {
+    setProfileNotice("Start the camera before capturing the face scan.");
+    return;
+  }
+  const width = Math.min(video.videoWidth, 960);
+  const height = Math.round((width / video.videoWidth) * video.videoHeight);
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(video, 0, 0, width, height);
+  kycCapturedFaceDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  preview.src = kycCapturedFaceDataUrl;
+  stopKycCamera();
+  setKycFaceState("captured");
+}
+
+function retakeKycFace() {
+  kycCapturedFaceDataUrl = "";
+  const preview = kycNode("kyc-face-preview");
+  if (preview) preview.removeAttribute("src");
+  startKycCamera();
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function fileToKycPayload(file, fallbackName) {
+  return {
+    name: file.name || fallbackName,
+    type: file.type || "application/octet-stream",
+    data: await fileToDataUrl(file)
+  };
+}
+
+async function submitKycReview(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submitButton = kycNode("kyc-submit-button");
+  const documentInput = kycNode("kyc-document-file");
+  const selfieInput = kycNode("kyc-selfie-file");
+  const documentFile = documentInput?.files?.[0] || null;
+  const fallbackSelfie = selfieInput?.files?.[0] || null;
+
+  if (!documentFile) {
+    setProfileNotice("Upload an identity document before submitting.");
+    return;
+  }
+  if (!kycCapturedFaceDataUrl && !fallbackSelfie) {
+    setProfileNotice("Capture a live face scan or add a fallback selfie before submitting.");
+    return;
+  }
+
+  const originalText = submitButton?.textContent || "Submit Identity Review";
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Submitting review...";
+  }
+
+  try {
+    const documentPayload = await fileToKycPayload(documentFile, "identity-document");
+    const selfiePayload = kycCapturedFaceDataUrl
+      ? { name: "face-scan.jpg", type: "image/jpeg", data: kycCapturedFaceDataUrl }
+      : await fileToKycPayload(fallbackSelfie, "face-scan");
+    const body = {
+      mode: isLiveProfile ? "live" : "demo",
+      documentType: form.documentType?.value || "government_id",
+      documentFile: documentPayload,
+      selfieFile: selfiePayload
+    };
+    const response = await fetch("/api/kyc/submissions", {
+      method: "POST",
+      cache: "no-store",
+      headers: window.AutodyAuth?.headers?.({ "Content-Type": "application/json" }) || { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || "Identity review could not be submitted.");
+    setProfileText("profile-identity-status", "In Review");
+    setProfileText("profile-kyc-status", "In review");
+    setProfileNotice("Identity review submitted. The document and face scan are waiting for manual review.");
+    form.reset();
+    kycCapturedFaceDataUrl = "";
+    const preview = kycNode("kyc-face-preview");
+    if (preview) preview.removeAttribute("src");
+    setKycFaceState("idle");
+  } catch (err) {
+    console.warn("KYC submit failed:", err);
+    setProfileNotice(err.message || "Identity review could not be submitted.");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalText;
+    }
+  }
 }
 
 async function loadProfilePage() {
@@ -221,6 +395,24 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const cameraStart = event.target.closest("[data-kyc-camera-start]");
+  if (cameraStart) {
+    startKycCamera();
+    return;
+  }
+
+  const cameraCapture = event.target.closest("[data-kyc-camera-capture]");
+  if (cameraCapture) {
+    captureKycFace();
+    return;
+  }
+
+  const cameraRetake = event.target.closest("[data-kyc-camera-retake]");
+  if (cameraRetake) {
+    retakeKycFace();
+    return;
+  }
+
   const messageButton = event.target.closest("[data-profile-message]");
   if (!messageButton) return;
   setProfileNotice(messageButton.dataset.profileMessage || "This profile feature is coming soon.");
@@ -229,5 +421,7 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") setProfileKycModal(false);
 });
+
+document.querySelector("[data-kyc-form]")?.addEventListener("submit", submitKycReview);
 
 loadProfilePage();

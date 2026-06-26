@@ -136,8 +136,8 @@ function renderKpis(overview) {
 
 function statusClass(status = "") {
   const text = String(status).toLowerCase();
-  if (["credited", "active", "submitted"].includes(text)) return "positive";
-  if (["failed", "expired", "cancelled", "error"].includes(text)) return "negative";
+  if (["credited", "active", "submitted", "approved", "verified"].includes(text)) return "positive";
+  if (["failed", "expired", "cancelled", "error", "rejected"].includes(text)) return "negative";
   return "neutral";
 }
 
@@ -270,6 +270,62 @@ function renderScanStates(rows = []) {
   `).join("");
 }
 
+function formatKycDocumentType(value = "") {
+  return String(value || "government_id")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function renderKycPreview(url = "", type = "", label = "Preview") {
+  if (!url) return `<div class="admin-kyc-preview admin-empty-preview">${adminEscape(label)} unavailable</div>`;
+  const safeUrl = adminEscape(url);
+  if (String(type || "").toLowerCase().startsWith("image/")) {
+    return `
+      <a class="admin-kyc-preview" href="${safeUrl}" target="_blank" rel="noopener">
+        <img src="${safeUrl}" alt="${adminEscape(label)}" loading="lazy" />
+      </a>
+    `;
+  }
+  return `
+    <a class="admin-kyc-preview admin-file-preview" href="${safeUrl}" target="_blank" rel="noopener">
+      Open ${adminEscape(label)}
+    </a>
+  `;
+}
+
+function renderKycSubmissions(rows = []) {
+  const target = document.getElementById("admin-kyc-submissions");
+  const count = document.querySelector('[data-count="kyc"]');
+  if (count) count.textContent = rows.length;
+  if (!target) return;
+  if (!rows.length) return renderEmpty(target, "No KYC submissions yet.");
+  target.innerHTML = rows.map((row) => `
+    <article class="admin-kyc-record">
+      <div class="admin-kyc-person">
+        <strong>${adminEscape(row.displayName || row.email)}</strong>
+        <span>${adminEscape(row.email)}</span>
+        <small>${adminEscape(row.country || "Country unavailable")} - ${formatAdminDate(row.createdAt)}</small>
+        <span class="admin-status ${statusClass(row.status)}">${adminEscape(row.status)}</span>
+      </div>
+      <div class="admin-kyc-files">
+        <div>
+          <small>${adminEscape(formatKycDocumentType(row.documentType))}</small>
+          ${renderKycPreview(row.documentUrl, row.documentContentType, "Identity document")}
+        </div>
+        <div>
+          <small>Face scan</small>
+          ${renderKycPreview(row.selfieUrl, row.selfieContentType, "Face scan")}
+        </div>
+      </div>
+      <div class="admin-kyc-actions">
+        <button type="button" class="btn" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="approved">Approve</button>
+        <button type="button" class="btn btn-ghost" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="rejected">Reject</button>
+        <small>${adminEscape(row.reviewNote || row.reviewer || "Waiting for manual review")}</small>
+      </div>
+    </article>
+  `).join("");
+}
+
 function renderOverview(overview) {
   adminOverview = overview;
   populateDatalists(overview.supportedAssets || []);
@@ -287,6 +343,28 @@ async function loadAdminOverview() {
   const overview = await adminPost("/api/admin/deposits/overview", { limit: 50 });
   renderOverview(overview);
   return overview;
+}
+
+async function loadAdminKycOverview() {
+  const status = document.getElementById("admin-kyc-status")?.value || "all";
+  const overview = await adminPost("/api/admin/kyc/overview", { limit: 40, status });
+  renderKycSubmissions(overview.submissions || []);
+  return overview;
+}
+
+async function reviewKycSubmission(submissionId, status) {
+  const action = status === "approved" ? "approve" : "reject";
+  const reviewNote = status === "rejected"
+    ? window.prompt("Add a rejection note for the user record:", "Document or face scan needs another review.") || ""
+    : "Identity review approved.";
+  const result = await adminPost("/api/admin/kyc/review", {
+    submissionId,
+    status,
+    reviewNote
+  });
+  setAdminOutput(result);
+  setAdminNotice(`KYC submission ${action === "approve" ? "approved" : "rejected"}.`, "success");
+  await loadAdminKycOverview();
 }
 
 async function runAdminAction(event, path) {
@@ -318,6 +396,7 @@ function wireAdminPortal() {
   document.getElementById("admin-connect")?.addEventListener("click", async () => {
     try {
       const overview = await loadAdminOverview();
+      await loadAdminKycOverview();
       setAdminOutput({
         success: true,
         message: "Admin portal connected.",
@@ -332,9 +411,29 @@ function wireAdminPortal() {
   document.getElementById("admin-refresh")?.addEventListener("click", async () => {
     try {
       await loadAdminOverview();
+      await loadAdminKycOverview();
     } catch (err) {
       setAdminOutput(err.message || String(err));
       setAdminNotice(err.message || "Refresh failed.", "error");
+    }
+  });
+
+  document.getElementById("admin-kyc-refresh")?.addEventListener("click", async () => {
+    try {
+      await loadAdminKycOverview();
+      setAdminNotice("KYC submissions refreshed.", "success");
+    } catch (err) {
+      setAdminOutput(err.message || String(err));
+      setAdminNotice(err.message || "KYC refresh failed.", "error");
+    }
+  });
+
+  document.getElementById("admin-kyc-status")?.addEventListener("change", async () => {
+    try {
+      await loadAdminKycOverview();
+    } catch (err) {
+      setAdminOutput(err.message || String(err));
+      setAdminNotice(err.message || "KYC filter failed.", "error");
     }
   });
 
@@ -354,6 +453,16 @@ function wireAdminPortal() {
 
   document.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-copy]");
+    const kycButton = event.target.closest("[data-kyc-review]");
+    if (kycButton) {
+      try {
+        await reviewKycSubmission(kycButton.dataset.kycReview, kycButton.dataset.kycStatus);
+      } catch (err) {
+        setAdminOutput(err.message || String(err));
+        setAdminNotice(err.message || "KYC review failed.", "error");
+      }
+      return;
+    }
     if (!button) return;
     const value = button.getAttribute("data-copy") || "";
     try {
