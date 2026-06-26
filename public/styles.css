@@ -1518,6 +1518,11 @@ h3 {
   display: none;
 }
 
+.profile-kyc-modal[data-kyc-locked="true"] .profile-kyc-status,
+.profile-kyc-modal[data-kyc-locked="true"] .kyc-step-list {
+  display: none;
+}
+
 .profile-kyc-status div,
 .kyc-step-list article,
 .kyc-guidance-grid article {
@@ -1598,6 +1603,58 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.kyc-review-form[hidden] {
+  display: none;
+}
+
+.kyc-review-state {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(91, 95, 239, 0.42);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(91, 95, 239, 0.18), rgba(16, 185, 129, 0.08)),
+    rgba(255, 255, 255, 0.04);
+}
+
+.kyc-review-state[hidden] {
+  display: none;
+}
+
+.kyc-review-state h3 {
+  margin: 0;
+  font-size: clamp(1.9rem, 4vw, 3.4rem);
+  line-height: 0.98;
+}
+
+.kyc-review-state p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.03rem;
+  line-height: 1.6;
+}
+
+.kyc-review-state-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kyc-review-state-grid div {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.kyc-review-state-grid span {
+  color: var(--muted);
 }
 
 .kyc-form-step {

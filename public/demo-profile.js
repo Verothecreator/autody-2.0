@@ -3,6 +3,8 @@ const profileWalletEndpoint = isLiveProfile ? "/api/account/wallet" : "/api/demo
 const PROFILE_PLACEHOLDER_VALUES = new Set(["not_required", "not required", "pending", "unknown", "none", "null", "undefined", "-"]);
 let kycFaceStream = null;
 let kycCapturedFaceDataUrl = "";
+let currentKycIdentityStatus = "pending";
+let kycReviewLocked = false;
 
 function setProfileText(id, value) {
   const node = document.getElementById(id);
@@ -59,6 +61,22 @@ function titleCase(value = "") {
 
 function readableStatus(value = "") {
   return titleCase(value || "pending");
+}
+
+function normalizeKycStatus(value = "") {
+  return String(value || "").toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function isKycInReview(value = "") {
+  return ["in_review", "reviewing", "submitted"].includes(normalizeKycStatus(value));
+}
+
+function isKycVerified(value = "") {
+  return ["verified", "approved"].includes(normalizeKycStatus(value));
+}
+
+function isKycRejected(value = "") {
+  return ["rejected", "declined", "failed"].includes(normalizeKycStatus(value));
 }
 
 function formatProfileDate(value, fallback = "Not recorded") {
@@ -155,7 +173,10 @@ function setProfileKycModal(open) {
   if (!modal) return;
   modal.hidden = !open;
   document.body.classList.toggle("modal-open", open);
-  if (open) setKycStep("document");
+  if (open) {
+    setKycReviewState(currentKycIdentityStatus);
+    if (!kycReviewLocked) setKycStep("document");
+  }
   if (!open) stopKycCamera();
 }
 
@@ -164,6 +185,7 @@ function kycNode(id) {
 }
 
 function setKycStep(step = "document") {
+  if (kycReviewLocked) return;
   const normalized = step === "face" ? "face" : "document";
   const modal = document.getElementById("profile-kyc-modal");
   if (modal) modal.dataset.kycActiveStep = normalized;
@@ -171,6 +193,50 @@ function setKycStep(step = "document") {
     panel.hidden = panel.dataset.kycStepPanel !== normalized;
   });
   if (normalized !== "face") stopKycCamera();
+}
+
+function setKycReviewState(identityStatus = currentKycIdentityStatus) {
+  const normalized = normalizeKycStatus(identityStatus);
+  currentKycIdentityStatus = normalized || "pending";
+  const modal = document.getElementById("profile-kyc-modal");
+  const form = document.querySelector("[data-kyc-form]");
+  const reviewState = document.querySelector("[data-kyc-review-state]");
+  const label = kycNode("kyc-review-state-label");
+  const title = kycNode("kyc-review-state-title");
+  const copy = kycNode("kyc-review-state-copy");
+  const time = kycNode("kyc-review-state-time");
+  const next = kycNode("kyc-review-state-next");
+  const locked = isKycInReview(normalized) || isKycVerified(normalized) || isKycRejected(normalized);
+
+  kycReviewLocked = locked;
+  if (modal) modal.dataset.kycLocked = locked ? "true" : "false";
+  if (form) form.hidden = locked;
+  if (reviewState) reviewState.hidden = !locked;
+
+  if (!locked) return;
+
+  stopKycCamera();
+  if (isKycVerified(normalized)) {
+    if (label) label.textContent = "Review complete";
+    if (title) title.textContent = "Identity verified";
+    if (copy) copy.textContent = "Your identity review is complete. No additional upload is needed right now.";
+    if (time) time.textContent = "Complete";
+    if (next) next.textContent = "Live permissions can expand";
+    return;
+  }
+  if (isKycRejected(normalized)) {
+    if (label) label.textContent = "Review decision";
+    if (title) title.textContent = "Identity review needs attention";
+    if (copy) copy.textContent = "Autody could not approve this submission. Wait for support instructions before sending another document.";
+    if (time) time.textContent = "Support review";
+    if (next) next.textContent = "Wait for instructions";
+    return;
+  }
+  if (label) label.textContent = "Review submitted";
+  if (title) title.textContent = "Verification is in review";
+  if (copy) copy.textContent = "We received your identity document and face scan. Reviews usually take 2-3 business days. You do not need to upload anything else unless Autody asks for a clearer document.";
+  if (time) time.textContent = "2-3 business days";
+  if (next) next.textContent = "Wait for admin review";
 }
 
 function goToKycFaceStep() {
@@ -329,13 +395,14 @@ async function submitKycReview(event) {
     if (!response.ok || !data.success) throw new Error(data.error || "Identity review could not be submitted.");
     setProfileText("profile-identity-status", "In Review");
     setProfileText("profile-kyc-status", "In review");
-    setProfileNotice("Identity review submitted. The document and face scan are waiting for manual review.");
+    currentKycIdentityStatus = "in_review";
+    setProfileNotice("Identity review submitted. Reviews usually take 2-3 business days.");
     form.reset();
     kycCapturedFaceDataUrl = "";
     const preview = kycNode("kyc-face-preview");
     if (preview) preview.removeAttribute("src");
     setKycFaceState("idle");
-    setKycStep("document");
+    setKycReviewState("in_review");
   } catch (err) {
     console.warn("KYC submit failed:", err);
     setProfileNotice(err.message || "Identity review could not be submitted.");
@@ -354,6 +421,7 @@ async function loadProfilePage() {
     const user = walletData.user || {};
     const profile = user.profile || {};
     const verification = user.verification || {};
+    currentKycIdentityStatus = normalizeKycStatus(verification.identity || "pending");
     const accountEmail = profileValue(user.email, "Not available");
     const displayName = profileDisplayName(user);
     const emailStatus = readableStatus(verification.email);
@@ -380,6 +448,7 @@ async function loadProfilePage() {
 
     setProfileText("profile-identity-status", identityStatus);
     setProfileText("profile-kyc-status", kycStage(verification));
+    setKycReviewState(currentKycIdentityStatus);
 
     if (isLiveProfile) {
       const cash = Number(wallet.cashBalance || 0);
