@@ -1801,24 +1801,6 @@ h3 {
   pointer-events: none;
 }
 
-.kyc-scan-frame::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 58%;
-  height: 66%;
-  transform: translate(-50%, -30%);
-  background:
-    radial-gradient(circle at 50% 22%, transparent 0 18%, rgba(236, 253, 255, 0.98) 18.5% 26%, transparent 26.5%),
-    linear-gradient(rgba(236, 253, 255, 0.98), rgba(236, 253, 255, 0.98)) 27% 58% / 8px 42% no-repeat,
-    linear-gradient(rgba(236, 253, 255, 0.98), rgba(236, 253, 255, 0.98)) 73% 58% / 8px 42% no-repeat;
-  filter:
-    drop-shadow(0 0 12px rgba(191, 219, 254, 0.64))
-    drop-shadow(0 0 28px rgba(56, 189, 248, 0.42));
-  z-index: 2;
-}
-
 .kyc-scan-frame::after {
   content: "";
   position: absolute;
