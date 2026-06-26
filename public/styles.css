@@ -1595,6 +1595,16 @@ h3 {
   margin-bottom: 14px;
 }
 
+.kyc-form-step {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+}
+
+.kyc-form-step[hidden] {
+  display: none;
+}
+
 .kyc-review-form label {
   display: grid;
   gap: 8px;
@@ -1648,8 +1658,9 @@ h3 {
 
 .kyc-face-stage {
   position: relative;
-  min-height: 260px;
-  aspect-ratio: 16 / 9;
+  width: min(100%, 430px);
+  aspect-ratio: 1 / 1;
+  justify-self: center;
   overflow: hidden;
   display: grid;
   place-items: center;
@@ -1675,9 +1686,9 @@ h3 {
 
 .kyc-scan-frame {
   position: absolute;
-  inset: 12%;
+  inset: 10%;
   border: 2px solid rgba(91, 95, 239, 0.82);
-  border-radius: 999px;
+  border-radius: 22px;
   box-shadow:
     0 0 0 999px rgba(0, 0, 0, 0.18),
     0 0 34px rgba(91, 95, 239, 0.34);
@@ -1717,13 +1728,11 @@ h3 {
   min-height: 46px;
 }
 
-.kyc-selfie-fallback {
-  grid-column: 1 / -1;
-}
-
 .kyc-submit-row {
   grid-column: 1 / -1;
   display: grid;
+  grid-template-columns: minmax(0, 0.55fr) minmax(0, 1fr);
+  gap: 10px;
 }
 
 @keyframes kyc-scan-line {
@@ -5473,6 +5482,7 @@ body.modal-open {
   .profile-combined-list,
   .profile-kyc-status,
   .kyc-face-actions,
+  .kyc-submit-row,
   .live-wire-box,
   .live-holdings-table .asset-table-row {
     grid-template-columns: 1fr;

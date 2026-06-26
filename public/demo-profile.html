@@ -100,26 +100,6 @@
               <strong id="profile-kyc-status">Not started</strong>
             </div>
           </div>
-          <div class="kyc-guidance-grid">
-            <article>
-              <span class="muted-label">Accepted documents</span>
-              <ul>
-                <li>Passport</li>
-                <li>Government identity card</li>
-                <li>Driver license</li>
-                <li>Residence permit where supported</li>
-              </ul>
-            </article>
-            <article>
-              <span class="muted-label">Not accepted</span>
-              <ul>
-                <li>Expired documents</li>
-                <li>Scans with cropped corners</li>
-                <li>Student or work ID</li>
-                <li>Edited, blurry, or unreadable photos</li>
-              </ul>
-            </article>
-          </div>
           <div class="kyc-step-list">
             <article>
               <span>1</span>
@@ -138,8 +118,8 @@
             <article>
               <span>3</span>
               <div>
-                <strong>Face match check</strong>
-                <small>Take a live selfie so the face can be matched against the identity document.</small>
+                <strong>Face scan</strong>
+                <small>Take a live camera capture for manual identity review.</small>
               </div>
             </article>
             <article>
@@ -151,24 +131,47 @@
             </article>
           </div>
           <form class="kyc-review-form" id="kyc-review-form" data-kyc-form>
-            <label>
-              <span>Document type</span>
-              <select id="kyc-document-type" name="documentType">
-                <option value="passport">Passport</option>
-                <option value="government_id">Government identity card</option>
-                <option value="driver_license">Driver license</option>
-                <option value="residence_permit">Residence permit</option>
-              </select>
-            </label>
-            <label>
-              <span>Identity document</span>
-              <input id="kyc-document-file" type="file" accept="image/*,.pdf" />
-            </label>
-            <div class="kyc-face-scan">
+            <section class="kyc-form-step" data-kyc-step-panel="document">
+              <div class="kyc-guidance-grid">
+                <article>
+                  <span class="muted-label">Accepted documents</span>
+                  <ul>
+                    <li>Passport</li>
+                    <li>Government identity card</li>
+                    <li>Driver license</li>
+                    <li>Residence permit where supported</li>
+                  </ul>
+                </article>
+                <article>
+                  <span class="muted-label">Not accepted</span>
+                  <ul>
+                    <li>Expired documents</li>
+                    <li>Scans with cropped corners</li>
+                    <li>Student or work ID</li>
+                    <li>Edited, blurry, or unreadable photos</li>
+                  </ul>
+                </article>
+              </div>
+              <label>
+                <span>Document type</span>
+                <select id="kyc-document-type" name="documentType">
+                  <option value="passport">Passport</option>
+                  <option value="government_id">Government identity card</option>
+                  <option value="driver_license">Driver license</option>
+                  <option value="residence_permit">Residence permit</option>
+                </select>
+              </label>
+              <label>
+                <span>Identity document</span>
+                <input id="kyc-document-file" type="file" accept="image/*,.pdf" />
+              </label>
+              <button class="btn btn-full" type="button" data-kyc-next>Next</button>
+            </section>
+            <section class="kyc-form-step kyc-face-scan" data-kyc-step-panel="face" hidden>
               <div class="kyc-face-copy">
                 <span>Face scan</span>
                 <strong>Live camera check</strong>
-                <small>Open the camera, center your face, then capture a fresh review image.</small>
+                <small>Center your face inside the square, then capture a fresh review image.</small>
               </div>
               <div class="kyc-face-stage">
                 <video id="kyc-face-video" playsinline muted hidden></video>
@@ -182,12 +185,11 @@
                 <button class="btn btn-small btn-ghost" type="button" data-kyc-camera-capture disabled>Capture scan</button>
                 <button class="btn btn-small btn-ghost" type="button" data-kyc-camera-retake hidden>Retake</button>
               </div>
-              <label class="kyc-selfie-fallback">
-                <span>Fallback selfie upload</span>
-                <input id="kyc-selfie-file" type="file" accept="image/*" capture="user" />
-              </label>
-            </div>
-            <button class="btn btn-full" type="submit" id="kyc-submit-button">Submit Identity Review</button>
+              <div class="kyc-submit-row">
+                <button class="btn btn-ghost" type="button" data-kyc-back>Back</button>
+                <button class="btn" type="submit" id="kyc-submit-button">Submit Identity Review</button>
+              </div>
+            </section>
           </form>
           <p class="live-notice profile-notice" id="profile-notice" hidden></p>
         </section>

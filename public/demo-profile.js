@@ -155,11 +155,29 @@ function setProfileKycModal(open) {
   if (!modal) return;
   modal.hidden = !open;
   document.body.classList.toggle("modal-open", open);
+  if (open) setKycStep("document");
   if (!open) stopKycCamera();
 }
 
 function kycNode(id) {
   return document.getElementById(id);
+}
+
+function setKycStep(step = "document") {
+  const normalized = step === "face" ? "face" : "document";
+  document.querySelectorAll("[data-kyc-step-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.kycStepPanel !== normalized;
+  });
+  if (normalized !== "face") stopKycCamera();
+}
+
+function goToKycFaceStep() {
+  const documentFile = kycNode("kyc-document-file")?.files?.[0] || null;
+  if (!documentFile) {
+    setProfileNotice("Upload an identity document before moving to the face scan.");
+    return;
+  }
+  setKycStep("face");
 }
 
 function setKycFaceState(state = "idle") {
@@ -176,7 +194,7 @@ function setKycFaceState(state = "idle") {
   if (preview) preview.hidden = !hasPreview;
   if (placeholder) {
     placeholder.hidden = hasCamera || hasPreview;
-    if (!hasCamera && !hasPreview) placeholder.textContent = state === "unsupported" ? "Camera access is unavailable. Use the fallback selfie upload." : "Camera preview appears here.";
+    if (!hasCamera && !hasPreview) placeholder.textContent = state === "unsupported" ? "Camera access is required for the face scan." : "Camera preview appears here.";
   }
   if (startButton) startButton.hidden = hasCamera;
   if (captureButton) {
@@ -201,7 +219,7 @@ async function startKycCamera() {
   if (!video) return;
   if (!navigator.mediaDevices?.getUserMedia) {
     setKycFaceState("unsupported");
-    setProfileNotice("Camera access is not available here. Use the fallback selfie upload.");
+    setProfileNotice("Camera access is required to complete the face scan.");
     return;
   }
   try {
@@ -219,7 +237,7 @@ async function startKycCamera() {
   } catch (err) {
     console.warn("KYC camera failed:", err);
     setKycFaceState("unsupported");
-    setProfileNotice("Camera permission was not granted. Use the fallback selfie upload.");
+    setProfileNotice("Camera permission is required to complete the face scan.");
   }
 }
 
@@ -231,12 +249,13 @@ function captureKycFace() {
     setProfileNotice("Start the camera before capturing the face scan.");
     return;
   }
-  const width = Math.min(video.videoWidth, 960);
-  const height = Math.round((width / video.videoWidth) * video.videoHeight);
-  canvas.width = width;
-  canvas.height = height;
+  const squareSize = Math.min(video.videoWidth, video.videoHeight, 960);
+  const sourceX = Math.max(0, Math.round((video.videoWidth - squareSize) / 2));
+  const sourceY = Math.max(0, Math.round((video.videoHeight - squareSize) / 2));
+  canvas.width = squareSize;
+  canvas.height = squareSize;
   const context = canvas.getContext("2d");
-  context.drawImage(video, 0, 0, width, height);
+  context.drawImage(video, sourceX, sourceY, squareSize, squareSize, 0, 0, squareSize, squareSize);
   kycCapturedFaceDataUrl = canvas.toDataURL("image/jpeg", 0.9);
   preview.src = kycCapturedFaceDataUrl;
   stopKycCamera();
@@ -272,16 +291,14 @@ async function submitKycReview(event) {
   const form = event.currentTarget;
   const submitButton = kycNode("kyc-submit-button");
   const documentInput = kycNode("kyc-document-file");
-  const selfieInput = kycNode("kyc-selfie-file");
   const documentFile = documentInput?.files?.[0] || null;
-  const fallbackSelfie = selfieInput?.files?.[0] || null;
 
   if (!documentFile) {
     setProfileNotice("Upload an identity document before submitting.");
     return;
   }
-  if (!kycCapturedFaceDataUrl && !fallbackSelfie) {
-    setProfileNotice("Capture a live face scan or add a fallback selfie before submitting.");
+  if (!kycCapturedFaceDataUrl) {
+    setProfileNotice("Capture a live face scan before submitting.");
     return;
   }
 
@@ -293,9 +310,7 @@ async function submitKycReview(event) {
 
   try {
     const documentPayload = await fileToKycPayload(documentFile, "identity-document");
-    const selfiePayload = kycCapturedFaceDataUrl
-      ? { name: "face-scan.jpg", type: "image/jpeg", data: kycCapturedFaceDataUrl }
-      : await fileToKycPayload(fallbackSelfie, "face-scan");
+    const selfiePayload = { name: "face-scan.jpg", type: "image/jpeg", data: kycCapturedFaceDataUrl };
     const body = {
       mode: isLiveProfile ? "live" : "demo",
       documentType: form.documentType?.value || "government_id",
@@ -318,6 +333,7 @@ async function submitKycReview(event) {
     const preview = kycNode("kyc-face-preview");
     if (preview) preview.removeAttribute("src");
     setKycFaceState("idle");
+    setKycStep("document");
   } catch (err) {
     console.warn("KYC submit failed:", err);
     setProfileNotice(err.message || "Identity review could not be submitted.");
@@ -392,6 +408,18 @@ document.addEventListener("click", (event) => {
   const closeKycButton = event.target.closest("[data-profile-kyc-close]");
   if (closeKycButton) {
     setProfileKycModal(false);
+    return;
+  }
+
+  const kycNextButton = event.target.closest("[data-kyc-next]");
+  if (kycNextButton) {
+    goToKycFaceStep();
+    return;
+  }
+
+  const kycBackButton = event.target.closest("[data-kyc-back]");
+  if (kycBackButton) {
+    setKycStep("document");
     return;
   }
 
