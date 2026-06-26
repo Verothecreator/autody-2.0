@@ -2678,12 +2678,13 @@ body.modal-open {
 
 .settings-control-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  max-width: 980px;
 }
 
 .settings-card {
-  min-height: 280px;
+  min-height: 0;
 }
 
 .settings-control-card {
@@ -2692,11 +2693,11 @@ body.modal-open {
 
 .settings-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .settings-list div {
-  min-height: 58px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;

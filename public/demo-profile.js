@@ -410,7 +410,11 @@ async function captureKycFace() {
   canvas.width = squareSize;
   canvas.height = squareSize;
   const context = canvas.getContext("2d");
+  context.save();
+  context.translate(squareSize, 0);
+  context.scale(-1, 1);
   context.drawImage(video, sourceX, sourceY, squareSize, squareSize, 0, 0, squareSize, squareSize);
+  context.restore();
   const guideCheck = await kycFaceGuideCheck(canvas);
   if (!guideCheck.ok) {
     setProfileNotice(guideCheck.message || "Center your face inside the guide and capture again.");
