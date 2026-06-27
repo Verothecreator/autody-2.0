@@ -36,6 +36,17 @@ function saveSettingsPref(id, value) {
   localStorage.setItem(SETTINGS_PREF_KEY, JSON.stringify(prefs));
 }
 
+async function syncSettingsPref(id, value) {
+  return settingsApi("/api/account/settings", {
+    method: "POST",
+    body: JSON.stringify({
+      mode: isLiveSettings ? "live" : "demo",
+      key: id,
+      value: Boolean(value)
+    })
+  });
+}
+
 function setSettingsToggle(id, value) {
   const node = document.getElementById(id);
   if (!node) return;
@@ -172,7 +183,9 @@ document.addEventListener("click", (event) => {
     toggle.classList.toggle("is-on", enabled);
     toggle.setAttribute("aria-checked", enabled ? "true" : "false");
     saveSettingsPref(toggle.id, enabled);
-    showSettingsNotice("Preference saved. Delivery channels will use this when notification sending is connected.", "success");
+    syncSettingsPref(toggle.id, enabled)
+      .then(() => showSettingsNotice("Preference saved. Delivery channels will use this when notification sending is connected.", "success"))
+      .catch(() => showSettingsNotice("Preference saved on this device. Account sync will retry when the connection is available.", "error"));
     return;
   }
 
@@ -270,6 +283,7 @@ function openSettingsModal(name) {
   if (!dialog) return;
   dialog.hidden = false;
   if (name === "devices") loadRememberedDevices();
+  if (name === "authenticator") loadAuthenticatorStatus();
 }
 
 function closeSettingsModals() {
@@ -308,6 +322,25 @@ async function removeRememberedDevice(id) {
     loadRememberedDevices();
   } catch (err) {
     showSettingsNotice(err.message || "Could not remove that remembered device.", "error");
+  }
+}
+
+async function loadAuthenticatorStatus() {
+  const startButton = document.getElementById("settings-start-authenticator");
+  const setupPanel = document.getElementById("settings-auth-setup");
+  const confirmForm = document.getElementById("settings-authenticator-confirm");
+  const keyNode = document.getElementById("settings-auth-key");
+  const qrNode = document.getElementById("settings-auth-qr");
+  if (setupPanel) setupPanel.hidden = true;
+  if (confirmForm) confirmForm.hidden = true;
+  if (keyNode) keyNode.textContent = "Generate a QR code first";
+  if (qrNode) qrNode.textContent = "QR";
+  try {
+    const data = await settingsApi("/api/account/security/authenticator");
+    if (startButton) startButton.textContent = data.enabled ? "Generate New QR Code" : "Generate QR Code";
+    if (data.enabled) showSettingsNotice("Authenticator is already enabled for this account.", "success");
+  } catch (err) {
+    if (startButton) startButton.textContent = "Generate QR Code";
   }
 }
 
@@ -352,6 +385,73 @@ document.getElementById("settings-password-form")?.addEventListener("submit", as
     showSettingsNotice("Password changed successfully.", "success");
   } catch (err) {
     showSettingsNotice(err.message || "Could not change password.", "error");
+  }
+});
+
+document.getElementById("settings-start-authenticator")?.addEventListener("click", async () => {
+  const currentPassword = document.getElementById("settings-auth-password")?.value || "";
+  if (!currentPassword) {
+    showSettingsNotice("Enter your current password first.", "error");
+    return;
+  }
+  const button = document.getElementById("settings-start-authenticator");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Generating";
+  }
+  try {
+    const data = await settingsApi("/api/account/security/authenticator/setup", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword })
+    });
+    const setupPanel = document.getElementById("settings-auth-setup");
+    const confirmForm = document.getElementById("settings-authenticator-confirm");
+    const keyNode = document.getElementById("settings-auth-key");
+    const qrNode = document.getElementById("settings-auth-qr");
+    if (keyNode) keyNode.textContent = data.secret || "Key unavailable";
+    if (qrNode) {
+      qrNode.textContent = "";
+      if (data.qrDataUrl) {
+        const img = document.createElement("img");
+        img.src = data.qrDataUrl;
+        img.alt = "Authenticator QR code";
+        qrNode.appendChild(img);
+      } else {
+        qrNode.textContent = "Use manual key";
+      }
+    }
+    if (setupPanel) setupPanel.hidden = false;
+    if (confirmForm) confirmForm.hidden = false;
+    showSettingsNotice("Scan the QR code, then enter the code from your authenticator app.", "success");
+  } catch (err) {
+    showSettingsNotice(err.message || "Could not generate authenticator setup.", "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Generate QR Code";
+    }
+  }
+});
+
+document.getElementById("settings-authenticator-confirm")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const currentPassword = document.getElementById("settings-auth-password")?.value || "";
+  const code = document.getElementById("settings-auth-code")?.value || "";
+  if (!currentPassword || !/^\d{6}$/.test(code.replace(/\s+/g, ""))) {
+    showSettingsNotice("Enter your current password and the 6-digit authenticator code.", "error");
+    return;
+  }
+  try {
+    await settingsApi("/api/account/security/authenticator/confirm", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, code })
+    });
+    event.target.reset();
+    document.getElementById("settings-authenticator-form")?.reset();
+    closeSettingsModals();
+    showSettingsNotice("Authenticator app enabled.", "success");
+  } catch (err) {
+    showSettingsNotice(err.message || "Could not enable authenticator.", "error");
   }
 });
 

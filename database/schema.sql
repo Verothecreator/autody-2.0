@@ -421,6 +421,10 @@ create table if not exists account_settings (
   order_confirmation boolean not null default true,
   market_alerts boolean not null default true,
   news_alerts boolean not null default true,
+  deposit_alerts boolean not null default false,
+  withdrawal_alerts boolean not null default false,
+  price_alerts boolean not null default false,
+  research_brief boolean not null default false,
   updated_at timestamptz not null default now()
 );
 

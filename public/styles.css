@@ -3236,6 +3236,14 @@ body.modal-open {
   font-weight: 950;
 }
 
+.settings-qr-preview img {
+  width: min(100%, 176px);
+  height: auto;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+}
+
 .settings-auth-setup p {
   color: var(--muted);
 }
@@ -4894,6 +4902,34 @@ body.account-body.theme-light .profile-kyc-modal-card {
   display: grid;
   gap: 16px;
   max-width: 520px;
+}
+
+.auth-method-toggle {
+  display: inline-flex;
+  gap: 6px;
+  margin: -8px 0 18px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.auth-method-toggle button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.auth-method-toggle button.active {
+  border-color: rgba(93, 95, 239, 0.7);
+  background: rgba(93, 95, 239, 0.24);
+  color: var(--text);
 }
 
 .auth-form-wide {

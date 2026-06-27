@@ -593,6 +593,69 @@ function sameHashValue(left = "", right = "") {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+const TOTP_ISSUER = "Autody";
+const TOTP_STEP_SECONDS = 30;
+const TOTP_WINDOW = 1;
+const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function base32Encode(buffer) {
+    let bits = "";
+    for (const byte of buffer) bits += byte.toString(2).padStart(8, "0");
+    let output = "";
+    for (let index = 0; index < bits.length; index += 5) {
+        const chunk = bits.slice(index, index + 5).padEnd(5, "0");
+        output += BASE32_ALPHABET[parseInt(chunk, 2)];
+    }
+    return output;
+}
+
+function base32Decode(secret = "") {
+    const clean = String(secret || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+    let bits = "";
+    for (const char of clean) {
+        const value = BASE32_ALPHABET.indexOf(char);
+        if (value >= 0) bits += value.toString(2).padStart(5, "0");
+    }
+    const bytes = [];
+    for (let index = 0; index + 8 <= bits.length; index += 8) {
+        bytes.push(parseInt(bits.slice(index, index + 8), 2));
+    }
+    return Buffer.from(bytes);
+}
+
+function generateTotpSecret() {
+    return base32Encode(crypto.randomBytes(20));
+}
+
+function authenticatorUri(email, secret) {
+    const label = encodeURIComponent(`${TOTP_ISSUER}:${email}`);
+    const issuer = encodeURIComponent(TOTP_ISSUER);
+    return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=${TOTP_STEP_SECONDS}`;
+}
+
+function totpCode(secret, timeStep = Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS)) {
+    const key = base32Decode(secret);
+    const counter = Buffer.alloc(8);
+    counter.writeBigUInt64BE(BigInt(timeStep));
+    const hmac = crypto.createHmac("sha1", key).update(counter).digest();
+    const offset = hmac[hmac.length - 1] & 0x0f;
+    const binary = ((hmac[offset] & 0x7f) << 24)
+        | ((hmac[offset + 1] & 0xff) << 16)
+        | ((hmac[offset + 2] & 0xff) << 8)
+        | (hmac[offset + 3] & 0xff);
+    return String(binary % 1000000).padStart(6, "0");
+}
+
+function verifyTotpCode(secret, code) {
+    const supplied = normalizeText(code).replace(/\s+/g, "");
+    if (!secret || !/^\d{6}$/.test(supplied)) return false;
+    const currentStep = Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS);
+    for (let offset = -TOTP_WINDOW; offset <= TOTP_WINDOW; offset += 1) {
+        if (totpCode(secret, currentStep + offset) === supplied) return true;
+    }
+    return false;
+}
+
 function normalizeText(value = "") {
     return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -1443,7 +1506,8 @@ async function getPracticeAccountFromDatabase() {
             limit 1
         `, [row.account_mode_id]),
         dbPool.query(`
-            select default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts
+            select default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts,
+                   deposit_alerts, withdrawal_alerts, price_alerts, research_brief
             from account_settings
             where profile_id = $1
             limit 1
@@ -1487,7 +1551,11 @@ async function getPracticeAccountFromDatabase() {
             riskLevel: settingsRow.risk_level || "practice",
             orderConfirmation: settingsRow.order_confirmation ?? false,
             marketAlerts: settingsRow.market_alerts ?? false,
-            newsAlerts: settingsRow.news_alerts ?? false
+            newsAlerts: settingsRow.news_alerts ?? false,
+            depositAlerts: settingsRow.deposit_alerts ?? false,
+            withdrawalAlerts: settingsRow.withdrawal_alerts ?? false,
+            priceAlerts: settingsRow.price_alerts ?? false,
+            researchBrief: settingsRow.research_brief ?? false
         }
     };
 }
@@ -1631,7 +1699,8 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             limit 1
         `, [row.account_mode_id]),
         dbPool.query(`
-            select default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts
+            select default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts,
+                   deposit_alerts, withdrawal_alerts, price_alerts, research_brief
             from account_settings
             where profile_id = $1
             limit 1
@@ -1718,7 +1787,11 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             riskLevel: settingsRow.risk_level || (accountMode === "demo" ? "practice" : "standard"),
             orderConfirmation: settingsRow.order_confirmation ?? false,
             marketAlerts: settingsRow.market_alerts ?? false,
-            newsAlerts: settingsRow.news_alerts ?? false
+            newsAlerts: settingsRow.news_alerts ?? false,
+            depositAlerts: settingsRow.deposit_alerts ?? false,
+            withdrawalAlerts: settingsRow.withdrawal_alerts ?? false,
+            priceAlerts: settingsRow.price_alerts ?? false,
+            researchBrief: settingsRow.research_brief ?? false
         },
         source: "supabase"
     };
@@ -6640,6 +6713,139 @@ async function updateAccountPassword(auth, password) {
     return true;
 }
 
+async function databaseAuthenticator(profileId) {
+    if (!databaseConfigured()) return null;
+    await ensureSignUpTables();
+    const result = await dbPool.query(`
+        select totp_secret, totp_pending_secret, totp_enabled, totp_confirmed_at
+        from profile_credentials
+        where profile_id = $1
+        limit 1
+    `, [profileId]);
+    return result.rows[0] || null;
+}
+
+function jsonAuthenticator(user = {}) {
+    return user.authenticator || {};
+}
+
+async function authenticatorStatusForAccount(auth) {
+    if (auth.source === "supabase" && databaseConfigured()) {
+        const row = await databaseAuthenticator(auth.profileId);
+        return {
+            enabled: Boolean(row?.totp_enabled && row?.totp_secret),
+            pending: Boolean(row?.totp_pending_secret),
+            confirmedAt: row?.totp_confirmed_at || ""
+        };
+    }
+    const db = loadDemoDb();
+    const user = (db.users || []).find((item) => item.id === auth.userId);
+    const authn = jsonAuthenticator(user);
+    return {
+        enabled: Boolean(authn.enabled && authn.secret),
+        pending: Boolean(authn.pendingSecret),
+        confirmedAt: authn.confirmedAt || ""
+    };
+}
+
+async function authenticatorEnabledForProfile(profileId) {
+    const row = await databaseAuthenticator(profileId);
+    return Boolean(row?.totp_enabled && row?.totp_secret);
+}
+
+function authenticatorEnabledForJsonUser(user) {
+    const authn = jsonAuthenticator(user);
+    return Boolean(authn.enabled && authn.secret);
+}
+
+async function startAuthenticatorSetup(auth) {
+    const secret = generateTotpSecret();
+    const email = auth.user?.email || auth.email || "";
+    const uri = authenticatorUri(email, secret);
+    const qrDataUrl = await QRCode.toDataURL(uri, { margin: 1, width: 220 });
+
+    if (auth.source === "supabase" && databaseConfigured()) {
+        await ensureSignUpTables();
+        await dbPool.query(`
+            update profile_credentials
+            set totp_pending_secret = $2
+            where profile_id = $1
+        `, [auth.profileId, secret]);
+    } else {
+        const db = loadDemoDb();
+        const user = (db.users || []).find((item) => item.id === auth.userId);
+        if (!user) throw signUpError(404, "Account not found.");
+        user.authenticator = {
+            ...(user.authenticator || {}),
+            pendingSecret: secret
+        };
+        saveDemoDb(db);
+    }
+
+    return { secret, uri, qrDataUrl };
+}
+
+async function confirmAuthenticatorSetup(auth, code) {
+    if (auth.source === "supabase" && databaseConfigured()) {
+        const row = await databaseAuthenticator(auth.profileId);
+        const secret = row?.totp_pending_secret || row?.totp_secret;
+        if (!verifyTotpCode(secret, code)) throw signUpError(400, "Authenticator code is incorrect.");
+        await dbPool.query(`
+            update profile_credentials
+            set totp_secret = $2,
+                totp_pending_secret = null,
+                totp_enabled = true,
+                totp_confirmed_at = now()
+            where profile_id = $1
+        `, [auth.profileId, secret]);
+        return true;
+    }
+
+    const db = loadDemoDb();
+    const user = (db.users || []).find((item) => item.id === auth.userId);
+    if (!user) throw signUpError(404, "Account not found.");
+    const secret = user.authenticator?.pendingSecret || user.authenticator?.secret;
+    if (!verifyTotpCode(secret, code)) throw signUpError(400, "Authenticator code is incorrect.");
+    user.authenticator = {
+        secret,
+        enabled: true,
+        confirmedAt: new Date().toISOString()
+    };
+    saveDemoDb(db);
+    return true;
+}
+
+async function verifyDatabaseAuthenticatorLogin(email, code) {
+    const profile = await databaseProfileVerification(email);
+    if (!profile) return null;
+    if (profile.email_status !== "verified") {
+        return { success: false, error: "Verify your email before signing in." };
+    }
+    const row = await databaseAuthenticator(profile.id);
+    if (!row?.totp_enabled || !row?.totp_secret) {
+        return { success: false, error: "Authenticator is not enabled for this account." };
+    }
+    if (!verifyTotpCode(row.totp_secret, code)) {
+        return { success: false, error: "Authenticator code is incorrect." };
+    }
+    return { success: true, profile };
+}
+
+function verifyJsonAuthenticatorLogin(db, email, code) {
+    const user = jsonUserByEmail(db, email);
+    if (!user) return { success: false, error: "Account not found." };
+    if (user.verification?.emailStatus !== "verified") {
+        return { success: false, error: "Verify your email before signing in." };
+    }
+    if (!authenticatorEnabledForJsonUser(user)) {
+        return { success: false, error: "Authenticator is not enabled for this account." };
+    }
+    if (!verifyTotpCode(user.authenticator.secret, code)) {
+        return { success: false, error: "Authenticator code is incorrect." };
+    }
+    return { success: true, user };
+}
+
 async function databaseProfileFromSessionToken(token) {
     if (!databaseConfigured() || !token) return null;
     const result = await dbPool.query(`
@@ -7442,6 +7648,18 @@ async function ensureSignUpTables(client = dbPool) {
 
         create index if not exists trusted_devices_profile_idx
           on trusted_devices (profile_id, expires_at desc);
+
+        alter table if exists profile_credentials
+          add column if not exists totp_secret text,
+          add column if not exists totp_pending_secret text,
+          add column if not exists totp_enabled boolean not null default false,
+          add column if not exists totp_confirmed_at timestamptz;
+
+        alter table if exists account_settings
+          add column if not exists deposit_alerts boolean not null default false,
+          add column if not exists withdrawal_alerts boolean not null default false,
+          add column if not exists price_alerts boolean not null default false,
+          add column if not exists research_brief boolean not null default false;
     `);
 }
 
@@ -11582,6 +11800,7 @@ app.post("/api/auth/sign-in", async (req, res) => {
           trustedDevice: true
         });
       }
+      const authenticatorEnabled = await authenticatorEnabledForProfile(databaseSignIn.user.id).catch(() => false);
       const loginCode = await createDatabaseVerificationCode(email, "email", "sign_in", {
         codeMode: "numeric",
         ttlMs: LOGIN_EMAIL_CODE_TTL_MS
@@ -11593,7 +11812,8 @@ app.post("/api/auth/sign-in", async (req, res) => {
       return res.json({
         success: true,
         requiresEmailCode: true,
-        next: `verify-login.html?email=${encodeURIComponent(email)}&remember=${rememberDevice ? "1" : "0"}`,
+        authenticatorEnabled,
+        next: `verify-login.html?email=${encodeURIComponent(email)}&remember=${rememberDevice ? "1" : "0"}&authenticator=${authenticatorEnabled ? "1" : "0"}`,
         delivery: delivery.delivered ? "Sign-in code sent." : "Sign-in code created. Email delivery provider is not fully connected yet.",
         source: "supabase"
       });
@@ -11629,6 +11849,7 @@ app.post("/api/auth/sign-in", async (req, res) => {
         trustedDevice: true
       });
     }
+    const authenticatorEnabled = authenticatorEnabledForJsonUser(user);
     const loginCode = createJsonVerificationCode(email, "email", "sign_in", {
       codeMode: "numeric",
       ttlMs: LOGIN_EMAIL_CODE_TTL_MS
@@ -11640,7 +11861,8 @@ app.post("/api/auth/sign-in", async (req, res) => {
     return res.json({
       success: true,
       requiresEmailCode: true,
-      next: `verify-login.html?email=${encodeURIComponent(email)}&remember=${rememberDevice ? "1" : "0"}`,
+      authenticatorEnabled,
+      next: `verify-login.html?email=${encodeURIComponent(email)}&remember=${rememberDevice ? "1" : "0"}&authenticator=${authenticatorEnabled ? "1" : "0"}`,
       delivery: delivery.delivered ? "Sign-in code sent." : "Sign-in code created. Email delivery provider is not fully connected yet.",
       source: "json"
     });
@@ -11707,10 +11929,46 @@ app.post("/api/auth/verify-login", async (req, res) => {
     const body = parseJsonBody(req);
     const email = normalizeEmail(body.email);
     const code = normalizeText(body.code).replace(/\s+/g, "");
+    const method = normalizeText(body.method || "email").toLowerCase() === "authenticator" ? "authenticator" : "email";
     const rememberDevice = truthyFormValue(body.rememberDevice);
     const sessionHours = rememberDevice ? REMEMBER_SESSION_HOURS : SESSION_HOURS;
     if (!email || !/^\d{6}$/.test(code)) {
       return res.status(400).json({ success: false, error: "Enter the 6-digit sign-in code." });
+    }
+
+    if (method === "authenticator") {
+      const databaseTotp = await verifyDatabaseAuthenticatorLogin(email, code).catch((err) => {
+        console.error("Database authenticator login failed:", err);
+        return null;
+      });
+      if (databaseTotp?.success) {
+        const user = databasePublicUser(databaseTotp.profile);
+        const session = await createDatabaseSession(databaseTotp.profile.id, sessionHours);
+        const trustedDevice = rememberDevice ? await createDatabaseTrustedDevice(databaseTotp.profile.id) : null;
+        return res.json({
+          success: true,
+          user,
+          session,
+          trustedDevice,
+          next: "account.html",
+          source: "supabase"
+        });
+      }
+      if (databaseTotp?.error) return res.status(400).json(databaseTotp);
+
+      const db = loadDemoDb();
+      const jsonTotp = verifyJsonAuthenticatorLogin(db, email, code);
+      if (!jsonTotp.success) return res.status(400).json(jsonTotp);
+      const session = createDemoSession(db, jsonTotp.user.id, sessionHours);
+      const trustedDevice = rememberDevice ? createJsonTrustedDevice(db, jsonTotp.user.id) : null;
+      return res.json({
+        success: true,
+        user: publicUser(jsonTotp.user),
+        session,
+        trustedDevice,
+        next: "account.html",
+        source: "json"
+      });
     }
 
     const databaseResult = await verifyDatabaseCode(email, "email", code, "sign_in", { markProfileVerified: false }).catch(() => null);
@@ -12190,6 +12448,113 @@ app.post("/api/account/security/password/confirm", async (req, res) => {
   } catch (err) {
     console.error("Password change confirm error:", err);
     return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not change password." });
+  }
+});
+
+app.get("/api/account/security/authenticator", async (req, res) => {
+  try {
+    const auth = await authenticatedAccountContext(req);
+    const status = await authenticatorStatusForAccount(auth);
+    return res.json({
+      success: true,
+      ...status
+    });
+  } catch (err) {
+    console.error("Authenticator status error:", err);
+    return sendDemoError(res, err, "Authenticator status unavailable");
+  }
+});
+
+app.post("/api/account/security/authenticator/setup", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const currentPassword = String(body.currentPassword || "");
+    if (!currentPassword) return res.status(400).json({ success: false, error: "Current password is required." });
+    if (!await verifyAccountPassword(auth, currentPassword)) {
+      return res.status(403).json({ success: false, error: "Current password is incorrect." });
+    }
+    const setup = await startAuthenticatorSetup(auth);
+    return res.json({
+      success: true,
+      ...setup
+    });
+  } catch (err) {
+    console.error("Authenticator setup error:", err);
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not start authenticator setup." });
+  }
+});
+
+app.post("/api/account/security/authenticator/confirm", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const currentPassword = String(body.currentPassword || "");
+    const code = normalizeText(body.code).replace(/\s+/g, "");
+    if (!currentPassword || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ success: false, error: "Enter your current password and the 6-digit authenticator code." });
+    }
+    if (!await verifyAccountPassword(auth, currentPassword)) {
+      return res.status(403).json({ success: false, error: "Current password is incorrect." });
+    }
+    await confirmAuthenticatorSetup(auth, code);
+    return res.json({
+      success: true
+    });
+  } catch (err) {
+    console.error("Authenticator confirm error:", err);
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not enable authenticator." });
+  }
+});
+
+const ACCOUNT_SETTINGS_FIELDS = {
+  "settings-order-confirmation": { key: "orderConfirmation", column: "order_confirmation" },
+  "settings-market-alerts": { key: "marketAlerts", column: "market_alerts" },
+  "settings-news-alerts": { key: "newsAlerts", column: "news_alerts" },
+  "settings-deposit-alerts": { key: "depositAlerts", column: "deposit_alerts" },
+  "settings-withdrawal-alerts": { key: "withdrawalAlerts", column: "withdrawal_alerts" },
+  "settings-price-alerts": { key: "priceAlerts", column: "price_alerts" },
+  "settings-research-brief": { key: "researchBrief", column: "research_brief" }
+};
+
+app.post("/api/account/settings", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const field = ACCOUNT_SETTINGS_FIELDS[normalizeText(body.key)];
+    if (!field) return res.status(400).json({ success: false, error: "Unknown setting." });
+
+    const mode = normalizeText(body.mode).toLowerCase() === "demo" ? "demo" : "live";
+    const enabled = body.value === true || normalizeText(body.value).toLowerCase() === "true";
+    const account = await getAuthenticatedAccount(req, mode);
+
+    if (account.source === "supabase") {
+      await ensureSignUpTables();
+      await dbPool.query(`
+        insert into account_settings (profile_id, default_mode, currency, risk_level, ${field.column})
+        values ($1, $2, 'USD', $3, $4)
+        on conflict (profile_id) do update
+        set ${field.column} = excluded.${field.column},
+            updated_at = now()
+      `, [
+        account.user.id,
+        mode,
+        mode === "demo" ? "practice" : "standard",
+        enabled
+      ]);
+    } else {
+      const db = loadDemoDb();
+      db.settings = db.settings || {};
+      db.settings[account.user.id] = {
+        ...(db.settings[account.user.id] || {}),
+        [field.key]: enabled
+      };
+      saveDemoDb(db);
+    }
+
+    return res.json({ success: true, key: field.key, value: enabled });
+  } catch (err) {
+    console.error("Account settings update error:", err);
+    return sendDemoError(res, err, "Could not save setting.");
   }
 });
 
