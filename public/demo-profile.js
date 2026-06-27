@@ -196,7 +196,17 @@ async function getProfileJson(url) {
     cache: "no-store",
     headers: window.AutodyAuth?.headers?.() || {}
   });
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`${url} returned ${response.status}`);
+    error.status = response.status;
+    try {
+      const body = await response.json();
+      error.message = body?.error || error.message;
+    } catch (err) {
+      // Keep the status-based message when the body is not JSON.
+    }
+    throw error;
+  }
   return response.json();
 }
 
@@ -582,9 +592,15 @@ async function loadProfilePage() {
     }
   } catch (err) {
     console.warn("Profile page failed:", err);
-    setProfileText("profile-status", "Warming up");
+    if (err.status === 401 || err.status === 403) {
+      const next = encodeURIComponent(location.pathname.split("/").pop() || "account.html");
+      location.replace(`sign-in.html?next=${next}`);
+      return;
+    }
+    setProfileText("profile-status", "Connection issue");
     setProfileText("profile-name", "Autody account");
-    setProfileText("profile-email", "Account details are loading");
+    setProfileText("profile-email", "Account details could not load. Retrying...");
+    setTimeout(loadProfilePage, 5000);
   }
 }
 
