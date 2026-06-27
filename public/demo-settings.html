@@ -37,7 +37,7 @@
         <div>
           <p class="eyebrow">Demo settings</p>
           <h1>Settings</h1>
-          <p class="app-subtitle">Manage security, notifications, demo controls, and support from one account settings area.</p>
+          <p class="app-subtitle">Manage account security, notifications, and support requests.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Practice mode</span>
@@ -60,10 +60,6 @@
               <strong>Protected</strong>
             </div>
             <div>
-              <span>Email sign-in code</span>
-              <strong>Required</strong>
-            </div>
-            <div>
               <span>Authenticator app</span>
               <button class="settings-inline-button" type="button" data-settings-message="Authenticator app setup is ready for the next security build.">Set Up</button>
             </div>
@@ -77,83 +73,39 @@
         <article class="app-card settings-card settings-control-card">
           <div class="card-heading">
             <div>
-              <span class="muted-label">Preferences</span>
-              <h2>Trading and alerts</h2>
-              <p class="card-intro">Choose the account behavior users expect before placing orders.</p>
+              <span class="muted-label">Notifications</span>
+              <h2>Alerts and updates</h2>
+              <p class="card-intro">Choose which account, market, and research updates should reach you when notifications are connected.</p>
             </div>
           </div>
           <div class="settings-list">
             <div>
               <span>Order confirmations</span>
-              <button class="settings-toggle-button is-on" type="button" data-settings-toggle id="settings-order-confirmation">On</button>
+              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-order-confirmation">Off</button>
             </div>
             <div>
               <span>Market alerts</span>
-              <button class="settings-toggle-button is-on" type="button" data-settings-toggle id="settings-market-alerts">On</button>
+              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-market-alerts">Off</button>
             </div>
             <div>
               <span>News alerts</span>
-              <button class="settings-toggle-button is-on" type="button" data-settings-toggle id="settings-news-alerts">On</button>
+              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-news-alerts">Off</button>
             </div>
             <div>
-              <span>Preferred currency</span>
-              <strong id="settings-currency">USD</strong>
-            </div>
-          </div>
-        </article>
-
-        <article class="app-card settings-card settings-control-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Mode</span>
-              <h2>Live and demo</h2>
-              <p class="card-intro">Move between the real account and the practice workspace.</p>
-            </div>
-          </div>
-          <div class="settings-list">
-            <div>
-              <span>Current mode</span>
-              <strong id="settings-current-mode">Demo trading</strong>
+              <span>Deposit updates</span>
+              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-deposit-alerts">Off</button>
             </div>
             <div>
-              <span>Available funds</span>
-              <strong id="settings-buying-power">$50,000 USD</strong>
+              <span>Withdrawal updates</span>
+              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-withdrawal-alerts">Off</button>
             </div>
             <div>
-              <span>Account email</span>
-              <strong id="settings-email">Loading account</strong>
+              <span>Price movement alerts</span>
+              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-price-alerts">Off</button>
             </div>
             <div>
-              <span>Switch workspace</span>
-              <a href="account.html" class="btn btn-small">Open Live Account</a>
-            </div>
-          </div>
-        </article>
-
-        <article class="app-card settings-card settings-control-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Verification</span>
-              <h2>Identity and limits</h2>
-              <p class="card-intro">KYC belongs in the profile identity review flow.</p>
-            </div>
-          </div>
-          <div class="settings-list">
-            <div>
-              <span>Email status</span>
-              <strong id="settings-email-status">Checking</strong>
-            </div>
-            <div>
-              <span>Identity review</span>
-              <a href="demo-profile.html" class="btn btn-small btn-ghost">Open Profile</a>
-            </div>
-            <div>
-              <span>Live withdrawals</span>
-              <strong>After review</strong>
-            </div>
-            <div>
-              <span>Database</span>
-              <strong id="settings-database">Checking</strong>
+              <span>Research brief</span>
+              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-research-brief">Off</button>
             </div>
           </div>
         </article>

@@ -151,6 +151,20 @@ function kycStage(verification = {}) {
   return "Email required";
 }
 
+function kycReasonLabel(value = "") {
+  const labels = {
+    invalid_document: "Invalid document",
+    invalid_id: "Invalid ID",
+    inadequate_selfie: "Inadequate selfie",
+    document_selfie_mismatch: "Document and selfie mismatch",
+    expired_document: "Expired document",
+    unclear_document: "Unclear document",
+    unsupported_document: "Unsupported document",
+    other: "Other"
+  };
+  return labels[String(value || "").toLowerCase()] || "";
+}
+
 function setKycButtonState(identityStatus = currentKycIdentityStatus) {
   const button = document.getElementById("profile-kyc-button") || document.querySelector("[data-profile-kyc-open]");
   if (!button) return;
@@ -524,7 +538,11 @@ async function loadProfilePage() {
     const profile = user.profile || {};
     const verification = user.verification || {};
     currentKycIdentityStatus = normalizeKycStatus(verification.identity || verification.identityStatus || "pending");
-    currentKycReviewNote = cleanProfileText(verification.reviewNote || verification.rejectionReason || "");
+    const reviewReasonLabel = kycReasonLabel(verification.reviewReason || verification.rejectionReason);
+    const reviewNote = cleanProfileText(verification.reviewNote || "");
+    currentKycReviewNote = reviewReasonLabel
+      ? `${reviewReasonLabel}${reviewNote && reviewNote !== reviewReasonLabel ? `: ${reviewNote}` : ""}`
+      : reviewNote;
     const accountEmail = profileValue(user.email, "Not available");
     const displayName = profileDisplayName(user);
     const emailStatus = readableStatus(verification.email || verification.emailStatus);

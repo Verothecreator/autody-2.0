@@ -324,6 +324,43 @@ function formatKycDocumentType(value = "") {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const kycRejectionReasons = [
+  ["invalid_document", "Invalid document"],
+  ["invalid_id", "Invalid ID"],
+  ["inadequate_selfie", "Inadequate selfie"],
+  ["document_selfie_mismatch", "Document and selfie mismatch"],
+  ["expired_document", "Expired document"],
+  ["unclear_document", "Unclear document"],
+  ["unsupported_document", "Unsupported document"],
+  ["other", "Other"]
+];
+
+function kycReasonLabel(value = "") {
+  const match = kycRejectionReasons.find(([key]) => key === value);
+  return match ? match[1] : "Other";
+}
+
+function kycRejectionReasonControls(row = {}) {
+  const currentReason = row.reviewReason || "invalid_document";
+  const options = kycRejectionReasons.map(([value, label]) => (
+    `<option value="${adminEscape(value)}"${value === currentReason ? " selected" : ""}>${adminEscape(label)}</option>`
+  )).join("");
+  return `
+    <label class="admin-kyc-reason">
+      <span>Reject reason</span>
+      <select data-kyc-reason="${adminEscape(row.id)}">${options}</select>
+    </label>
+    <label class="admin-kyc-reason">
+      <span>Optional user note</span>
+      <input type="text" data-kyc-note="${adminEscape(row.id)}" value="${adminEscape(row.reviewNote || "")}" placeholder="Add a short note if needed" />
+    </label>
+  `;
+}
+
+function findKycControl(selector, submissionId) {
+  return Array.from(document.querySelectorAll(selector)).find((node) => node.dataset.kycReason === submissionId || node.dataset.kycNote === submissionId);
+}
+
 function renderKycPreview(url = "", type = "", label = "Preview") {
   if (!url) return `<div class="admin-kyc-preview admin-empty-preview">${adminEscape(label)} unavailable</div>`;
   const safeUrl = adminEscape(url);
@@ -375,10 +412,11 @@ function renderKycSubmissions(rows = []) {
         </div>
       </div>
       <div class="admin-kyc-actions">
+        ${kycRejectionReasonControls(row)}
         <button type="button" class="btn" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="approved">Approve</button>
         <button type="button" class="btn btn-ghost" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="rejected">Reject</button>
         ${kycDeleteButton(row)}
-        <small>${adminEscape(row.reviewNote || row.reviewer || "Waiting for manual review")}</small>
+        <small>${adminEscape(row.reviewReason ? kycReasonLabel(row.reviewReason) : row.reviewNote || row.reviewer || "Waiting for manual review")}</small>
       </div>
     </article>
   `).join("");
@@ -412,12 +450,16 @@ async function loadAdminKycOverview() {
 
 async function reviewKycSubmission(submissionId, status) {
   const action = status === "approved" ? "approve" : "reject";
+  const reasonSelect = findKycControl("[data-kyc-reason]", submissionId);
+  const noteInput = findKycControl("[data-kyc-note]", submissionId);
+  const reviewReason = status === "rejected" ? reasonSelect?.value || "other" : "";
   const reviewNote = status === "rejected"
-    ? window.prompt("Add a rejection note for the user record:", "Document or face scan needs another review.") || ""
+    ? noteInput?.value?.trim() || kycReasonLabel(reviewReason)
     : "Identity review approved.";
   const result = await adminPost("/api/admin/kyc/review", {
     submissionId,
     status,
+    reviewReason,
     reviewNote
   });
   setAdminOutput(result);

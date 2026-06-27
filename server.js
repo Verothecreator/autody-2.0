@@ -316,9 +316,9 @@ const defaultDemoDb = {
             defaultMode: "demo",
             currency: "USD",
             riskLevel: "practice",
-            orderConfirmation: true,
-            marketAlerts: true,
-            newsAlerts: true
+            orderConfirmation: false,
+            marketAlerts: false,
+            newsAlerts: false
         }
     }
 };
@@ -739,6 +739,16 @@ function emailVerificationUrl(req, email, token) {
     return `${appBaseUrl(req)}/verify-email.html?${params.toString()}`;
 }
 
+function emailHtmlEscape(value = "") {
+    return String(value || "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+    }[char]));
+}
+
 async function sendVerificationEmail(email, token, req) {
     const verifyUrl = emailVerificationUrl(req, email, token);
     const subject = "Verify your Autody account";
@@ -855,6 +865,135 @@ async function sendLoginCodeEmail(email, code) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Login code delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+function kycRejectionReasonLabel(value = "") {
+    const labels = {
+        invalid_document: "Invalid document",
+        invalid_id: "Invalid ID",
+        inadequate_selfie: "Inadequate selfie",
+        document_selfie_mismatch: "Document and selfie mismatch",
+        expired_document: "Expired document",
+        unclear_document: "Unclear document",
+        unsupported_document: "Unsupported document",
+        other: "Other"
+    };
+    return labels[normalizeKycRejectionReason(value)] || labels.other;
+}
+
+function normalizeKycRejectionReason(value = "") {
+    const normalized = String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_");
+    const allowed = new Set([
+        "invalid_document",
+        "invalid_id",
+        "inadequate_selfie",
+        "document_selfie_mismatch",
+        "expired_document",
+        "unclear_document",
+        "unsupported_document",
+        "other"
+    ]);
+    return allowed.has(normalized) ? normalized : "other";
+}
+
+async function sendKycSubmittedEmail(email, displayName = "") {
+    if (!email) return { delivered: false, provider: "none", skipped: true };
+    const name = normalizeText(displayName) || titleFromEmail(email) || "there";
+    const safeName = emailHtmlEscape(name);
+    const subject = "Autody received your identity review";
+    const text = `Hi ${name},\n\nWe received your identity document and face scan.\n\nReviews usually take 2-3 business days. You do not need to upload anything else unless Autody asks for a clearer document.\n\nWe will email you when your identity review is approved or if it needs another upload.\n\nThe Autody Team`;
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
+          <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody identity review</div>
+          <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2">Documents received</h1>
+          <p>Hi ${safeName},</p>
+          <p>We received your identity document and face scan.</p>
+          <div style="margin:18px 0;padding:16px;border-radius:12px;background:#f4f6ff;border:1px solid #d7ddf3">
+            <strong>Review time</strong><br>
+            Reviews usually take 2-3 business days. You do not need to upload anything else unless Autody asks for a clearer document.
+          </div>
+          <p>We will email you when your identity review is approved or if it needs another upload.</p>
+          <p>The Autody Team</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody KYC received email for", email);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "KYC received email delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+async function sendKycDecisionEmail(email, options = {}) {
+    if (!email) return { delivered: false, provider: "none", skipped: true };
+    const status = normalizeText(options.status).toLowerCase();
+    if (!["approved", "rejected"].includes(status)) return { delivered: false, provider: "none", skipped: true };
+    const name = normalizeText(options.displayName) || titleFromEmail(email) || "there";
+    const safeName = emailHtmlEscape(name);
+    const reason = kycRejectionReasonLabel(options.reviewReason);
+    const note = normalizeText(options.reviewNote);
+    const displayNote = note && note !== reason ? note : "";
+    const safeReason = emailHtmlEscape(reason);
+    const safeNote = emailHtmlEscape(displayNote);
+    const approved = status === "approved";
+    const subject = approved ? "Autody identity review approved" : "Autody identity review needs attention";
+    const text = approved
+        ? `Hi ${name},\n\nYour Autody identity review has been approved.\n\nHigher limits, withdrawals, and larger funding actions can be enabled as the platform expands.\n\nThe Autody Team`
+        : `Hi ${name},\n\nYour Autody identity review could not be approved yet.\n\nReason: ${reason}${displayNote ? `\nNote: ${displayNote}` : ""}\n\nOpen Verify Identity in your profile and upload a clearer document and fresh face scan.\n\nThe Autody Team`;
+    const html = approved ? `
+        <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
+          <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#16a34a;font-weight:800">Autody identity review</div>
+          <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2">Identity verified</h1>
+          <p>Hi ${safeName},</p>
+          <p>Your Autody identity review has been approved.</p>
+          <p>Higher limits, withdrawals, and larger funding actions can be enabled as the platform expands.</p>
+          <p>The Autody Team</p>
+        </div>
+    ` : `
+        <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
+          <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#ef4444;font-weight:800">Autody identity review</div>
+          <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2">Another upload is needed</h1>
+          <p>Hi ${safeName},</p>
+          <p>Your Autody identity review could not be approved yet.</p>
+          <div style="margin:18px 0;padding:16px;border-radius:12px;background:#fff1f2;border:1px solid #fecdd3">
+            <strong>Reason</strong><br>
+            ${safeReason}${safeNote ? `<br><span style="color:#4b5563">${safeNote}</span>` : ""}
+          </div>
+          <p>Open Verify Identity in your profile and upload a clearer document and fresh face scan.</p>
+          <p>The Autody Team</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody KYC decision email for", email, status, reason);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "KYC decision email delivery failed.");
     return { delivered: true, provider: "resend" };
 }
 
@@ -1305,9 +1444,9 @@ async function getPracticeAccountFromDatabase() {
             defaultMode: settingsRow.default_mode || "demo",
             currency: settingsRow.currency || "USD",
             riskLevel: settingsRow.risk_level || "practice",
-            orderConfirmation: settingsRow.order_confirmation ?? true,
-            marketAlerts: settingsRow.market_alerts ?? true,
-            newsAlerts: settingsRow.news_alerts ?? true
+            orderConfirmation: settingsRow.order_confirmation ?? false,
+            marketAlerts: settingsRow.market_alerts ?? false,
+            newsAlerts: settingsRow.news_alerts ?? false
         }
     };
 }
@@ -1457,7 +1596,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             limit 1
         `, [row.profile_id]),
         dbPool.query(`
-            select status, review_note, reviewer, created_at, updated_at, reviewed_at
+            select status, review_reason, review_note, reviewer, created_at, updated_at, reviewed_at
             from kyc_submissions
             where profile_id = $1
             order by created_at desc
@@ -1511,6 +1650,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
                 phone: row.phone_status || "pending",
                 identity: row.identity_status || "pending",
                 reviewStatus: latestKycRow.status || "",
+                reviewReason: latestKycRow.review_reason || "",
                 reviewNote: latestKycRow.review_note || "",
                 reviewer: latestKycRow.reviewer || "",
                 submittedAt: latestKycRow.created_at || "",
@@ -1535,9 +1675,9 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             defaultMode: settingsRow.default_mode || accountMode,
             currency: settingsRow.currency || "USD",
             riskLevel: settingsRow.risk_level || (accountMode === "demo" ? "practice" : "standard"),
-            orderConfirmation: settingsRow.order_confirmation ?? true,
-            marketAlerts: settingsRow.market_alerts ?? true,
-            newsAlerts: settingsRow.news_alerts ?? true
+            orderConfirmation: settingsRow.order_confirmation ?? false,
+            marketAlerts: settingsRow.market_alerts ?? false,
+            newsAlerts: settingsRow.news_alerts ?? false
         },
         source: "supabase"
     };
@@ -6512,6 +6652,7 @@ async function ensureKycTables(client = dbPool) {
           selfie_file_name text,
           selfie_content_type text,
           selfie_size_bytes integer not null default 0,
+          review_reason text,
           review_note text,
           reviewer text,
           created_at timestamptz not null default now(),
@@ -6529,7 +6670,8 @@ async function ensureKycTables(client = dbPool) {
           add column if not exists document_back_path text,
           add column if not exists document_back_file_name text,
           add column if not exists document_back_content_type text,
-          add column if not exists document_back_size_bytes integer not null default 0;
+          add column if not exists document_back_size_bytes integer not null default 0,
+          add column if not exists review_reason text;
     `);
 }
 
@@ -6776,12 +6918,19 @@ async function createKycSubmission(auth, body = {}) {
         where profile_id = $1
     `, [profileId]);
 
+    const emailDelivery = await sendKycSubmittedEmail(auth.user?.email, auth.user?.name || auth.user?.displayName || "")
+        .catch((err) => {
+            console.error("KYC received email failed:", err.message || err);
+            return { delivered: false, provider: "error", error: err.message || String(err) };
+        });
+
     return {
         id: submissionId,
         status: "in_review",
         documentType,
         accountMode,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        emailDelivery
     };
 }
 
@@ -6821,6 +6970,7 @@ async function getAdminKycOverview(body = {}) {
             ks.selfie_file_name,
             ks.selfie_content_type,
             ks.selfie_size_bytes,
+            ks.review_reason,
             ks.review_note,
             ks.reviewer,
             ks.created_at,
@@ -6871,6 +7021,7 @@ async function getAdminKycOverview(body = {}) {
             documentUrl: await signedKycObjectUrl(row.document_path),
             documentBackUrl: await signedKycObjectUrl(row.document_back_path),
             selfieUrl: await signedKycObjectUrl(row.selfie_path),
+            reviewReason: row.review_reason || "",
             reviewNote: row.review_note || "",
             reviewer: row.reviewer || "",
             createdAt: row.created_at,
@@ -7030,18 +7181,22 @@ async function reviewKycSubmission(body = {}) {
     if (!status) throw demoTradeError(400, "Choose approved, rejected, or in_review.");
 
     const reviewer = normalizeText(body.reviewer || "Autody admin") || "Autody admin";
-    const reviewNote = normalizeText(body.reviewNote || body.note);
+    const reviewReason = status === "rejected"
+        ? normalizeKycRejectionReason(body.reviewReason || body.reason)
+        : "";
+    const reviewNote = normalizeText(body.reviewNote || body.note || (status === "rejected" ? kycRejectionReasonLabel(reviewReason) : ""));
     const identityStatus = status === "approved" ? "verified" : status;
     const result = await dbPool.query(`
         update kyc_submissions
         set status = $2,
             review_note = $3,
-            reviewer = $4,
+            review_reason = $4,
+            reviewer = $5,
             reviewed_at = case when $2 = 'in_review' then null else now() end,
             updated_at = now()
         where id = $1
-        returning id, profile_id, status, reviewed_at
-    `, [submissionId, status, reviewNote, reviewer]);
+        returning id, profile_id, status, review_reason, review_note, reviewed_at
+    `, [submissionId, status, reviewNote, reviewReason, reviewer]);
     const row = result.rows[0];
     if (!row) throw demoTradeError(404, "KYC submission was not found.");
 
@@ -7052,15 +7207,37 @@ async function reviewKycSubmission(body = {}) {
         where profile_id = $1
     `, [row.profile_id, identityStatus]);
 
+    const profileResult = await dbPool.query(`
+        select p.email, p.display_name, pv.first_name, pv.last_name, pv.legal_name
+        from profiles p
+        left join profile_verifications pv on pv.profile_id = p.id
+        where p.id = $1
+        limit 1
+    `, [row.profile_id]).catch(() => ({ rows: [] }));
+    const profile = profileResult.rows[0] || {};
+    const displayName = normalizeText(profile.display_name || profile.legal_name || `${profile.first_name || ""} ${profile.last_name || ""}`) || titleFromEmail(profile.email);
+    const emailDelivery = await sendKycDecisionEmail(profile.email, {
+        status,
+        displayName,
+        reviewReason: row.review_reason,
+        reviewNote: row.review_note
+    }).catch((err) => {
+        console.error("KYC decision email failed:", err.message || err);
+        return { delivered: false, provider: "error", error: err.message || String(err) };
+    });
+
     return {
         success: true,
         submission: {
             id: row.id,
             profileId: row.profile_id,
             status: row.status,
+            reviewReason: row.review_reason || "",
+            reviewNote: row.review_note || "",
             identityStatus,
             reviewedAt: row.reviewed_at
-        }
+        },
+        emailDelivery
     };
 }
 
@@ -7243,7 +7420,7 @@ async function createDatabaseAccount(signUp) {
 
         await client.query(`
             insert into account_settings (profile_id, default_mode, currency, risk_level, order_confirmation, market_alerts, news_alerts)
-            values ($1, 'live', 'USD', 'standard', true, true, true)
+            values ($1, 'live', 'USD', 'standard', false, false, false)
             on conflict (profile_id) do nothing
         `, [profile.id]);
 
@@ -7428,9 +7605,9 @@ function createJsonAccount(signUp) {
         defaultMode: "live",
         currency: "USD",
         riskLevel: "standard",
-        orderConfirmation: true,
-        marketAlerts: true,
-        newsAlerts: true
+        orderConfirmation: false,
+        marketAlerts: false,
+        newsAlerts: false
     };
 
     const emailVerificationCode = createVerificationCodeRecord("email", signUp.email);

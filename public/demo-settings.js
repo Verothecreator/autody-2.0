@@ -11,15 +11,11 @@ function setSettingsText(id, value) {
   if (node) node.textContent = value;
 }
 
-function settingsText(value, fallback = "On") {
-  if (typeof value === "boolean") return value ? "On" : "Off";
-  return value || fallback;
-}
-
 function setSettingsToggle(id, value) {
   const node = document.getElementById(id);
   if (!node) return;
-  const enabled = value !== false && String(value).toLowerCase() !== "off";
+  const normalized = String(value ?? "").toLowerCase();
+  const enabled = value === true || normalized === "true" || normalized === "on" || normalized === "1";
   node.textContent = enabled ? "On" : "Off";
   node.classList.toggle("is-on", enabled);
 }
@@ -60,20 +56,17 @@ async function loadSettingsPage() {
     const verification = user.verification || {};
     const settings = walletData.settings || settingsData.settings || {};
     const cash = Number(wallet.cashBalance || user.cashBalance || 0);
-    const modeLabel = isLiveSettings ? "Live account" : "Demo trading";
     const statusLabel = isLiveSettings ? "Live active" : "Demo active";
 
     setSettingsText("settings-status", statusLabel);
-    setSettingsText("settings-current-mode", modeLabel);
-    setSettingsText("settings-buying-power", `${settingsMoney.format(cash)} USD`);
-    setSettingsText("settings-currency", settings.currency || wallet.currency || user.currency || "USD");
-    setSettingsText("settings-email", user.email || "Not available");
-    setSettingsText("settings-email-status", String(verification.email || user.emailStatus || "verified").replace(/[_-]+/g, " "));
-    setSettingsText("settings-database", dbData.configured ? dbData.provider || "Supabase Postgres" : "Local fallback");
 
     setSettingsToggle("settings-order-confirmation", settings.orderConfirmation);
     setSettingsToggle("settings-market-alerts", settings.marketAlerts);
     setSettingsToggle("settings-news-alerts", settings.newsAlerts);
+    setSettingsToggle("settings-deposit-alerts", settings.depositAlerts);
+    setSettingsToggle("settings-withdrawal-alerts", settings.withdrawalAlerts);
+    setSettingsToggle("settings-price-alerts", settings.priceAlerts);
+    setSettingsToggle("settings-research-brief", settings.researchBrief);
 
     if (isLiveSettings) {
       document.querySelectorAll("[data-live-balance]").forEach((node) => {
