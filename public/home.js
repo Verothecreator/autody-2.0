@@ -250,13 +250,92 @@ async function loadNewsData() {
   }
 }
 
+function setPublicSupportOpen(open) {
+  const modal = document.querySelector("[data-public-support-modal]");
+  if (!modal) return;
+  modal.hidden = !open;
+  document.body.classList.toggle("modal-open", open);
+  if (open) {
+    window.setTimeout(() => document.getElementById("public-support-email")?.focus(), 50);
+  }
+}
+
+function setPublicSupportStatus(message = "", tone = "info") {
+  const status = document.getElementById("public-support-status");
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.tone = tone;
+}
+
+function publicSupportPayload() {
+  return {
+    name: document.getElementById("public-support-name")?.value?.trim() || "",
+    email: document.getElementById("public-support-email")?.value?.trim() || "",
+    category: document.getElementById("public-support-type")?.value?.trim() || "General question",
+    topic: document.getElementById("public-support-topic")?.value?.trim() || "Homepage support request",
+    message: document.getElementById("public-support-message")?.value?.trim() || "",
+    mode: "public"
+  };
+}
+
 document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-public-support-open]")) {
+    setPublicSupportOpen(true);
+    return;
+  }
+
+  if (event.target.closest("[data-public-support-close]")) {
+    setPublicSupportOpen(false);
+    return;
+  }
+
+  const supportModal = event.target.closest("[data-public-support-modal]");
+  if (supportModal && event.target === supportModal) {
+    setPublicSupportOpen(false);
+    return;
+  }
+
   const arrow = event.target.closest("[data-news-action]");
   if (arrow?.dataset.newsAction === "next") setActiveNews(activeNewsIndex + 1);
   if (arrow?.dataset.newsAction === "prev") setActiveNews(activeNewsIndex - 1);
 
   const dot = event.target.closest("[data-news-index]");
   if (dot) setActiveNews(Number(dot.dataset.newsIndex));
+});
+
+document.getElementById("public-support-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = publicSupportPayload();
+  if (!payload.email || !payload.message) {
+    setPublicSupportStatus("Enter your email and message before submitting.", "error");
+    return;
+  }
+  const submitButton = form.querySelector("button[type='submit']");
+  const originalText = submitButton?.textContent || "Submit Ticket";
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Submitting";
+  }
+  setPublicSupportStatus("Sending ticket...", "info");
+  try {
+    const response = await fetch("/api/public/support/tickets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || "Ticket could not be submitted.");
+    form.reset();
+    setPublicSupportStatus("Ticket submitted. Autody will follow up by email.", "success");
+  } catch (err) {
+    setPublicSupportStatus(err.message || "Ticket could not be submitted. Please try again.", "error");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalText;
+    }
+  }
 });
 
 document.addEventListener("DOMContentLoaded", () => {

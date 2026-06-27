@@ -193,6 +193,31 @@
     </div>
   </footer>
 
+  <button class="public-support-button" type="button" data-public-support-open aria-label="Contact Autody support">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4.5 5.5h15v10h-8.2L7 19v-3.5H4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+      <path d="M8 9h8M8 12h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+    </svg>
+  </button>
+
+  <div class="public-support-modal" data-public-support-modal hidden>
+    <div class="public-support-panel" role="dialog" aria-modal="true" aria-labelledby="public-support-title">
+      <button class="public-support-close" type="button" data-public-support-close aria-label="Close">x</button>
+      <p class="eyebrow">Support</p>
+      <h2 id="public-support-title">Contact Autody</h2>
+      <p class="card-intro">Send a question, account issue, deposit concern, or platform feedback. Autody will use your email to follow up.</p>
+      <form class="public-support-form" id="public-support-form">
+        <label><span>Name</span><input id="public-support-name" type="text" autocomplete="name" placeholder="Your name" /></label>
+        <label><span>Email</span><input id="public-support-email" type="email" autocomplete="email" placeholder="you@example.com" required /></label>
+        <label><span>Issue type</span><select id="public-support-type"><option>Account access</option><option>Wallet or deposits</option><option>Trading or orders</option><option>Identity verification</option><option>Security concern</option><option>General question</option></select></label>
+        <label><span>Topic</span><input id="public-support-topic" type="text" placeholder="Example: Help signing in" /></label>
+        <label><span>Message</span><textarea id="public-support-message" rows="5" placeholder="Explain what happened and what you need help with." required></textarea></label>
+        <p class="public-support-status" id="public-support-status" aria-live="polite"></p>
+        <button class="btn" type="submit">Submit Ticket</button>
+      </form>
+    </div>
+  </div>
+
   <script src="home.js"></script>
 </body>
 </html>

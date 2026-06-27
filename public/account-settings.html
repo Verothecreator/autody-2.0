@@ -91,30 +91,26 @@
             <div class="card-heading">
               <div>
                 <span class="muted-label">Account</span>
-                <h2>Account center</h2>
-                <p class="card-intro">Manage the personal profile, identity review, live balance, and the account areas you use most.</p>
+                <h2>Account settings</h2>
+                <p class="card-intro">Open the core account tools that shape your profile, access, alerts, and support experience.</p>
               </div>
             </div>
             <div class="settings-list">
               <div class="settings-item">
-                <span>Current workspace</span>
-                <strong>Live account</strong>
-              </div>
-              <div class="settings-item">
-                <span>Available balance</span>
-                <strong data-live-balance>$0.00 USD</strong>
-              </div>
-              <div class="settings-item">
-                <span>Profile information</span>
+                <span><strong>Profile information</strong><small>Review your name, contact details, country, and identity status.</small></span>
                 <a href="account-profile.html" class="settings-inline-link">Open Profile</a>
               </div>
               <div class="settings-item">
-                <span>Identity verification</span>
-                <a href="account-profile.html#identity" class="settings-inline-link">Verify Identity</a>
+                <span><strong>Password and sign-in</strong><small>Change your password, set up an authenticator app, or manage remembered devices.</small></span>
+                <button class="settings-inline-button" type="button" data-settings-jump="privacy">Open Security</button>
               </div>
               <div class="settings-item">
-                <span>Funding and wallet</span>
-                <a href="account-wallet.html" class="settings-inline-link">Open Wallet</a>
+                <span><strong>Notifications</strong><small>Control website alerts now and app alerts when the mobile app arrives.</small></span>
+                <button class="settings-inline-button" type="button" data-settings-jump="notifications">Open Alerts</button>
+              </div>
+              <div class="settings-item">
+                <span><strong>Support</strong><small>Send account questions, deposit issues, security concerns, or platform feedback.</small></span>
+                <button class="settings-inline-button" type="button" data-settings-jump="support">Open Support</button>
               </div>
             </div>
           </article>
@@ -124,10 +120,11 @@
               <div>
                 <span class="muted-label">Notifications</span>
                 <h2>Alerts and updates</h2>
-                <p class="card-intro">Choose which account, market, and research updates should reach you. The switches save your preference now; delivery channels connect as the notification service grows.</p>
+                <p class="card-intro">Choose which alerts should reach you on the website. When the app is ready, these same choices can guide app notifications too.</p>
               </div>
             </div>
             <div class="settings-list settings-switch-list">
+              <div class="settings-item"><span><strong>Website notifications</strong><small>Allow browser alerts while you use Autody on this device.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-browser-notifications id="settings-browser-notifications"><span></span></button></div>
               <div class="settings-item"><span><strong>Order confirmations</strong><small>Filled buys, sells, swaps, and failed orders.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-order-confirmation"><span></span></button></div>
               <div class="settings-item"><span><strong>Market alerts</strong><small>Important watchlist and market movement updates.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-market-alerts"><span></span></button></div>
               <div class="settings-item"><span><strong>News alerts</strong><small>Finance, business, and crypto stories worth checking.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-news-alerts"><span></span></button></div>
@@ -159,10 +156,59 @@
                 <p class="card-intro">Control password changes, sign-in verification, and browsers that are remembered for faster access.</p>
               </div>
             </div>
-            <div class="settings-list">
-              <div class="settings-item"><span><strong>Change Password</strong><small>Confirm your current password and email code before changing it.</small></span><button class="settings-inline-button" type="button" data-settings-modal="password">Change</button></div>
-              <div class="settings-item"><span><strong>Authenticator app</strong><small>Prepare Google Authenticator, Microsoft Authenticator, 2FAS, or Authy.</small></span><button class="settings-inline-button" type="button" data-settings-modal="authenticator">Set Up</button></div>
-              <div class="settings-item"><span><strong>Remembered devices</strong><small>Remove browsers and phones that should ask for a code again.</small></span><button class="settings-inline-button" type="button" data-settings-modal="devices">Manage</button></div>
+            <div class="settings-security-workspace">
+              <div class="settings-security-view active" data-security-view="menu">
+                <div class="settings-list">
+                  <div class="settings-item"><span><strong>Change Password</strong><small>Use an email code and your current password before saving a new password.</small></span><button class="settings-inline-button" type="button" data-security-action="password">Change</button></div>
+                  <div class="settings-item"><span><strong>Authenticator app</strong><small>Use Google Authenticator, Microsoft Authenticator, 2FAS, or Authy for sign-in codes.</small></span><button class="settings-inline-button" type="button" data-security-action="authenticator">Set Up</button></div>
+                  <div class="settings-item"><span><strong>Remembered devices</strong><small>Remove browsers and phones that should ask for a code again.</small></span><button class="settings-inline-button" type="button" data-security-action="devices">Manage</button></div>
+                </div>
+              </div>
+
+              <div class="settings-security-view" data-security-view="password" hidden>
+                <button class="settings-back-button" type="button" data-security-action="menu">Back to security</button>
+                <h3>Change Password</h3>
+                <p class="card-intro">Send a code to your verified email, then enter that code with your current and new password.</p>
+                <form class="settings-security-form" id="settings-password-form">
+                  <button class="btn" type="button" id="settings-send-password-code">Send Email Code</button>
+                  <label><span>Email code</span><input type="text" id="settings-password-code" inputmode="numeric" maxlength="6" placeholder="000000" /></label>
+                  <label><span>Current password</span><input type="password" id="settings-current-password" autocomplete="current-password" /></label>
+                  <label><span>New password</span><input type="password" id="settings-new-password" autocomplete="new-password" /></label>
+                  <label><span>Confirm new password</span><input type="password" id="settings-confirm-password" autocomplete="new-password" /></label>
+                  <button class="btn" type="submit">Update Password</button>
+                </form>
+              </div>
+
+              <div class="settings-security-view" data-security-view="authenticator" hidden>
+                <button class="settings-back-button" type="button" data-security-action="menu">Back to security</button>
+                <h3>Authenticator App</h3>
+                <p class="card-intro">Confirm your password first. Then scan the QR code or copy the setup key into Google Authenticator, Microsoft Authenticator, 2FAS, or Authy.</p>
+                <form class="settings-security-form" id="settings-authenticator-form">
+                  <label><span>Current password</span><input type="password" id="settings-auth-password" autocomplete="current-password" /></label>
+                  <button class="btn" type="button" id="settings-start-authenticator">Continue</button>
+                </form>
+                <div class="settings-auth-setup" id="settings-auth-setup" hidden>
+                  <div class="settings-qr-preview" id="settings-auth-qr">QR</div>
+                  <div>
+                    <span class="muted-label">Manual setup key</span>
+                    <strong id="settings-auth-key">Generate a QR code first</strong>
+                    <p>Scan the QR code or copy the key into your authenticator app. Enter the 6-digit app code to finish setup.</p>
+                  </div>
+                </div>
+                <form class="settings-security-form" id="settings-authenticator-confirm" hidden>
+                  <label><span>Authenticator code</span><input type="text" id="settings-auth-code" inputmode="numeric" maxlength="6" placeholder="000000" /></label>
+                  <button class="btn" type="submit">Enable Authenticator</button>
+                </form>
+              </div>
+
+              <div class="settings-security-view" data-security-view="devices" hidden>
+                <button class="settings-back-button" type="button" data-security-action="menu">Back to security</button>
+                <h3>Remembered Devices</h3>
+                <p class="card-intro">Remove any browser or phone that should ask for an email or authenticator code again.</p>
+                <div class="settings-device-list" id="settings-device-list">
+                  <div class="settings-empty-state">Loading remembered devices...</div>
+                </div>
+              </div>
             </div>
           </article>
 
@@ -171,16 +217,13 @@
               <div>
                 <span class="muted-label">Help and Support</span>
                 <h2>Submit a ticket</h2>
-                <p class="card-intro">Share the issue, question, or account experience you want Autody to review. Add the page name, what happened, and what you need help with.</p>
+                <p class="card-intro">Tell Autody what you are experiencing, what you were trying to do, and the help you need with your account.</p>
               </div>
             </div>
-            <div class="settings-help-grid">
-              <div><strong>Using the platform</strong><span>Ask about wallet balances, markets, orders, watchlist, research, or deposits.</span></div>
-              <div><strong>Account help</strong><span>Use tickets for sign-in trouble, identity review, profile errors, or suspicious activity.</span></div>
-            </div>
             <form class="settings-ticket-form" id="settings-ticket-form">
-              <label class="settings-ticket-message"><span>Topic</span><input id="settings-ticket-topic" type="text" placeholder="Example: Deposit not showing in wallet" /></label>
-              <label class="settings-ticket-message"><span>Message</span><textarea id="settings-ticket-message" rows="5" placeholder="Describe the issue clearly"></textarea></label>
+              <label><span>Issue type</span><select id="settings-ticket-type"><option>Account access</option><option>Wallet or deposits</option><option>Trading or orders</option><option>Watchlist or research</option><option>Identity verification</option><option>Security concern</option><option>Other</option></select></label>
+              <label><span>Topic</span><input id="settings-ticket-topic" type="text" placeholder="Example: Deposit not showing" /></label>
+              <label class="settings-ticket-message"><span>Message</span><textarea id="settings-ticket-message" rows="5" placeholder="Explain what happened and what you need help with."></textarea></label>
               <button class="btn" type="submit">Submit Ticket</button>
             </form>
           </article>
@@ -204,57 +247,6 @@
         </div>
       </section>
     </main>
-  </div>
-  <div class="settings-modal" data-settings-dialog="password" hidden>
-    <div class="settings-modal-panel" role="dialog" aria-modal="true" aria-labelledby="password-settings-title">
-      <button class="settings-modal-close" type="button" data-settings-close aria-label="Close">x</button>
-      <p class="eyebrow">Security</p>
-      <h2 id="password-settings-title">Change Password</h2>
-      <p class="card-intro">Enter your current password first. Autody will send an email code before the new password can be saved.</p>
-      <form class="settings-security-form" id="settings-password-form">
-        <label><span>Current password</span><input type="password" id="settings-current-password" autocomplete="current-password" /></label>
-        <button class="btn" type="button" id="settings-send-password-code">Send Email Code</button>
-        <label><span>Email code</span><input type="text" id="settings-password-code" inputmode="numeric" maxlength="6" placeholder="000000" /></label>
-        <label><span>New password</span><input type="password" id="settings-new-password" autocomplete="new-password" /></label>
-        <label><span>Confirm new password</span><input type="password" id="settings-confirm-password" autocomplete="new-password" /></label>
-        <button class="btn" type="submit">Update Password</button>
-      </form>
-    </div>
-  </div>
-  <div class="settings-modal" data-settings-dialog="authenticator" hidden>
-    <div class="settings-modal-panel" role="dialog" aria-modal="true" aria-labelledby="authenticator-settings-title">
-      <button class="settings-modal-close" type="button" data-settings-close aria-label="Close">x</button>
-      <p class="eyebrow">Authenticator App</p>
-      <h2 id="authenticator-settings-title">Set Up Authenticator</h2>
-      <p class="card-intro">Use Google Authenticator, Microsoft Authenticator, 2FAS, or Authy. After setup, sign-in can use either email code or authenticator code.</p>
-      <form class="settings-security-form" id="settings-authenticator-form">
-        <label><span>Current password</span><input type="password" id="settings-auth-password" autocomplete="current-password" /></label>
-        <button class="btn" type="button" id="settings-start-authenticator">Generate QR Code</button>
-      </form>
-      <div class="settings-auth-setup" id="settings-auth-setup" hidden>
-        <div class="settings-qr-preview" id="settings-auth-qr">QR</div>
-        <div>
-          <span class="muted-label">Manual setup key</span>
-          <strong id="settings-auth-key">AUTODY-SETUP-PENDING</strong>
-          <p>Scan the QR code or copy this key into your authenticator app, then enter the 6-digit app code to enable it.</p>
-        </div>
-      </div>
-      <form class="settings-security-form" id="settings-authenticator-confirm" hidden>
-        <label><span>Authenticator code</span><input type="text" id="settings-auth-code" inputmode="numeric" maxlength="6" placeholder="000000" /></label>
-        <button class="btn" type="submit">Enable Authenticator</button>
-      </form>
-    </div>
-  </div>
-  <div class="settings-modal" data-settings-dialog="devices" hidden>
-    <div class="settings-modal-panel" role="dialog" aria-modal="true" aria-labelledby="devices-settings-title">
-      <button class="settings-modal-close" type="button" data-settings-close aria-label="Close">x</button>
-      <p class="eyebrow">Trusted Access</p>
-      <h2 id="devices-settings-title">Remembered Devices</h2>
-      <p class="card-intro">Remove any browser or phone that should stop opening this account without an email code.</p>
-      <div class="settings-device-list" id="settings-device-list">
-        <div class="settings-empty-state">Loading remembered devices...</div>
-      </div>
-    </div>
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>

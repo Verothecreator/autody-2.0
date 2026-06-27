@@ -58,6 +58,29 @@ function setSettingsToggle(id, value) {
   node.setAttribute("aria-checked", enabled ? "true" : "false");
 }
 
+function setRawSwitch(node, enabled) {
+  if (!node) return;
+  node.classList.toggle("is-on", Boolean(enabled));
+  node.setAttribute("aria-checked", enabled ? "true" : "false");
+}
+
+function setSecurityView(name = "menu") {
+  const target = name || "menu";
+  document.querySelectorAll("[data-security-view]").forEach((view) => {
+    const active = view.dataset.securityView === target;
+    view.classList.toggle("active", active);
+    view.hidden = !active;
+  });
+  if (target === "devices") loadRememberedDevices();
+  if (target === "authenticator") loadAuthenticatorStatus();
+}
+
+function setBrowserNotificationState(value) {
+  const toggle = document.getElementById("settings-browser-notifications");
+  setRawSwitch(toggle, value);
+  saveSettingsPref("settings-browser-notifications", value);
+}
+
 function showSettingsNotice(message, tone = "info") {
   const notice = document.getElementById("settings-notice");
   if (!notice) return;
@@ -158,6 +181,7 @@ async function loadSettingsPage() {
     setSettingsToggle("settings-withdrawal-alerts", settings.withdrawalAlerts);
     setSettingsToggle("settings-price-alerts", settings.priceAlerts);
     setSettingsToggle("settings-research-brief", settings.researchBrief);
+    setBrowserNotificationState(storedSettingsPrefs()["settings-browser-notifications"] || ("Notification" in window && Notification.permission === "granted"));
 
     if (isLiveSettings) {
       document.querySelectorAll("[data-live-balance]").forEach((node) => {
@@ -177,6 +201,13 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const jumpButton = event.target.closest("[data-settings-jump]");
+  if (jumpButton) {
+    setActiveSettingsSection(jumpButton.dataset.settingsJump);
+    if (jumpButton.dataset.settingsJump === "privacy") setSecurityView("menu");
+    return;
+  }
+
   const toggle = event.target.closest("[data-settings-toggle]");
   if (toggle) {
     const enabled = !toggle.classList.contains("is-on");
@@ -184,8 +215,29 @@ document.addEventListener("click", (event) => {
     toggle.setAttribute("aria-checked", enabled ? "true" : "false");
     saveSettingsPref(toggle.id, enabled);
     syncSettingsPref(toggle.id, enabled)
-      .then(() => showSettingsNotice("Preference saved. Delivery channels will use this when notification sending is connected.", "success"))
+      .then(() => showSettingsNotice("Notification preference saved.", "success"))
       .catch(() => showSettingsNotice("Preference saved on this device. Account sync will retry when the connection is available.", "error"));
+    return;
+  }
+
+  const browserToggle = event.target.closest("[data-browser-notifications]");
+  if (browserToggle) {
+    const enabled = !browserToggle.classList.contains("is-on");
+    if (enabled && !("Notification" in window)) {
+      setBrowserNotificationState(false);
+      showSettingsNotice("This browser does not support website notifications.", "error");
+      return;
+    }
+    if (enabled && Notification.permission !== "granted") {
+      Notification.requestPermission().then((permission) => {
+        const allowed = permission === "granted";
+        setBrowserNotificationState(allowed);
+        showSettingsNotice(allowed ? "Website notifications are enabled on this device." : "Browser notifications are blocked. Enable them in your browser settings to receive website alerts.", allowed ? "success" : "error");
+      });
+      return;
+    }
+    setBrowserNotificationState(enabled);
+    showSettingsNotice(enabled ? "Website notifications are enabled on this device." : "Website notifications are off on this device.", "success");
     return;
   }
 
@@ -199,21 +251,9 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  const modalButton = event.target.closest("[data-settings-modal]");
-  if (modalButton) {
-    openSettingsModal(modalButton.dataset.settingsModal);
-    return;
-  }
-
-  const closeButton = event.target.closest("[data-settings-close]");
-  if (closeButton) {
-    closeSettingsModals();
-    return;
-  }
-
-  const modalBackdrop = event.target.closest(".settings-modal");
-  if (modalBackdrop && event.target === modalBackdrop) {
-    closeSettingsModals();
+  const securityButton = event.target.closest("[data-security-action]");
+  if (securityButton) {
+    setSecurityView(securityButton.dataset.securityAction || "menu");
     return;
   }
 
@@ -222,10 +262,6 @@ document.addEventListener("click", (event) => {
     removeRememberedDevice(deleteDevice.dataset.deleteDevice);
     return;
   }
-
-  const messageButton = event.target.closest("[data-settings-message]");
-  if (!messageButton) return;
-  showSettingsNotice(messageButton.dataset.settingsMessage || "This setting is being prepared.");
 });
 
 document.getElementById("settings-search")?.addEventListener("input", (event) => {
@@ -237,8 +273,10 @@ document.addEventListener("submit", async (event) => {
   if (!form) return;
   event.preventDefault();
   const message = document.getElementById("settings-ticket-message")?.value?.trim();
+  const topic = document.getElementById("settings-ticket-topic")?.value?.trim();
+  const category = document.getElementById("settings-ticket-type")?.value?.trim();
   if (!message) {
-    showSettingsNotice("Type the issue before submitting the ticket.", "error");
+    showSettingsNotice("Write your message before submitting the ticket.", "error");
     return;
   }
 
@@ -258,7 +296,8 @@ document.addEventListener("submit", async (event) => {
       },
       body: JSON.stringify({
         mode: isLiveSettings ? "live" : "demo",
-        category: document.getElementById("settings-ticket-topic")?.value?.trim() || "Support request",
+        category: category || "Support request",
+        topic: topic || "Support request",
         priority: "Normal",
         message
       })
@@ -277,21 +316,6 @@ document.addEventListener("submit", async (event) => {
   }
 });
 
-function openSettingsModal(name) {
-  closeSettingsModals();
-  const dialog = document.querySelector(`[data-settings-dialog="${name}"]`);
-  if (!dialog) return;
-  dialog.hidden = false;
-  if (name === "devices") loadRememberedDevices();
-  if (name === "authenticator") loadAuthenticatorStatus();
-}
-
-function closeSettingsModals() {
-  document.querySelectorAll("[data-settings-dialog]").forEach((dialog) => {
-    dialog.hidden = true;
-  });
-}
-
 async function loadRememberedDevices() {
   const list = document.getElementById("settings-device-list");
   if (!list) return;
@@ -305,7 +329,7 @@ async function loadRememberedDevices() {
     }
     list.innerHTML = devices.map((device, index) => `
       <div class="settings-device-row">
-        <span><strong>${escapeSettingsHtml(device.label || `Remembered device ${index + 1}`)}</strong><small>Saved ${device.createdAt ? escapeSettingsHtml(new Date(device.createdAt).toLocaleString()) : "recently"}${device.expiresAt ? ` · Expires ${escapeSettingsHtml(new Date(device.expiresAt).toLocaleDateString())}` : ""}</small></span>
+        <span><strong>${escapeSettingsHtml(device.label || `Remembered device ${index + 1}`)}</strong><small>Saved ${device.createdAt ? escapeSettingsHtml(new Date(device.createdAt).toLocaleString()) : "recently"}${device.expiresAt ? ` - Expires ${escapeSettingsHtml(new Date(device.expiresAt).toLocaleDateString())}` : ""}</small></span>
         <button class="settings-delete-device" type="button" data-delete-device="${escapeSettingsHtml(device.id)}" aria-label="Remove remembered device">x</button>
       </div>
     `).join("");
@@ -337,23 +361,18 @@ async function loadAuthenticatorStatus() {
   if (qrNode) qrNode.textContent = "QR";
   try {
     const data = await settingsApi("/api/account/security/authenticator");
-    if (startButton) startButton.textContent = data.enabled ? "Generate New QR Code" : "Generate QR Code";
+    if (startButton) startButton.textContent = "Continue";
     if (data.enabled) showSettingsNotice("Authenticator is already enabled for this account.", "success");
   } catch (err) {
-    if (startButton) startButton.textContent = "Generate QR Code";
+    if (startButton) startButton.textContent = "Continue";
   }
 }
 
 document.getElementById("settings-send-password-code")?.addEventListener("click", async () => {
-  const currentPassword = document.getElementById("settings-current-password")?.value || "";
-  if (!currentPassword) {
-    showSettingsNotice("Enter your current password first.", "error");
-    return;
-  }
   try {
     await settingsApi("/api/account/security/password/request", {
       method: "POST",
-      body: JSON.stringify({ currentPassword })
+      body: JSON.stringify({})
     });
     showSettingsNotice("Password change code sent to your email.", "success");
   } catch (err) {
@@ -381,7 +400,7 @@ document.getElementById("settings-password-form")?.addEventListener("submit", as
       body: JSON.stringify({ currentPassword, code, newPassword })
     });
     event.target.reset();
-    closeSettingsModals();
+    setSecurityView("menu");
     showSettingsNotice("Password changed successfully.", "success");
   } catch (err) {
     showSettingsNotice(err.message || "Could not change password.", "error");
@@ -428,7 +447,7 @@ document.getElementById("settings-start-authenticator")?.addEventListener("click
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = "Generate QR Code";
+      button.textContent = "Continue";
     }
   }
 });
@@ -448,7 +467,7 @@ document.getElementById("settings-authenticator-confirm")?.addEventListener("sub
     });
     event.target.reset();
     document.getElementById("settings-authenticator-form")?.reset();
-    closeSettingsModals();
+    setSecurityView("menu");
     showSettingsNotice("Authenticator app enabled.", "success");
   } catch (err) {
     showSettingsNotice(err.message || "Could not enable authenticator.", "error");
@@ -456,5 +475,6 @@ document.getElementById("settings-authenticator-confirm")?.addEventListener("sub
 });
 
 setActiveSettingsSection("account");
+setSecurityView("menu");
 applySettingsTheme();
 loadSettingsPage();

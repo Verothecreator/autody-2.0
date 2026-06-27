@@ -12,6 +12,7 @@
     "bip32": "^5.0.1",
     "bip39": "^3.1.0",
     "bitcoinjs-lib": "^7.0.1",
+    "body-parser": "1.20.5",
     "cashaddrjs": "^0.4.4",
     "dotenv": "^16.4.5",
     "ed25519-hd-key": "^2.0.0",

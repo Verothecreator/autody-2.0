@@ -6941,44 +6941,61 @@ async function ensureSupportTicketTables(client = dbPool) {
           profile_id uuid references profiles(id) on delete set null,
           account_mode text not null default 'live',
           category text not null,
+          topic text not null default '',
+          contact_name text not null default '',
+          contact_email text not null default '',
           priority text not null default 'normal',
           message text not null,
           status text not null default 'open',
           created_at timestamptz not null default now()
         );
 
+        alter table if exists support_tickets
+          add column if not exists topic text not null default '',
+          add column if not exists contact_name text not null default '',
+          add column if not exists contact_email text not null default '';
+
         create index if not exists support_tickets_profile_idx
           on support_tickets (profile_id, created_at desc);
     `);
 }
 
-async function createSupportTicket(auth, body = {}) {
+async function createSupportTicket(auth = {}, body = {}) {
     const category = normalizeText(body.category || body.type || "Other").slice(0, 80) || "Other";
     const priority = normalizeText(body.priority || "Normal").slice(0, 40) || "Normal";
+    const topic = normalizeText(body.topic || body.subject || "").slice(0, 160);
+    const contactName = normalizeText(body.name || body.contactName || "").slice(0, 120);
+    const contactEmail = normalizeEmail(body.email || body.contactEmail || auth.user?.email || "");
     const message = normalizeText(body.message).slice(0, 4000);
-    const accountMode = normalizeWatchlistMode(body.mode || body.accountMode || (String(body.live).toLowerCase() === "true" ? "live" : "demo"));
+    const requestedMode = String(body.mode || body.accountMode || "").trim().toLowerCase();
+    const accountMode = requestedMode === "public"
+        ? "public"
+        : normalizeWatchlistMode(body.mode || body.accountMode || (String(body.live).toLowerCase() === "true" ? "live" : "demo"));
     if (!message || message.length < 6) throw demoTradeError(400, "Write a short message before submitting a ticket.");
+    if (!auth.profileId && !contactEmail) throw demoTradeError(400, "Enter an email address so Autody can respond.");
 
     const ticket = {
         id: crypto.randomUUID(),
         profileId: auth.profileId || auth.userId || null,
-        email: auth.user?.email || "",
+        email: contactEmail,
+        name: contactName,
         accountMode,
         category,
+        topic,
         priority,
         message,
         status: "open",
         createdAt: new Date().toISOString()
     };
 
-    if (databaseConfigured() && auth.source === "supabase") {
+    if (databaseConfigured()) {
         await ensureSupportTicketTables();
         await dbPool.query(`
             insert into support_tickets (
-                id, profile_id, account_mode, category, priority, message, status, created_at
+                id, profile_id, account_mode, category, topic, contact_name, contact_email, priority, message, status, created_at
             )
-            values ($1, $2, $3, $4, $5, $6, 'open', now())
-        `, [ticket.id, auth.profileId, accountMode, category, priority, message]);
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open', now())
+        `, [ticket.id, auth.profileId || null, accountMode, category, topic, contactName, contactEmail, priority, message]);
         return ticket;
     }
 
@@ -12371,6 +12388,20 @@ app.post("/api/support/tickets", async (req, res) => {
   }
 });
 
+app.post("/api/public/support/tickets", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const ticket = await createSupportTicket({ source: "public", profileId: null, userId: null, user: null }, body);
+    return res.json({
+      success: true,
+      ticket
+    });
+  } catch (err) {
+    console.error("Public support ticket error:", err);
+    return sendDemoError(res, err, "Support ticket could not be submitted");
+  }
+});
+
 app.get("/api/account/security/devices", async (req, res) => {
   try {
     const auth = await authenticatedAccountContext(req);
@@ -12401,13 +12432,7 @@ app.delete("/api/account/security/devices/:deviceId", async (req, res) => {
 
 app.post("/api/account/security/password/request", async (req, res) => {
   try {
-    const body = parseJsonBody(req);
     const auth = await authenticatedAccountContext(req);
-    const currentPassword = String(body.currentPassword || "");
-    if (!currentPassword) return res.status(400).json({ success: false, error: "Current password is required." });
-    if (!await verifyAccountPassword(auth, currentPassword)) {
-      return res.status(403).json({ success: false, error: "Current password is incorrect." });
-    }
 
     const email = auth.user?.email;
     const codeRecord = auth.source === "supabase"
