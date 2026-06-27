@@ -868,6 +868,47 @@ async function sendLoginCodeEmail(email, code) {
     return { delivered: true, provider: "resend" };
 }
 
+async function sendPasswordChangeCodeEmail(email, code) {
+    const subject = "Confirm your Autody password change";
+    const text = `Your Autody password change code is ${code}.\n\nThis code expires in 5 minutes. If you did not request a password change, sign in and contact Autody support.`;
+    const html = `
+        <div style="margin:0;padding:24px;background:#ffffff;font-family:Arial,sans-serif;color:#111827">
+          <div style="max-width:560px;margin:0 auto">
+            <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody account security</div>
+            <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2;color:#111827">Confirm your password change</h1>
+            <p style="margin:0 0 20px;color:#374151;font-size:16px;line-height:1.55">Use this one-time code to finish changing your Autody password.</p>
+            <div style="margin:20px 0;padding:20px;border-radius:12px;background:#f4f6ff;text-align:center;border:1px solid #d7ddf3">
+              <div style="font-size:40px;line-height:1;letter-spacing:8px;font-weight:900;color:#111827">${code}</div>
+            </div>
+            <p style="margin:0;color:#374151;font-size:14px;line-height:1.55">This code expires in <strong style="color:#111827">5 minutes</strong>. If this was not you, contact Autody support immediately.</p>
+          </div>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody password change code for", email, code);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: EMAIL_FROM,
+            to: email,
+            subject,
+            html,
+            text
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Password code delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
 function kycRejectionReasonLabel(value = "") {
     const labels = {
         invalid_document: "Invalid document",
@@ -6506,6 +6547,99 @@ async function verifyDatabaseTrustedDevice(profileId, token) {
     return Boolean(result.rows[0]);
 }
 
+function publicTrustedDevice(device = {}, index = 0) {
+    return {
+        id: device.id,
+        label: device.label || `Remembered device ${index + 1}`,
+        createdAt: device.created_at || device.createdAt || "",
+        expiresAt: device.expires_at || device.expiresAt || ""
+    };
+}
+
+async function listTrustedDevicesForAccount(auth) {
+    if (auth.source === "supabase" && databaseConfigured()) {
+        await ensureSignUpTables();
+        await dbPool.query(`delete from trusted_devices where expires_at <= now()`);
+        const result = await dbPool.query(`
+            select id, created_at, expires_at
+            from trusted_devices
+            where profile_id = $1
+            order by created_at desc
+        `, [auth.profileId]);
+        return result.rows.map(publicTrustedDevice);
+    }
+
+    const db = loadDemoDb();
+    const now = Date.now();
+    const devices = (db.trustedDevices || []).filter((device) => {
+        return device.userId === auth.userId && Date.parse(device.expiresAt || "") > now;
+    });
+    return devices.map(publicTrustedDevice);
+}
+
+async function deleteTrustedDeviceForAccount(auth, deviceId) {
+    if (auth.source === "supabase" && databaseConfigured()) {
+        await ensureSignUpTables();
+        const result = await dbPool.query(`
+            delete from trusted_devices
+            where id = $1 and profile_id = $2
+        `, [deviceId, auth.profileId]);
+        return result.rowCount > 0;
+    }
+
+    const db = loadDemoDb();
+    const before = (db.trustedDevices || []).length;
+    db.trustedDevices = (db.trustedDevices || []).filter((device) => !(device.id === deviceId && device.userId === auth.userId));
+    if (db.trustedDevices.length !== before) saveDemoDb(db);
+    return db.trustedDevices.length !== before;
+}
+
+async function verifyAccountPassword(auth, password) {
+    if (auth.source === "supabase" && databaseConfigured()) {
+        const result = await dbPool.query(`
+            select password_salt, password_hash
+            from profile_credentials
+            where profile_id = $1
+            limit 1
+        `, [auth.profileId]);
+        const row = result.rows[0];
+        return verifyPassword(password, {
+            passwordSalt: row?.password_salt,
+            passwordHash: row?.password_hash
+        });
+    }
+
+    const db = loadDemoDb();
+    const user = (db.users || []).find((item) => item.id === auth.userId);
+    return Boolean(user && verifyPassword(password, user.auth));
+}
+
+async function updateAccountPassword(auth, password) {
+    const salt = crypto.randomBytes(16).toString("hex");
+    const passwordHash = hashPassword(password, salt);
+
+    if (auth.source === "supabase" && databaseConfigured()) {
+        await dbPool.query(`
+            update profile_credentials
+            set password_salt = $2,
+                password_hash = $3
+            where profile_id = $1
+        `, [auth.profileId, salt, passwordHash]);
+        return true;
+    }
+
+    const db = loadDemoDb();
+    const user = (db.users || []).find((item) => item.id === auth.userId);
+    if (!user) return false;
+    user.auth = {
+        ...(user.auth || {}),
+        passwordSalt: salt,
+        passwordHash
+    };
+    saveDemoDb(db);
+    return true;
+}
+
 async function databaseProfileFromSessionToken(token) {
     if (!databaseConfigured() || !token) return null;
     const result = await dbPool.query(`
@@ -11958,6 +12092,104 @@ app.post("/api/support/tickets", async (req, res) => {
   } catch (err) {
     console.error("Support ticket error:", err);
     return sendDemoError(res, err, "Support ticket could not be submitted");
+  }
+});
+
+app.get("/api/account/security/devices", async (req, res) => {
+  try {
+    const auth = await authenticatedAccountContext(req);
+    const devices = await listTrustedDevicesForAccount(auth);
+    return res.json({
+      success: true,
+      devices
+    });
+  } catch (err) {
+    console.error("Remembered devices API error:", err);
+    return sendDemoError(res, err, "Remembered devices unavailable");
+  }
+});
+
+app.delete("/api/account/security/devices/:deviceId", async (req, res) => {
+  try {
+    const auth = await authenticatedAccountContext(req);
+    const removed = await deleteTrustedDeviceForAccount(auth, normalizeText(req.params.deviceId));
+    return res.json({
+      success: true,
+      removed
+    });
+  } catch (err) {
+    console.error("Remembered device delete error:", err);
+    return sendDemoError(res, err, "Remembered device could not be removed");
+  }
+});
+
+app.post("/api/account/security/password/request", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const currentPassword = String(body.currentPassword || "");
+    if (!currentPassword) return res.status(400).json({ success: false, error: "Current password is required." });
+    if (!await verifyAccountPassword(auth, currentPassword)) {
+      return res.status(403).json({ success: false, error: "Current password is incorrect." });
+    }
+
+    const email = auth.user?.email;
+    const codeRecord = auth.source === "supabase"
+      ? await createDatabaseVerificationCode(email, "email", "password_change", {
+          codeMode: "numeric",
+          ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+        })
+      : createJsonVerificationCode(email, "email", "password_change", {
+          codeMode: "numeric",
+          ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+        });
+    if (!codeRecord?.code) throw signUpError(500, "Could not create a password change code.");
+
+    const delivery = await sendPasswordChangeCodeEmail(email, codeRecord.code).catch((err) => {
+      console.error("Password change code delivery failed:", err.message || err);
+      throw signUpError(502, "Could not send the password change code. Try again.");
+    });
+    return res.json({
+      success: true,
+      delivery: delivery.delivered ? "Password change code sent." : "Password change code created. Email delivery provider is not fully connected yet."
+    });
+  } catch (err) {
+    console.error("Password code request error:", err);
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not start password change." });
+  }
+});
+
+app.post("/api/account/security/password/confirm", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const currentPassword = String(body.currentPassword || "");
+    const code = normalizeText(body.code).replace(/\s+/g, "");
+    const newPassword = String(body.newPassword || "");
+    const passwordMessage = passwordValidationMessage(newPassword);
+    if (!currentPassword || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ success: false, error: "Enter your current password and the 6-digit email code." });
+    }
+    if (passwordMessage) return res.status(400).json({ success: false, error: passwordMessage });
+    if (!await verifyAccountPassword(auth, currentPassword)) {
+      return res.status(403).json({ success: false, error: "Current password is incorrect." });
+    }
+
+    const email = auth.user?.email;
+    const verified = auth.source === "supabase"
+      ? await verifyDatabaseCode(email, "email", code, "password_change", { markProfileVerified: false }).catch(() => null)
+      : verifyJsonCode(email, "email", code, "password_change", { markProfileVerified: false });
+    if (!verified?.success) {
+      return res.status(400).json({ success: false, error: verified?.error || "Password change code is invalid." });
+    }
+
+    await updateAccountPassword(auth, newPassword);
+    return res.json({
+      success: true
+    });
+  } catch (err) {
+    console.error("Password change confirm error:", err);
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not change password." });
   }
 });
 

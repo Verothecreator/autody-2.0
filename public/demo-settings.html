@@ -91,15 +91,16 @@
             <div class="card-heading">
               <div>
                 <span class="muted-label">Account</span>
-                <h2>Account workspace</h2>
-                <p class="card-intro">See the current account area and jump into profile details when you need to review personal information.</p>
+                <h2>Account center</h2>
+                <p class="card-intro">Manage the practice profile, demo balance, and the account areas you use most while testing trades.</p>
               </div>
             </div>
             <div class="settings-list">
-              <div><span>Current workspace</span><strong>Demo account</strong></div>
-              <div><span>Practice balance</span><strong>$50,000 USD</strong></div>
-              <div><span>Profile information</span><a href="demo-profile.html" class="settings-inline-link">Open Profile</a></div>
-              <div><span>Live workspace</span><a href="account.html" class="settings-inline-link">Open Live Account</a></div>
+              <div class="settings-item"><span>Current workspace</span><strong>Demo account</strong></div>
+              <div class="settings-item"><span>Practice balance</span><strong>$50,000 USD</strong></div>
+              <div class="settings-item"><span>Profile information</span><a href="demo-profile.html" class="settings-inline-link">Open Profile</a></div>
+              <div class="settings-item"><span>Practice wallet</span><a href="demo-wallet.html" class="settings-inline-link">Open Wallet</a></div>
+              <div class="settings-item"><span>Live workspace</span><a href="account.html" class="settings-inline-link">Open Live Account</a></div>
             </div>
           </article>
 
@@ -108,17 +109,17 @@
               <div>
                 <span class="muted-label">Notifications</span>
                 <h2>Alerts and updates</h2>
-                <p class="card-intro">Choose which account, market, and research updates should reach you when notifications are connected.</p>
+                <p class="card-intro">Choose which account, market, and research updates should reach you. The switches save your preference now; delivery channels connect as the notification service grows.</p>
               </div>
             </div>
-            <div class="settings-list">
-              <div><span>Order confirmations</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-order-confirmation">Off</button></div>
-              <div><span>Market alerts</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-market-alerts">Off</button></div>
-              <div><span>News alerts</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-news-alerts">Off</button></div>
-              <div><span>Deposit updates</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-deposit-alerts">Off</button></div>
-              <div><span>Withdrawal updates</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-withdrawal-alerts">Off</button></div>
-              <div><span>Price movement alerts</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-price-alerts">Off</button></div>
-              <div><span>Research brief</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-research-brief">Off</button></div>
+            <div class="settings-list settings-switch-list">
+              <div class="settings-item"><span><strong>Order confirmations</strong><small>Filled buys, sells, swaps, and failed orders.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-order-confirmation"><span></span></button></div>
+              <div class="settings-item"><span><strong>Market alerts</strong><small>Important watchlist and market movement updates.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-market-alerts"><span></span></button></div>
+              <div class="settings-item"><span><strong>News alerts</strong><small>Finance, business, and crypto stories worth checking.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-news-alerts"><span></span></button></div>
+              <div class="settings-item"><span><strong>Deposit updates</strong><small>Incoming deposit, confirmation, and credit notices.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-deposit-alerts"><span></span></button></div>
+              <div class="settings-item"><span><strong>Withdrawal updates</strong><small>Withdrawal review, approval, rejection, and release notices.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-withdrawal-alerts"><span></span></button></div>
+              <div class="settings-item"><span><strong>Price movement alerts</strong><small>Large moves on assets you hold or follow.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-price-alerts"><span></span></button></div>
+              <div class="settings-item"><span><strong>Research brief</strong><small>Account-aware summaries from the research page.</small></span><button class="settings-switch" type="button" role="switch" aria-checked="false" data-settings-toggle id="settings-research-brief"><span></span></button></div>
             </div>
           </article>
 
@@ -127,13 +128,11 @@
               <div>
                 <span class="muted-label">Appearance</span>
                 <h2>Display</h2>
-                <p class="card-intro">Autody currently uses its default dark purple interface across the account experience.</p>
+                <p class="card-intro">Choose the account theme. Dark is the Autody default; light mode keeps the same structure with a brighter surface.</p>
               </div>
             </div>
-            <div class="settings-list">
-              <div><span>Theme</span><strong>Default dark</strong></div>
-              <div><span>Accent color</span><strong>Autody purple</strong></div>
-              <div><span>Market motion</span><strong>Live feel</strong></div>
+            <div class="settings-list settings-switch-list">
+              <div class="settings-item"><span><strong>Theme</strong><small id="settings-theme-label">Dark mode</small></span><button class="settings-switch is-on" type="button" role="switch" aria-checked="true" data-theme-toggle id="settings-theme-toggle"><span></span></button></div>
             </div>
           </article>
 
@@ -142,13 +141,13 @@
               <div>
                 <span class="muted-label">Privacy & Security</span>
                 <h2>Account protection</h2>
-                <p class="card-intro">Control sign-in protection and trusted-device behavior.</p>
+                <p class="card-intro">Control password changes, sign-in verification, and browsers that are remembered for faster access.</p>
               </div>
             </div>
             <div class="settings-list">
-              <div><span>Password</span><strong>Protected</strong></div>
-              <div><span>Authenticator app</span><button class="settings-inline-button" type="button" data-settings-message="Authenticator app setup is ready for the next security build.">Set Up</button></div>
-              <div><span>Remembered devices</span><button class="settings-inline-button" type="button" data-settings-message="Device management will show trusted browsers and phones here.">Manage</button></div>
+              <div class="settings-item"><span><strong>Change Password</strong><small>Confirm your current password and email code before changing it.</small></span><button class="settings-inline-button" type="button" data-settings-modal="password">Change</button></div>
+              <div class="settings-item"><span><strong>Authenticator app</strong><small>Prepare Google Authenticator, Microsoft Authenticator, 2FAS, or Authy.</small></span><button class="settings-inline-button" type="button" data-settings-modal="authenticator">Set Up</button></div>
+              <div class="settings-item"><span><strong>Remembered devices</strong><small>Remove browsers and phones that should ask for a code again.</small></span><button class="settings-inline-button" type="button" data-settings-modal="devices">Manage</button></div>
             </div>
           </article>
 
@@ -157,12 +156,15 @@
               <div>
                 <span class="muted-label">Help and Support</span>
                 <h2>Submit a ticket</h2>
-                <p class="card-intro">Tell Autody what is wrong, what page it happened on, and what you expected to happen.</p>
+                <p class="card-intro">Share the issue, question, or account experience you want Autody to review. Add the page name, what happened, and what you need help with.</p>
               </div>
             </div>
+            <div class="settings-help-grid">
+              <div><strong>Using the platform</strong><span>Ask about wallet balances, markets, orders, watchlist, research, or demo trades.</span></div>
+              <div><strong>Account help</strong><span>Use tickets for sign-in trouble, identity review, profile errors, or suspicious activity.</span></div>
+            </div>
             <form class="settings-ticket-form" id="settings-ticket-form">
-              <label><span>Issue type</span><select id="settings-ticket-type"><option>Account access</option><option>Deposit or wallet</option><option>Orders and trading</option><option>Identity review</option><option>Market data</option><option>Other</option></select></label>
-              <label><span>Priority</span><select id="settings-ticket-priority"><option>Normal</option><option>High</option><option>Urgent</option></select></label>
+              <label class="settings-ticket-message"><span>Topic</span><input id="settings-ticket-topic" type="text" placeholder="Example: Demo order did not update" /></label>
               <label class="settings-ticket-message"><span>Message</span><textarea id="settings-ticket-message" rows="5" placeholder="Describe the issue clearly"></textarea></label>
               <button class="btn" type="submit">Submit Ticket</button>
             </form>
@@ -173,13 +175,13 @@
               <div>
                 <span class="muted-label">About</span>
                 <h2>Autody</h2>
-                <p class="card-intro">A finance account platform for live markets, demo trading, watchlists, research, and Autody AU utility.</p>
+                <p class="card-intro">Autody is being built as a serious account layer for markets, digital assets, research, and future AU utility.</p>
               </div>
             </div>
-            <div class="settings-list">
-              <div><span>Platform</span><strong>Autody</strong></div>
-              <div><span>Experience</span><strong>Live and demo accounts</strong></div>
-              <div><span>Version</span><strong>Private build</strong></div>
+            <div class="settings-about-copy">
+              <p>Autody exists to bring crypto, stocks, ETFs, commodities, watchlists, account research, and wallet activity into one place so users can understand their money before making a move.</p>
+              <p>The larger vision is not just buying low and selling high. Autody AU is planned as a utility currency inside a broader account system, with future use for exchange, payment, goods, services, and platform activity.</p>
+              <p>The demo account helps users practice the experience before live funding, while the live account grows toward verified deposits, secure ledgers, and production-grade account controls.</p>
             </div>
           </article>
 
@@ -187,6 +189,50 @@
         </div>
       </section>
     </main>
+  </div>
+  <div class="settings-modal" data-settings-dialog="password" hidden>
+    <div class="settings-modal-panel" role="dialog" aria-modal="true" aria-labelledby="password-settings-title">
+      <button class="settings-modal-close" type="button" data-settings-close aria-label="Close">x</button>
+      <p class="eyebrow">Security</p>
+      <h2 id="password-settings-title">Change Password</h2>
+      <p class="card-intro">Enter your current password first. Autody will send an email code before the new password can be saved.</p>
+      <form class="settings-security-form" id="settings-password-form">
+        <label><span>Current password</span><input type="password" id="settings-current-password" autocomplete="current-password" /></label>
+        <button class="btn" type="button" id="settings-send-password-code">Send Email Code</button>
+        <label><span>Email code</span><input type="text" id="settings-password-code" inputmode="numeric" maxlength="6" placeholder="000000" /></label>
+        <label><span>New password</span><input type="password" id="settings-new-password" autocomplete="new-password" /></label>
+        <label><span>Confirm new password</span><input type="password" id="settings-confirm-password" autocomplete="new-password" /></label>
+        <button class="btn" type="submit">Update Password</button>
+      </form>
+    </div>
+  </div>
+  <div class="settings-modal" data-settings-dialog="authenticator" hidden>
+    <div class="settings-modal-panel" role="dialog" aria-modal="true" aria-labelledby="authenticator-settings-title">
+      <button class="settings-modal-close" type="button" data-settings-close aria-label="Close">x</button>
+      <p class="eyebrow">Authenticator App</p>
+      <h2 id="authenticator-settings-title">Set Up Authenticator</h2>
+      <p class="card-intro">Use Google Authenticator, Microsoft Authenticator, 2FAS, or Authy. Once backend verification is connected, sign in can offer email code or authenticator code.</p>
+      <div class="settings-auth-setup">
+        <div class="settings-qr-preview">QR</div>
+        <div>
+          <span class="muted-label">Manual setup key</span>
+          <strong id="settings-auth-key">AUTODY-SETUP-PENDING</strong>
+          <p>Scan the QR code or copy the key into your authenticator app, then enter the generated 6-digit code when activation is connected.</p>
+          <button class="settings-inline-button" type="button" data-settings-message="Authenticator activation needs the next backend security step before it can protect sign-ins.">Prepare Setup</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="settings-modal" data-settings-dialog="devices" hidden>
+    <div class="settings-modal-panel" role="dialog" aria-modal="true" aria-labelledby="devices-settings-title">
+      <button class="settings-modal-close" type="button" data-settings-close aria-label="Close">x</button>
+      <p class="eyebrow">Trusted Access</p>
+      <h2 id="devices-settings-title">Remembered Devices</h2>
+      <p class="card-intro">Remove any browser or phone that should stop opening this account without an email code.</p>
+      <div class="settings-device-list" id="settings-device-list">
+        <div class="settings-empty-state">Loading remembered devices...</div>
+      </div>
+    </div>
   </div>
   <script src="demo-auth.js"></script>
   <script src="demo-sidebar.js"></script>

@@ -2947,7 +2947,8 @@ body.modal-open {
   gap: 10px;
 }
 
-.settings-list div {
+.settings-list > div,
+.settings-item {
   min-height: 54px;
   display: flex;
   align-items: center;
@@ -2963,9 +2964,23 @@ body.modal-open {
   color: var(--muted);
 }
 
+.settings-list span small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
 .settings-list strong {
   color: var(--text);
   text-align: right;
+}
+
+.settings-list span strong {
+  display: block;
+  color: var(--text);
+  text-align: left;
 }
 
 .settings-inline-button,
@@ -2997,6 +3012,43 @@ body.modal-open {
   color: #28da7b;
 }
 
+.settings-switch-list .settings-item {
+  align-items: center;
+}
+
+.settings-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 58px;
+  height: 32px;
+  border: 1px solid rgba(255, 82, 119, 0.38);
+  border-radius: 999px;
+  background: rgba(255, 82, 119, 0.16);
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.settings-switch span {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  transition: transform 0.18s ease;
+}
+
+.settings-switch.is-on {
+  border-color: rgba(40, 218, 123, 0.44);
+  background: linear-gradient(135deg, #5d5fef, #2fdb7d);
+}
+
+.settings-switch.is-on span {
+  transform: translateX(26px);
+}
+
 .settings-support-card {
   grid-column: 1 / -1;
   min-height: 0;
@@ -3015,6 +3067,7 @@ body.modal-open {
   font-weight: 850;
 }
 
+.settings-ticket-form input,
 .settings-ticket-form select,
 .settings-ticket-form textarea {
   width: 100%;
@@ -3029,6 +3082,11 @@ body.modal-open {
 
 .settings-ticket-form select {
   min-height: 52px;
+}
+
+.settings-ticket-form select option {
+  background: #111620;
+  color: #f7f9ff;
 }
 
 .settings-ticket-message {
@@ -3053,6 +3111,246 @@ body.modal-open {
   border-color: rgba(255, 82, 119, 0.35);
   background: rgba(255, 82, 119, 0.12);
   color: #ff9aad;
+}
+
+.settings-help-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.settings-help-grid div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 14px;
+}
+
+.settings-help-grid strong,
+.settings-help-grid span {
+  display: block;
+}
+
+.settings-help-grid span {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.settings-about-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-about-copy p {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 16px;
+  color: var(--muted);
+}
+
+.settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.settings-modal-panel {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background:
+    linear-gradient(140deg, rgba(93, 95, 239, 0.12), rgba(47, 226, 139, 0.08)),
+    #10141c;
+  box-shadow: var(--shadow);
+  padding: 28px;
+}
+
+.settings-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.settings-security-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.settings-security-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.settings-security-form input {
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  padding: 12px 14px;
+  font: inherit;
+  font-weight: 850;
+}
+
+.settings-auth-setup {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  margin-top: 18px;
+}
+
+.settings-qr-preview {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(93, 95, 239, 0.4);
+  border-radius: 10px;
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 8px, rgba(255,255,255,0.02) 8px 16px),
+    rgba(93, 95, 239, 0.16);
+  color: var(--text);
+  font-size: 2.2rem;
+  font-weight: 950;
+}
+
+.settings-auth-setup p {
+  color: var(--muted);
+}
+
+.settings-device-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.settings-device-row,
+.settings-empty-state {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 12px 14px;
+}
+
+.settings-device-row span,
+.settings-empty-state {
+  color: var(--muted);
+}
+
+.settings-delete-device {
+  min-width: 42px;
+  height: 38px;
+  border: 1px solid rgba(255, 82, 119, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 82, 119, 0.12);
+  color: #ff9aad;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+body.account-body.theme-light {
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --surface-2: #eef1ff;
+  --line: rgba(62, 72, 110, 0.18);
+  --text: #111827;
+  --muted: #536179;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(93, 95, 239, 0.15), transparent 34rem),
+    radial-gradient(circle at 92% 8%, rgba(79, 195, 255, 0.14), transparent 28rem),
+    var(--bg);
+}
+
+body.account-body.theme-light .app-sidebar,
+body.account-body.theme-light .app-card,
+body.account-body.theme-light .settings-modal-panel {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
+body.account-body.theme-light .app-sidebar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 243, 255, 0.92));
+}
+
+body.account-body.theme-light .settings-menu-row,
+body.account-body.theme-light .settings-list > div,
+body.account-body.theme-light .settings-help-grid div,
+body.account-body.theme-light .settings-about-copy p,
+body.account-body.theme-light .settings-device-row,
+body.account-body.theme-light .settings-empty-state,
+body.account-body.theme-light .asset-table-row,
+body.account-body.theme-light .wallet-subasset-row,
+body.account-body.theme-light .wallet-detail-list div,
+body.account-body.theme-light .wallet-record-row,
+body.account-body.theme-light .wallet-category-assets a,
+body.account-body.theme-light .wallet-category-assets button,
+body.account-body.theme-light .market-intel-card,
+body.account-body.theme-light .market-asset-card,
+body.account-body.theme-light .market-mover-list a,
+body.account-body.theme-light .asset-activity-list div,
+body.account-body.theme-light .asset-chart-stats div,
+body.account-body.theme-light .asset-detail-list div,
+body.account-body.theme-light .order-preview,
+body.account-body.theme-light .order-row-link,
+body.account-body.theme-light .profile-combined-list div,
+body.account-body.theme-light .profile-info-card {
+  background: rgba(17, 24, 39, 0.035);
+}
+
+body.account-body.theme-light .settings-ticket-form input,
+body.account-body.theme-light .settings-ticket-form textarea,
+body.account-body.theme-light .settings-security-form input,
+body.account-body.theme-light input,
+body.account-body.theme-light select,
+body.account-body.theme-light textarea {
+  background: #ffffff;
+  color: var(--text);
+}
+
+body.account-body.theme-light .app-nav a.active,
+body.account-body.theme-light .settings-menu-row.active,
+body.account-body.theme-light .wallet-holding-row.active,
+body.account-body.theme-light .market-filter-row button.active,
+body.account-body.theme-light .order-side-toggle button.active {
+  background: rgba(93, 95, 239, 0.12);
+}
+
+body.account-body.theme-light .asset-line-chart,
+body.account-body.theme-light .market-search-panel,
+body.account-body.theme-light .market-search-box,
+body.account-body.theme-light .asset-more-menu,
+body.account-body.theme-light .asset-row-menu,
+body.account-body.theme-light .market-card-popover,
+body.account-body.theme-light .live-wallet-modal-panel,
+body.account-body.theme-light .profile-kyc-modal-card {
+  background: #ffffff;
 }
 
 .vision-steps {
@@ -5859,6 +6157,8 @@ body.modal-open {
   .settings-hub-layout,
   .settings-control-grid,
   .settings-ticket-form,
+  .settings-help-grid,
+  .settings-auth-setup,
   .kyc-guidance-grid,
   .kyc-review-form,
   .auth-shell,

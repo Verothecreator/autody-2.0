@@ -1,4 +1,7 @@
 (function guardDemoAccount() {
+  const theme = localStorage.getItem("autodyAccountTheme") || "dark";
+  document.body?.classList?.toggle("theme-light", theme === "light");
+
   const sessionKey = "autodyDemoSession";
   const rawSession = localStorage.getItem(sessionKey);
   let session = null;
