@@ -31,6 +31,33 @@ function showSettingsNotice(message, tone = "info") {
   }, 5200);
 }
 
+function setActiveSettingsSection(section = "account") {
+  const target = section || "account";
+  document.querySelectorAll("[data-settings-section]").forEach((row) => {
+    const active = row.dataset.settingsSection === target;
+    row.classList.toggle("active", active);
+    row.setAttribute("aria-current", active ? "true" : "false");
+  });
+  document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+    const active = panel.dataset.settingsPanel === target;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+}
+
+function filterSettingsRows(query = "") {
+  const needle = query.trim().toLowerCase();
+  let firstVisible = null;
+  document.querySelectorAll("[data-settings-section]").forEach((row) => {
+    const haystack = `${row.textContent || ""} ${row.dataset.settingsSearchText || ""}`.toLowerCase();
+    const visible = !needle || haystack.includes(needle);
+    row.hidden = !visible;
+    if (visible && !firstVisible) firstVisible = row;
+  });
+  const activeRow = document.querySelector("[data-settings-section].active:not([hidden])");
+  if (!activeRow && firstVisible) setActiveSettingsSection(firstVisible.dataset.settingsSection);
+}
+
 async function getSettingsJson(url) {
   const response = await fetch(url, {
     cache: "no-store",
@@ -80,6 +107,12 @@ async function loadSettingsPage() {
 }
 
 document.addEventListener("click", (event) => {
+  const settingsRow = event.target.closest("[data-settings-section]");
+  if (settingsRow) {
+    setActiveSettingsSection(settingsRow.dataset.settingsSection);
+    return;
+  }
+
   const toggle = event.target.closest("[data-settings-toggle]");
   if (toggle) {
     const enabled = !toggle.classList.contains("is-on");
@@ -92,6 +125,10 @@ document.addEventListener("click", (event) => {
   const messageButton = event.target.closest("[data-settings-message]");
   if (!messageButton) return;
   showSettingsNotice(messageButton.dataset.settingsMessage || "This setting is being prepared.");
+});
+
+document.getElementById("settings-search")?.addEventListener("input", (event) => {
+  filterSettingsRows(event.target.value || "");
 });
 
 document.addEventListener("submit", async (event) => {
@@ -139,4 +176,5 @@ document.addEventListener("submit", async (event) => {
   }
 });
 
+setActiveSettingsSection("account");
 loadSettingsPage();

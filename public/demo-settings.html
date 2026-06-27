@@ -45,107 +45,146 @@
         </div>
       </header>
 
-      <section class="settings-control-grid">
-        <article class="app-card settings-card settings-control-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Security</span>
-              <h2>Account protection</h2>
-              <p class="card-intro">Control sign-in protection and trusted-device behavior.</p>
-            </div>
-          </div>
-          <div class="settings-list">
-            <div>
-              <span>Password</span>
-              <strong>Protected</strong>
-            </div>
-            <div>
-              <span>Authenticator app</span>
-              <button class="settings-inline-button" type="button" data-settings-message="Authenticator app setup is ready for the next security build.">Set Up</button>
-            </div>
-            <div>
-              <span>Remembered devices</span>
-              <button class="settings-inline-button" type="button" data-settings-message="Device management will show trusted browsers and phones here.">Manage</button>
-            </div>
+      <section class="settings-hub-layout">
+        <article class="app-card settings-menu-card">
+          <label class="settings-search-box">
+            <span class="settings-search-icon" aria-hidden="true"></span>
+            <input type="search" id="settings-search" placeholder="Search for a setting..." autocomplete="off" />
+          </label>
+
+          <div class="settings-menu-list" role="list">
+            <button class="settings-menu-row active" type="button" data-settings-section="account" data-settings-search-text="account profile email demo balance">
+              <span class="settings-row-icon settings-icon-account" aria-hidden="true"></span>
+              <span><strong>Account</strong><small>Profile, practice mode, and workspace</small></span>
+              <span class="settings-chevron" aria-hidden="true"></span>
+            </button>
+            <button class="settings-menu-row" type="button" data-settings-section="notifications" data-settings-search-text="notifications alerts orders markets news deposits withdrawals price research">
+              <span class="settings-row-icon settings-icon-bell" aria-hidden="true"></span>
+              <span><strong>Notifications</strong><small>Orders, markets, news, and account alerts</small></span>
+              <span class="settings-chevron" aria-hidden="true"></span>
+            </button>
+            <button class="settings-menu-row" type="button" data-settings-section="appearance" data-settings-search-text="appearance dark mode theme display purple">
+              <span class="settings-row-icon settings-icon-eye" aria-hidden="true"></span>
+              <span><strong>Appearance</strong><small>Default dark mode and display feel</small></span>
+              <span class="settings-chevron" aria-hidden="true"></span>
+            </button>
+            <button class="settings-menu-row" type="button" data-settings-section="privacy" data-settings-search-text="privacy security password authenticator remembered devices">
+              <span class="settings-row-icon settings-icon-lock" aria-hidden="true"></span>
+              <span><strong>Privacy & Security</strong><small>Password, authenticator, and trusted devices</small></span>
+              <span class="settings-chevron" aria-hidden="true"></span>
+            </button>
+            <button class="settings-menu-row" type="button" data-settings-section="support" data-settings-search-text="help support ticket issue contact">
+              <span class="settings-row-icon settings-icon-help" aria-hidden="true"></span>
+              <span><strong>Help and Support</strong><small>Submit a ticket when something needs attention</small></span>
+              <span class="settings-chevron" aria-hidden="true"></span>
+            </button>
+            <button class="settings-menu-row" type="button" data-settings-section="about" data-settings-search-text="about autody version legal terms">
+              <span class="settings-row-icon settings-icon-about" aria-hidden="true"></span>
+              <span><strong>About</strong><small>Autody platform information</small></span>
+              <span class="settings-chevron" aria-hidden="true"></span>
+            </button>
           </div>
         </article>
 
-        <article class="app-card settings-card settings-control-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Notifications</span>
-              <h2>Alerts and updates</h2>
-              <p class="card-intro">Choose which account, market, and research updates should reach you when notifications are connected.</p>
+        <div class="settings-detail-stack">
+          <article class="app-card settings-detail-panel active" data-settings-panel="account">
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Account</span>
+                <h2>Account workspace</h2>
+                <p class="card-intro">See the current account area and jump into profile details when you need to review personal information.</p>
+              </div>
             </div>
-          </div>
-          <div class="settings-list">
-            <div>
-              <span>Order confirmations</span>
-              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-order-confirmation">Off</button>
+            <div class="settings-list">
+              <div><span>Current workspace</span><strong>Demo account</strong></div>
+              <div><span>Practice balance</span><strong>$50,000 USD</strong></div>
+              <div><span>Profile information</span><a href="demo-profile.html" class="settings-inline-link">Open Profile</a></div>
+              <div><span>Live workspace</span><a href="account.html" class="settings-inline-link">Open Live Account</a></div>
             </div>
-            <div>
-              <span>Market alerts</span>
-              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-market-alerts">Off</button>
-            </div>
-            <div>
-              <span>News alerts</span>
-              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-news-alerts">Off</button>
-            </div>
-            <div>
-              <span>Deposit updates</span>
-              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-deposit-alerts">Off</button>
-            </div>
-            <div>
-              <span>Withdrawal updates</span>
-              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-withdrawal-alerts">Off</button>
-            </div>
-            <div>
-              <span>Price movement alerts</span>
-              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-price-alerts">Off</button>
-            </div>
-            <div>
-              <span>Research brief</span>
-              <button class="settings-toggle-button" type="button" data-settings-toggle id="settings-research-brief">Off</button>
-            </div>
-          </div>
-        </article>
+          </article>
 
-        <article class="app-card settings-card settings-support-card">
-          <div class="card-heading">
-            <div>
-              <span class="muted-label">Help</span>
-              <h2>Submit a ticket</h2>
-              <p class="card-intro">Tell Autody what is wrong, what page it happened on, and what you expected to happen.</p>
+          <article class="app-card settings-detail-panel" data-settings-panel="notifications" hidden>
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Notifications</span>
+                <h2>Alerts and updates</h2>
+                <p class="card-intro">Choose which account, market, and research updates should reach you when notifications are connected.</p>
+              </div>
             </div>
-          </div>
-          <form class="settings-ticket-form" id="settings-ticket-form">
-            <label>
-              <span>Issue type</span>
-              <select id="settings-ticket-type">
-                <option>Account access</option>
-                <option>Deposit or wallet</option>
-                <option>Orders and trading</option>
-                <option>Identity review</option>
-                <option>Market data</option>
-                <option>Other</option>
-              </select>
-            </label>
-            <label>
-              <span>Priority</span>
-              <select id="settings-ticket-priority">
-                <option>Normal</option>
-                <option>High</option>
-                <option>Urgent</option>
-              </select>
-            </label>
-            <label class="settings-ticket-message">
-              <span>Message</span>
-              <textarea id="settings-ticket-message" rows="5" placeholder="Describe the issue clearly"></textarea>
-            </label>
-            <button class="btn" type="submit">Submit Ticket</button>
-          </form>
+            <div class="settings-list">
+              <div><span>Order confirmations</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-order-confirmation">Off</button></div>
+              <div><span>Market alerts</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-market-alerts">Off</button></div>
+              <div><span>News alerts</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-news-alerts">Off</button></div>
+              <div><span>Deposit updates</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-deposit-alerts">Off</button></div>
+              <div><span>Withdrawal updates</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-withdrawal-alerts">Off</button></div>
+              <div><span>Price movement alerts</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-price-alerts">Off</button></div>
+              <div><span>Research brief</span><button class="settings-toggle-button" type="button" data-settings-toggle id="settings-research-brief">Off</button></div>
+            </div>
+          </article>
+
+          <article class="app-card settings-detail-panel" data-settings-panel="appearance" hidden>
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Appearance</span>
+                <h2>Display</h2>
+                <p class="card-intro">Autody currently uses its default dark purple interface across the account experience.</p>
+              </div>
+            </div>
+            <div class="settings-list">
+              <div><span>Theme</span><strong>Default dark</strong></div>
+              <div><span>Accent color</span><strong>Autody purple</strong></div>
+              <div><span>Market motion</span><strong>Live feel</strong></div>
+            </div>
+          </article>
+
+          <article class="app-card settings-detail-panel" data-settings-panel="privacy" hidden>
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Privacy & Security</span>
+                <h2>Account protection</h2>
+                <p class="card-intro">Control sign-in protection and trusted-device behavior.</p>
+              </div>
+            </div>
+            <div class="settings-list">
+              <div><span>Password</span><strong>Protected</strong></div>
+              <div><span>Authenticator app</span><button class="settings-inline-button" type="button" data-settings-message="Authenticator app setup is ready for the next security build.">Set Up</button></div>
+              <div><span>Remembered devices</span><button class="settings-inline-button" type="button" data-settings-message="Device management will show trusted browsers and phones here.">Manage</button></div>
+            </div>
+          </article>
+
+          <article class="app-card settings-detail-panel" data-settings-panel="support" hidden>
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">Help and Support</span>
+                <h2>Submit a ticket</h2>
+                <p class="card-intro">Tell Autody what is wrong, what page it happened on, and what you expected to happen.</p>
+              </div>
+            </div>
+            <form class="settings-ticket-form" id="settings-ticket-form">
+              <label><span>Issue type</span><select id="settings-ticket-type"><option>Account access</option><option>Deposit or wallet</option><option>Orders and trading</option><option>Identity review</option><option>Market data</option><option>Other</option></select></label>
+              <label><span>Priority</span><select id="settings-ticket-priority"><option>Normal</option><option>High</option><option>Urgent</option></select></label>
+              <label class="settings-ticket-message"><span>Message</span><textarea id="settings-ticket-message" rows="5" placeholder="Describe the issue clearly"></textarea></label>
+              <button class="btn" type="submit">Submit Ticket</button>
+            </form>
+          </article>
+
+          <article class="app-card settings-detail-panel" data-settings-panel="about" hidden>
+            <div class="card-heading">
+              <div>
+                <span class="muted-label">About</span>
+                <h2>Autody</h2>
+                <p class="card-intro">A finance account platform for live markets, demo trading, watchlists, research, and Autody AU utility.</p>
+              </div>
+            </div>
+            <div class="settings-list">
+              <div><span>Platform</span><strong>Autody</strong></div>
+              <div><span>Experience</span><strong>Live and demo accounts</strong></div>
+              <div><span>Version</span><strong>Private build</strong></div>
+            </div>
+          </article>
+
           <p class="live-notice settings-notice" id="settings-notice" hidden></p>
-        </article>
+        </div>
       </section>
     </main>
   </div>
