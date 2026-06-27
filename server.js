@@ -157,6 +157,7 @@ const marketCatalogCache = new Map();
 const SERVER_STARTED_AT = Date.now();
 let dbSlowUntil = SERVER_STARTED_AT + DB_STARTUP_FALLBACK_MS;
 let practiceAccountCache = null;
+let signUpSchemaReadyPromise = null;
 
 function withTimeout(promise, ms, label = "Operation") {
     let timeout;
@@ -1148,6 +1149,19 @@ function databaseConfigured() {
     return Boolean(dbPool);
 }
 
+async function ensureSignUpSchemaReady() {
+    if (!databaseConfigured()) return;
+
+    if (!signUpSchemaReadyPromise) {
+        signUpSchemaReadyPromise = ensureSignUpTables().catch((err) => {
+            signUpSchemaReadyPromise = null;
+            throw err;
+        });
+    }
+
+    await signUpSchemaReadyPromise;
+}
+
 function kycStorageConfigured() {
     return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && KYC_STORAGE_BUCKET);
 }
@@ -1201,6 +1215,7 @@ async function initializeDatabase() {
     try {
         const schema = fs.readFileSync(DATABASE_SCHEMA_STORE, "utf8");
         await dbPool.query(schema);
+        await ensureSignUpSchemaReady();
         console.log("Supabase schema is ready.");
     } catch (err) {
         console.error("Supabase schema initialization failed. JSON fallback remains available:", err);
@@ -1448,6 +1463,7 @@ function mapDbHolding(row) {
 
 async function getPracticeAccountFromDatabase() {
     if (!databaseConfigured()) return null;
+    await ensureSignUpSchemaReady();
 
     const accountResult = await dbPool.query(`
         select
@@ -1590,6 +1606,8 @@ async function getPracticeAccountAny() {
 
 async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     if (!databaseConfigured() || !profileId) return null;
+    await ensureSignUpSchemaReady();
+
     const accountMode = normalizeWatchlistMode(mode);
 
     let accountResult = await dbPool.query(`
