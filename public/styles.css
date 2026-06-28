@@ -6491,43 +6491,51 @@ body.account-body.theme-light .profile-kyc-modal-card {
     min-height: 100dvh;
   }
 
+  body.account-body {
+    min-height: 100dvh;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+
   .app-main {
     width: 100%;
     min-width: 0;
-    padding: 16px 12px 22px;
+    padding: 22px 14px calc(96px + env(safe-area-inset-bottom));
   }
 
   .app-sidebar,
   .app-layout.sidebar-collapsed .app-sidebar {
     position: sticky;
     top: 0;
-    z-index: 120;
-    display: grid;
-    gap: 10px;
+    z-index: 150;
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
     width: 100%;
-    height: auto;
+    height: calc(58px + env(safe-area-inset-top));
     max-height: none;
-    padding: 10px 12px 12px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
     overflow: visible;
     border-right: 0;
     border-bottom: 1px solid rgba(196, 206, 232, 0.14);
-    background: rgba(8, 11, 17, 0.96);
-    backdrop-filter: blur(18px);
+    background: rgba(7, 10, 16, 0.94);
+    backdrop-filter: none;
   }
 
   .sidebar-bottom-tools,
   .app-layout.sidebar-collapsed .sidebar-bottom-tools {
-    position: absolute;
-    top: 12px;
-    right: 50px;
+    position: static;
+    order: 3;
+    flex: 0 0 auto;
     width: auto;
     margin: 0;
   }
 
   .sidebar-bottom-tools .sidebar-icon-link,
   .app-layout.sidebar-collapsed .sidebar-bottom-tools .sidebar-icon-link {
-    width: 34px;
-    height: 34px;
+    width: 38px;
+    height: 38px;
   }
 
   .sidebar-header,
@@ -6535,6 +6543,10 @@ body.account-body.theme-light .profile-kyc-modal-card {
     display: flex;
     flex-direction: row;
     align-items: center;
+    justify-content: space-between;
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     gap: 10px;
   }
 
@@ -6553,27 +6565,49 @@ body.account-body.theme-light .profile-kyc-modal-card {
     white-space: nowrap;
   }
 
+  .app-logo {
+    width: 32px;
+    height: 32px;
+  }
+
   .sidebar-top-actions,
   .app-layout.sidebar-collapsed .sidebar-top-actions,
   .sidebar-icon-row,
   .app-layout.sidebar-collapsed .sidebar-icon-row {
     flex-direction: row;
-    gap: 4px;
+    gap: 6px;
   }
 
   .sidebar-collapse-toggle {
     display: none;
   }
 
+  .sidebar-top-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .sidebar-icon-link {
+    width: 38px;
+    height: 38px;
+  }
+
   .app-nav,
   .app-layout.sidebar-collapsed .app-nav {
-    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 160;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     width: 100%;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 0 0 4px;
-    scroll-snap-type: x proximity;
-    scrollbar-width: none;
+    gap: 2px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(196, 206, 232, 0.14);
+    background: rgba(7, 10, 16, 0.96);
+    box-shadow: 0 -18px 44px rgba(0, 0, 0, 0.38);
+    backdrop-filter: blur(18px);
   }
 
   .app-nav::-webkit-scrollbar {
@@ -6582,80 +6616,100 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
   .app-nav a,
   .app-layout.sidebar-collapsed .app-nav a {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 76px;
-    height: 38px;
-    min-height: 38px;
-    display: inline-flex;
+    width: 100%;
+    min-width: 0;
+    height: 58px;
+    min-height: 58px;
+    display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 4px;
     margin: 0;
-    padding: 0 12px;
-    border-color: rgba(196, 206, 232, 0.14);
-    background: rgba(255, 255, 255, 0.035);
-    font-size: 0.88rem;
-    line-height: 1;
-    scroll-snap-align: start;
+    padding: 4px 2px;
+    border: 0;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.64rem;
+    line-height: 1.1;
     white-space: nowrap;
   }
 
-  .app-layout.sidebar-collapsed .app-nav-icon {
-    display: none;
+  .app-nav a.active,
+  .app-nav a:hover,
+  .app-layout.sidebar-collapsed .app-nav a.active,
+  .app-layout.sidebar-collapsed .app-nav a:hover {
+    background: rgba(91, 91, 255, 0.18);
+    color: var(--text);
   }
 
+  .app-nav-icon,
+  .app-layout.sidebar-collapsed .app-nav-icon {
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+  }
+
+  .app-nav-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .app-nav-label,
   .app-layout.sidebar-collapsed .app-nav-label {
     display: inline;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .sidebar-profile,
   .app-layout.sidebar-collapsed .sidebar-profile {
-    min-height: 42px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 0;
-    padding: 8px 12px;
-  }
-
-  .sidebar-profile span,
-  .sidebar-profile strong {
-    display: block;
-  }
-
-  .sidebar-profile strong {
-    text-align: right;
+    display: none;
   }
 
   .sidebar-actions,
   .app-layout.sidebar-collapsed .sidebar-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    width: 100%;
+    order: 2;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex: 0 0 auto;
+    gap: 6px;
+    width: auto;
+    margin: 0;
   }
 
   .sidebar-actions .btn,
   .app-layout.sidebar-collapsed .sidebar-actions .btn {
-    width: 100%;
-    height: auto;
+    width: 38px;
+    height: 38px;
     min-height: 38px;
     margin: 0;
-    padding: 0 10px;
-    font-size: 0.9rem;
+    padding: 0;
+    border-radius: 999px;
+    font-size: 0;
   }
 
+  .sidebar-action-icon,
   .app-layout.sidebar-collapsed .sidebar-action-icon {
+    display: inline-flex;
+  }
+
+  .sidebar-action-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .sidebar-action-label,
+  .app-layout.sidebar-collapsed .sidebar-action-label {
     display: none;
   }
 
-  .app-layout.sidebar-collapsed .sidebar-action-label {
-    display: inline;
-  }
-
   .app-topbar h1 {
-    font-size: clamp(2.4rem, 12vw, 3rem);
+    font-size: clamp(2.45rem, 13vw, 3.35rem);
+    line-height: 0.96;
   }
 
   .topbar-actions {
