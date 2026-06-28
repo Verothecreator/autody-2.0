@@ -6387,6 +6387,12 @@ body.account-body.theme-light .profile-kyc-modal-card {
 }
 
 @media (max-width: 640px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   .container {
     width: min(100% - 28px, 1120px);
   }
@@ -6479,43 +6485,173 @@ body.account-body.theme-light .profile-kyc-modal-card {
     min-height: auto;
   }
 
+  .app-layout,
+  .app-layout.sidebar-collapsed {
+    display: block;
+    min-height: 100dvh;
+  }
+
   .app-main {
-    padding: 18px 14px;
+    width: 100%;
+    min-width: 0;
+    padding: 16px 12px 22px;
   }
 
-  .app-sidebar {
+  .app-sidebar,
+  .app-layout.sidebar-collapsed .app-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 120;
+    display: grid;
     gap: 10px;
-    padding: 10px 12px;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    padding: 10px 12px 12px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid rgba(196, 206, 232, 0.14);
+    background: rgba(8, 11, 17, 0.96);
+    backdrop-filter: blur(18px);
   }
 
-  .app-brand {
+  .sidebar-bottom-tools,
+  .app-layout.sidebar-collapsed .sidebar-bottom-tools {
+    position: absolute;
+    top: 12px;
+    right: 50px;
+    width: auto;
+    margin: 0;
+  }
+
+  .sidebar-bottom-tools .sidebar-icon-link,
+  .app-layout.sidebar-collapsed .sidebar-bottom-tools .sidebar-icon-link {
+    width: 34px;
+    height: 34px;
+  }
+
+  .sidebar-header,
+  .app-layout.sidebar-collapsed .sidebar-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .app-brand,
+  .app-layout.sidebar-collapsed .app-brand {
+    min-width: 0;
     padding: 0;
   }
 
-  .app-brand span {
+  .app-brand span,
+  .app-layout.sidebar-collapsed .app-brand span {
+    display: inline;
+    overflow: hidden;
     font-size: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .app-nav a {
-    min-height: 42px;
-    padding: 10px 12px;
-    font-size: 0.95rem;
-  }
-
-  .sidebar-profile {
-    align-items: flex-start;
-    flex-direction: column;
+  .sidebar-top-actions,
+  .app-layout.sidebar-collapsed .sidebar-top-actions,
+  .sidebar-icon-row,
+  .app-layout.sidebar-collapsed .sidebar-icon-row {
+    flex-direction: row;
     gap: 4px;
   }
 
-  .sidebar-actions {
-    gap: 8px;
+  .sidebar-collapse-toggle {
+    display: none;
   }
 
-  .sidebar-actions .btn {
+  .app-nav,
+  .app-layout.sidebar-collapsed .app-nav {
+    display: flex;
+    width: 100%;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 0 0 4px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-nav a,
+  .app-layout.sidebar-collapsed .app-nav a {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 76px;
+    height: 38px;
     min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
     padding: 0 12px;
-    font-size: 0.95rem;
+    border-color: rgba(196, 206, 232, 0.14);
+    background: rgba(255, 255, 255, 0.035);
+    font-size: 0.88rem;
+    line-height: 1;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+
+  .app-layout.sidebar-collapsed .app-nav-icon {
+    display: none;
+  }
+
+  .app-layout.sidebar-collapsed .app-nav-label {
+    display: inline;
+  }
+
+  .sidebar-profile,
+  .app-layout.sidebar-collapsed .sidebar-profile {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 0;
+    padding: 8px 12px;
+  }
+
+  .sidebar-profile span,
+  .sidebar-profile strong {
+    display: block;
+  }
+
+  .sidebar-profile strong {
+    text-align: right;
+  }
+
+  .sidebar-actions,
+  .app-layout.sidebar-collapsed .sidebar-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .sidebar-actions .btn,
+  .app-layout.sidebar-collapsed .sidebar-actions .btn {
+    width: 100%;
+    height: auto;
+    min-height: 38px;
+    margin: 0;
+    padding: 0 10px;
+    font-size: 0.9rem;
+  }
+
+  .app-layout.sidebar-collapsed .sidebar-action-icon {
+    display: none;
+  }
+
+  .app-layout.sidebar-collapsed .sidebar-action-label {
+    display: inline;
   }
 
   .app-topbar h1 {
@@ -6530,33 +6666,74 @@ body.account-body.theme-light .profile-kyc-modal-card {
     flex: 1;
   }
 
-  .asset-table {
-    overflow-x: auto;
+  .app-card,
+  .balance-card {
+    padding: 16px;
   }
 
-  .asset-table-row {
-    min-width: 680px;
+  .card-heading,
+  .balance-card-top,
+  .live-panel-heading,
+  .profile-hero-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
+  .card-heading .status-pill,
+  .balance-card-top .status-pill,
+  .account-mode-stack {
+    align-self: flex-start;
+  }
+
+  .asset-table,
   .holdings-card .asset-table,
   .live-holdings-table,
   .overview-activity-table {
     overflow-x: visible;
   }
 
+  .asset-table-row,
   .holdings-card .asset-table-row,
   .live-holdings-table .asset-table-row,
-  .overview-activity-table .asset-table-row {
+  .overview-activity-table .asset-table-row,
+  .wallet-subasset-row,
+  .watchlist-row {
     grid-template-columns: 1fr;
     min-width: 0;
+    width: 100%;
+    margin-left: 0;
     gap: 8px;
     align-items: start;
   }
 
+  .asset-table-row.head,
   .holdings-card .asset-table-row.head,
   .live-holdings-table .asset-table-row.head,
   .overview-activity-table .asset-table-row.head {
     display: none;
+  }
+
+  .wallet-subasset-row .wallet-asset-name,
+  .watchlist-row > span:first-child {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .wallet-subasset-row .asset-logo-small,
+  .watchlist-row .asset-logo {
+    justify-self: start;
+  }
+
+  .wallet-menu-cell {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .wallet-asset-menu,
+  .asset-row-menu {
+    left: 0;
+    right: auto;
+    width: min(240px, calc(100vw - 48px));
   }
 
   .market-search-box {
@@ -6567,6 +6744,10 @@ body.account-body.theme-light .profile-kyc-modal-card {
   .market-card-grid,
   .asset-chart-stats {
     grid-template-columns: 1fr;
+  }
+
+  .market-card {
+    min-height: 260px;
   }
 
   .wallet-category-assets a,
@@ -6593,6 +6774,104 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
   .asset-action-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .wallet-action-grid,
+  .wallet-action-grid.wallet-action-grid-crypto,
+  .live-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .wallet-action-grid.wallet-action-grid-crypto > :nth-child(-n+3),
+  .wallet-action-grid.wallet-action-grid-crypto > :nth-child(n+4) {
+    grid-column: auto;
+  }
+
+  .wallet-detail-list div,
+  .wallet-record-row,
+  .settings-list > div,
+  .settings-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .wallet-record-row {
+    grid-template-columns: 1fr;
+  }
+
+  .wallet-detail-list strong,
+  .settings-list strong,
+  .profile-info-card .settings-list strong,
+  .profile-combined-list strong {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .profile-hero {
+    align-items: start;
+  }
+
+  .profile-avatar {
+    width: 72px;
+    height: 72px;
+  }
+
+  .profile-initials {
+    font-size: 1.55rem;
+  }
+
+  .profile-hero-actions,
+  .profile-hero-actions .btn {
+    width: 100%;
+  }
+
+  .settings-hub-layout {
+    gap: 14px;
+  }
+
+  .settings-menu-row {
+    min-height: 64px;
+    grid-template-columns: 36px minmax(0, 1fr) 14px;
+    gap: 10px;
+  }
+
+  .settings-detail-panel {
+    padding: 16px;
+  }
+
+  .settings-auth-setup,
+  .settings-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .live-wallet-modal {
+    align-items: start;
+    padding: 10px;
+  }
+
+  .live-wallet-modal-card,
+  .live-funding-modal-card,
+  .profile-kyc-modal-card,
+  .auth-modal-panel {
+    width: min(100%, calc(100vw - 20px));
+    max-height: calc(100dvh - 20px);
+  }
+
+  .live-address-box {
+    grid-template-columns: 1fr;
+  }
+
+  .live-address-box button {
+    width: 100%;
+  }
+
+  .kyc-face-stage {
+    max-width: 100%;
+  }
+
+  .kyc-face-actions,
+  .kyc-submit-row {
+    grid-template-columns: 1fr;
   }
 
   .asset-line-chart {
