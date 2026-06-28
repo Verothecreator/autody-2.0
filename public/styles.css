@@ -3029,6 +3029,10 @@ body.modal-open {
   gap: 12px;
 }
 
+.settings-mobile-back {
+  display: none;
+}
+
 .settings-detail-panel[hidden] {
   display: none;
 }
@@ -3126,6 +3130,11 @@ body.modal-open {
 
 .settings-switch-list .settings-item {
   align-items: center;
+}
+
+.settings-switch-list .settings-item > span {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .settings-switch {
@@ -6883,6 +6892,29 @@ body.account-body.theme-light .profile-kyc-modal-card {
     gap: 14px;
   }
 
+  .settings-hub-layout:not(.settings-mobile-detail-open) .settings-detail-stack {
+    display: none;
+  }
+
+  .settings-hub-layout.settings-mobile-detail-open .settings-menu-card {
+    display: none;
+  }
+
+  .settings-mobile-back {
+    min-height: 44px;
+    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(196, 206, 232, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.055);
+    color: var(--text);
+    padding: 0 18px;
+    font: inherit;
+    font-weight: 950;
+  }
+
   .settings-menu-row {
     min-height: 64px;
     grid-template-columns: 36px minmax(0, 1fr) 14px;
@@ -6891,6 +6923,21 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
   .settings-detail-panel {
     padding: 16px;
+  }
+
+  .settings-switch-list .settings-item {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .settings-switch-list .settings-item > span {
+    flex: 1 1 auto;
+    padding-right: 10px;
+  }
+
+  .settings-switch-list .settings-switch {
+    margin-left: auto;
   }
 
   .settings-auth-setup,

@@ -75,6 +75,10 @@ function setSecurityView(name = "menu") {
   if (target === "authenticator") loadAuthenticatorStatus();
 }
 
+function setSettingsMobileDrilldown(open = false) {
+  document.querySelector(".settings-hub-layout")?.classList.toggle("settings-mobile-detail-open", Boolean(open));
+}
+
 function setBrowserNotificationState(value) {
   const toggle = document.getElementById("settings-browser-notifications");
   setRawSwitch(toggle, value);
@@ -198,13 +202,22 @@ document.addEventListener("click", (event) => {
   const settingsRow = event.target.closest("[data-settings-section]");
   if (settingsRow) {
     setActiveSettingsSection(settingsRow.dataset.settingsSection);
+    setSettingsMobileDrilldown(true);
     return;
   }
 
   const jumpButton = event.target.closest("[data-settings-jump]");
   if (jumpButton) {
     setActiveSettingsSection(jumpButton.dataset.settingsJump);
+    setSettingsMobileDrilldown(true);
     if (jumpButton.dataset.settingsJump === "privacy") setSecurityView("menu");
+    return;
+  }
+
+  const settingsBackButton = event.target.closest("[data-settings-mobile-back]");
+  if (settingsBackButton) {
+    setSettingsMobileDrilldown(false);
+    setSecurityView("menu");
     return;
   }
 
