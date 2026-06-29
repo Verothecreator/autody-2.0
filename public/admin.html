@@ -18,19 +18,18 @@
         <h1>Deposit portal</h1>
         <p>Watch generated addresses, credited deposits, scan state, manual credits, KYC submissions, and sweep readiness.</p>
       </div>
-      <div class="admin-key-card">
-        <label>
-          Admin key
-          <input type="password" id="admin-key" autocomplete="off" placeholder="Enter admin key" />
-        </label>
+      <div class="admin-key-card ops-session-card">
+        <span class="muted-label">Ops session</span>
+        <strong>Protected access</strong>
+        <small id="admin-session-status">Checking session...</small>
         <div class="admin-key-actions">
-          <button type="button" class="btn" id="admin-connect">Connect</button>
+          <a class="btn" href="ops-console.html">Console</a>
           <button type="button" class="btn btn-ghost" id="admin-refresh">Refresh</button>
         </div>
       </div>
     </header>
 
-    <p class="admin-notice" id="admin-notice">Enter the admin key to load deposit data.</p>
+    <p class="admin-notice" id="admin-notice">Open an ops session to load deposit and identity data.</p>
 
     <section class="admin-kpi-grid" id="admin-kpis">
       <div class="app-card mini-metric">
@@ -204,6 +203,7 @@
 
   <datalist id="admin-asset-options"></datalist>
   <datalist id="admin-network-options"></datalist>
+  <script src="ops-auth.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

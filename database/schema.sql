@@ -385,6 +385,35 @@ create table if not exists admin_market_ticks (
 create index if not exists admin_market_ticks_symbol_time_idx
   on admin_market_ticks (symbol, created_at desc);
 
+create table if not exists admin_login_challenges (
+  id text primary key,
+  email text not null,
+  code_salt text not null,
+  code_hash text not null,
+  status text not null default 'pending',
+  attempts integer not null default 0,
+  label text,
+  ip_address text,
+  user_agent text,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  verified_at timestamptz
+);
+
+create index if not exists admin_login_challenges_email_status_idx
+  on admin_login_challenges (email, status, created_at desc);
+
+create table if not exists admin_access_events (
+  id bigserial primary key,
+  email text,
+  event_type text not null,
+  status text not null,
+  ip_address text,
+  user_agent text,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists asset_catalog (
   symbol text primary key,
   asset_name text not null,

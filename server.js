@@ -107,7 +107,14 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || process.env.PAYMENT_P
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || process.env.PAYMENT_PROCESSOR_WEBHOOK_SECRET || "";
 const STRIPE_API_BASE = process.env.STRIPE_API_BASE || "https://api.stripe.com/v1";
 const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || "";
+const ADMIN_ACCOUNT_EMAIL = normalizeEmail(process.env.AUTODY_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "");
+const ADMIN_ACCOUNT_PASSWORD = process.env.AUTODY_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "";
+const ADMIN_ACCOUNT_PASSWORD_SALT = process.env.AUTODY_ADMIN_PASSWORD_SALT || process.env.ADMIN_PASSWORD_SALT || "";
+const ADMIN_ACCOUNT_PASSWORD_HASH = process.env.AUTODY_ADMIN_PASSWORD_HASH || process.env.ADMIN_PASSWORD_HASH || "";
+const ADMIN_SESSION_SECRET = process.env.AUTODY_ADMIN_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET || ADMIN_RESET_KEY || ADMIN_ACCOUNT_PASSWORD_HASH || ADMIN_ACCOUNT_PASSWORD;
+const ADMIN_KEY_BYPASS_ENABLED = process.env.AUTODY_ADMIN_KEY_BYPASS === "true";
 const ADMIN_SESSION_HOURS = Number(process.env.ADMIN_SESSION_HOURS || 2);
+const ADMIN_EMAIL_CODE_TTL_MS = Number(process.env.ADMIN_EMAIL_CODE_TTL_MS || 1000 * 60 * 5);
 const AU_MARKET_TICK_RETENTION_DAYS = Math.max(7, Number(process.env.AU_MARKET_TICK_RETENTION_DAYS || 400));
 const AU_MARKET_TICK_MAX_ROWS = Math.max(1000, Number(process.env.AU_MARKET_TICK_MAX_ROWS || 20000));
 const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
@@ -155,6 +162,7 @@ let chartRefreshInFlight = null;
 let lastChartRefresh = null;
 let depositMonitorTimer = null;
 let depositMonitorInFlight = null;
+const adminLoginChallenges = new Map();
 let liveMarketAssetCache = { assets: [], bySymbol: new Map(), updatedAt: 0 };
 const marketCatalogCache = new Map();
 const SERVER_STARTED_AT = Date.now();
@@ -932,6 +940,47 @@ async function sendLoginCodeEmail(email, code) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Login code delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+async function sendAdminLoginCodeEmail(email, code) {
+    const subject = "Your Autody admin access code";
+    const text = `Your Autody admin access code is ${code}.\n\nThis code expires in 5 minutes. If you did not request admin access, change the admin password and review admin activity immediately.`;
+    const html = `
+        <div style="margin:0;padding:24px;background:#ffffff;font-family:Arial,sans-serif;color:#111827">
+          <div style="max-width:560px;margin:0 auto">
+            <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody private operations</div>
+            <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2;color:#111827">Admin access code</h1>
+            <p style="margin:0 0 20px;color:#374151;font-size:16px;line-height:1.55">Use this one-time code to open the Autody operations console.</p>
+            <div style="margin:20px 0;padding:20px;border-radius:12px;background:#f4f6ff;text-align:center;border:1px solid #d7ddf3">
+              <div style="font-size:40px;line-height:1;letter-spacing:8px;font-weight:900;color:#111827">${code}</div>
+            </div>
+            <p style="margin:0;color:#374151;font-size:14px;line-height:1.55">This code expires in <strong style="color:#111827">5 minutes</strong>. If this was not you, change the admin password and review admin activity immediately.</p>
+          </div>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody admin access code for", email, code);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: EMAIL_FROM,
+            to: email,
+            subject,
+            html,
+            text
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Admin code delivery failed.");
     return { delivered: true, provider: "resend" };
 }
 
@@ -2622,6 +2671,234 @@ function evmAddressTopic(address) {
     return normalized ? ethers.zeroPadValue(normalized, 32) : "";
 }
 
+function adminAuthConfigured() {
+    return Boolean(ADMIN_ACCOUNT_EMAIL && (ADMIN_ACCOUNT_PASSWORD || (ADMIN_ACCOUNT_PASSWORD_SALT && ADMIN_ACCOUNT_PASSWORD_HASH)) && ADMIN_SESSION_SECRET);
+}
+
+function adminPasswordMatches(password = "") {
+    if (ADMIN_ACCOUNT_PASSWORD_SALT && ADMIN_ACCOUNT_PASSWORD_HASH) {
+        return verifyPassword(password, {
+            passwordSalt: ADMIN_ACCOUNT_PASSWORD_SALT,
+            passwordHash: ADMIN_ACCOUNT_PASSWORD_HASH
+        });
+    }
+
+    if (!ADMIN_ACCOUNT_PASSWORD) return false;
+    const expected = Buffer.from(String(ADMIN_ACCOUNT_PASSWORD));
+    const provided = Buffer.from(String(password || ""));
+    return expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
+}
+
+function maskedAdminEmail(email = "") {
+    const value = normalizeEmail(email);
+    const [name, domain] = value.split("@");
+    if (!name || !domain) return "admin email";
+    const visible = name.length <= 2 ? `${name[0] || ""}*` : `${name.slice(0, 2)}***${name.slice(-1)}`;
+    return `${visible}@${domain}`;
+}
+
+function adminRequestMeta(req) {
+    return {
+        ip: captchaClientIp(req) || req?.ip || "",
+        userAgent: String(req?.get?.("user-agent") || "").slice(0, 500)
+    };
+}
+
+async function ensureAdminAuthTables(client = dbPool) {
+    if (!client) return false;
+    await client.query(`
+        create table if not exists admin_login_challenges (
+            id text primary key,
+            email text not null,
+            code_salt text not null,
+            code_hash text not null,
+            status text not null default 'pending',
+            attempts integer not null default 0,
+            label text,
+            ip_address text,
+            user_agent text,
+            expires_at timestamptz not null,
+            created_at timestamptz not null default now(),
+            verified_at timestamptz
+        )
+    `);
+    await client.query(`
+        create index if not exists admin_login_challenges_email_status_idx
+          on admin_login_challenges (email, status, created_at desc)
+    `);
+    await client.query(`
+        create table if not exists admin_access_events (
+            id bigserial primary key,
+            email text,
+            event_type text not null,
+            status text not null,
+            ip_address text,
+            user_agent text,
+            details jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+        )
+    `);
+    return true;
+}
+
+async function recordAdminAccessEvent(eventType, status, req, details = {}) {
+    const meta = adminRequestMeta(req);
+    if (!databaseConfigured()) return;
+    try {
+        await ensureAdminAuthTables();
+        await dbPool.query(`
+            insert into admin_access_events (email, event_type, status, ip_address, user_agent, details)
+            values ($1, $2, $3, $4, $5, $6::jsonb)
+        `, [
+            normalizeEmail(details.email || ADMIN_ACCOUNT_EMAIL) || null,
+            normalizeText(eventType) || "admin_event",
+            normalizeText(status) || "unknown",
+            meta.ip,
+            meta.userAgent,
+            JSON.stringify(details || {})
+        ]);
+    } catch (err) {
+        console.error("Admin access event logging failed:", err.message || err);
+    }
+}
+
+async function createAdminLoginChallenge(email, label, req) {
+    if (!adminAuthConfigured()) {
+        const err = new Error("Admin login is not configured.");
+        err.status = 503;
+        throw err;
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    if (normalizedEmail !== ADMIN_ACCOUNT_EMAIL) {
+        await recordAdminAccessEvent("admin_password", "rejected_email", req, { email: normalizedEmail });
+        const err = new Error("Admin email or password is incorrect.");
+        err.status = 401;
+        throw err;
+    }
+
+    const item = createVerificationCodeRecord("email", normalizedEmail, {
+        codeMode: "numeric",
+        ttlMs: ADMIN_EMAIL_CODE_TTL_MS
+    });
+    const challengeId = crypto.randomUUID();
+    const safeLabel = normalizeText(label || "Autody admin").slice(0, 80);
+    const meta = adminRequestMeta(req);
+
+    if (databaseConfigured()) {
+        await ensureAdminAuthTables();
+        await dbPool.query(`
+            update admin_login_challenges
+            set status = 'replaced'
+            where email = $1 and status = 'pending'
+        `, [normalizedEmail]);
+        await dbPool.query(`
+            insert into admin_login_challenges (id, email, code_salt, code_hash, label, ip_address, user_agent, expires_at)
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [challengeId, normalizedEmail, item.salt, item.hash, safeLabel, meta.ip, meta.userAgent, item.expiresAt]);
+    } else {
+        for (const [id, record] of adminLoginChallenges.entries()) {
+            if (record.email === normalizedEmail && record.status === "pending") {
+                adminLoginChallenges.set(id, { ...record, status: "replaced" });
+            }
+        }
+        adminLoginChallenges.set(challengeId, {
+            id: challengeId,
+            email: normalizedEmail,
+            salt: item.salt,
+            hash: item.hash,
+            label: safeLabel,
+            expiresAt: item.expiresAt,
+            attempts: 0,
+            status: "pending"
+        });
+    }
+
+    const delivery = await sendAdminLoginCodeEmail(normalizedEmail, item.code);
+    await recordAdminAccessEvent("admin_code_requested", "sent", req, { email: normalizedEmail, challengeId });
+    return {
+        challengeId,
+        maskedEmail: maskedAdminEmail(normalizedEmail),
+        expiresAt: item.expiresAt,
+        delivery
+    };
+}
+
+async function verifyAdminLoginChallenge(challengeId, code, req) {
+    const id = normalizeText(challengeId);
+    const suppliedCode = normalizeText(code).replace(/\s+/g, "");
+    if (!id || !/^\d{6}$/.test(suppliedCode)) {
+        const err = new Error("Enter the 6-digit admin code.");
+        err.status = 400;
+        throw err;
+    }
+
+    if (databaseConfigured()) {
+        await ensureAdminAuthTables();
+        const result = await dbPool.query(`
+            select id, email, code_salt, code_hash, attempts, expires_at, label
+            from admin_login_challenges
+            where id = $1 and status = 'pending'
+            limit 1
+        `, [id]);
+        const record = result.rows[0];
+        if (!record) {
+            const err = new Error("Admin code is no longer active.");
+            err.status = 400;
+            throw err;
+        }
+        if (Date.parse(record.expires_at) <= Date.now()) {
+            await dbPool.query("update admin_login_challenges set status = 'expired' where id = $1", [id]);
+            const err = new Error("Admin code expired. Request a new one.");
+            err.status = 400;
+            throw err;
+        }
+        if (Number(record.attempts || 0) >= 5) {
+            const err = new Error("Too many attempts. Request a new admin code.");
+            err.status = 429;
+            throw err;
+        }
+        const suppliedHash = verificationCodeHash(suppliedCode, record.code_salt);
+        if (!sameHashValue(suppliedHash, record.code_hash)) {
+            await dbPool.query("update admin_login_challenges set attempts = attempts + 1 where id = $1", [id]);
+            await recordAdminAccessEvent("admin_code", "incorrect", req, { email: record.email, challengeId: id });
+            const err = new Error("Admin code is incorrect.");
+            err.status = 400;
+            throw err;
+        }
+        await dbPool.query("update admin_login_challenges set status = 'verified', verified_at = now() where id = $1", [id]);
+        await recordAdminAccessEvent("admin_code", "verified", req, { email: record.email, challengeId: id });
+        return { email: record.email, label: record.label || "Autody admin" };
+    }
+
+    const record = adminLoginChallenges.get(id);
+    if (!record || record.status !== "pending") {
+        const err = new Error("Admin code is no longer active.");
+        err.status = 400;
+        throw err;
+    }
+    if (Date.parse(record.expiresAt) <= Date.now()) {
+        adminLoginChallenges.set(id, { ...record, status: "expired" });
+        const err = new Error("Admin code expired. Request a new one.");
+        err.status = 400;
+        throw err;
+    }
+    if (Number(record.attempts || 0) >= 5) {
+        const err = new Error("Too many attempts. Request a new admin code.");
+        err.status = 429;
+        throw err;
+    }
+    const suppliedHash = verificationCodeHash(suppliedCode, record.salt);
+    if (!sameHashValue(suppliedHash, record.hash)) {
+        adminLoginChallenges.set(id, { ...record, attempts: Number(record.attempts || 0) + 1 });
+        const err = new Error("Admin code is incorrect.");
+        err.status = 400;
+        throw err;
+    }
+    adminLoginChallenges.set(id, { ...record, status: "verified" });
+    return { email: record.email, label: record.label || "Autody admin" };
+}
+
 function base64UrlEncode(value) {
     return Buffer.from(value).toString("base64url");
 }
@@ -2631,15 +2908,16 @@ function base64UrlDecode(value = "") {
 }
 
 function adminSessionSignature(payload = "") {
-    if (!ADMIN_RESET_KEY) return "";
-    return crypto.createHmac("sha256", ADMIN_RESET_KEY).update(String(payload || "")).digest("base64url");
+    if (!ADMIN_SESSION_SECRET) return "";
+    return crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(String(payload || "")).digest("base64url");
 }
 
-function createAdminSessionToken(label = "Autody admin") {
+function createAdminSessionToken(label = "Autody admin", email = ADMIN_ACCOUNT_EMAIL) {
     const now = Date.now();
     const expiresAt = now + ADMIN_SESSION_HOURS * 60 * 60 * 1000;
     const payload = base64UrlEncode(JSON.stringify({
         scope: "autody-admin",
+        email: normalizeEmail(email),
         label: String(label || "Autody admin").slice(0, 80),
         nonce: crypto.randomBytes(16).toString("hex"),
         iat: now,
@@ -2653,7 +2931,7 @@ function createAdminSessionToken(label = "Autody admin") {
 }
 
 function verifyAdminSessionToken(token = "") {
-    if (!ADMIN_RESET_KEY || !token) return null;
+    if (!ADMIN_SESSION_SECRET || !token) return null;
     const [payload, signature] = String(token || "").split(".");
     if (!payload || !signature) return null;
 
@@ -2680,10 +2958,14 @@ function requestAdminSessionToken(req, body = {}) {
 }
 
 function adminRequestAuthorized(req, body = {}) {
+    const session = verifyAdminSessionToken(requestAdminSessionToken(req, body));
+    if (session) return true;
+
+    if (adminAuthConfigured() && !ADMIN_KEY_BYPASS_ENABLED) return false;
     if (!ADMIN_RESET_KEY) return false;
+
     const providedKey = normalizeText(req.get("x-admin-reset-key") || req.get("x-admin-key") || body.adminKey);
-    if (providedKey && providedKey === ADMIN_RESET_KEY) return true;
-    return Boolean(verifyAdminSessionToken(requestAdminSessionToken(req, body)));
+    return Boolean(providedKey && providedKey === ADMIN_RESET_KEY);
 }
 
 function looksLikePrivateTreasurySecret(value = "") {
@@ -12036,16 +12318,43 @@ app.post("/api/ops/session", async (req, res) => {
       return res.status(400).json({ success: false, error: "Invalid JSON payload." });
     }
 
-    if (!ADMIN_RESET_KEY) {
-      return res.status(503).json({ success: false, error: "Admin access is not configured." });
+    if (!adminAuthConfigured()) {
+      return res.status(503).json({ success: false, error: "Admin account access is not configured." });
     }
 
-    const providedKey = normalizeText(body.adminKey || req.get("x-admin-reset-key") || req.get("x-admin-key"));
-    if (!providedKey || providedKey !== ADMIN_RESET_KEY) {
-      return res.status(403).json({ success: false, error: "Admin access is not authorized." });
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || "");
+    if (email !== ADMIN_ACCOUNT_EMAIL || !adminPasswordMatches(password)) {
+      await recordAdminAccessEvent("admin_password", "rejected_credentials", req, { email });
+      return res.status(401).json({ success: false, error: "Admin email or password is incorrect." });
     }
 
-    const session = createAdminSessionToken(body.label || "Autody admin");
+    const challenge = await createAdminLoginChallenge(email, body.label || "Autody admin", req);
+    return res.json({
+      success: true,
+      requiresCode: true,
+      challengeId: challenge.challengeId,
+      maskedEmail: challenge.maskedEmail,
+      expiresAt: challenge.expiresAt,
+      delivery: challenge.delivery?.delivered ? "Admin code sent." : "Admin code created. Email delivery provider is not fully connected yet."
+    });
+  } catch (err) {
+    console.error("Admin session challenge failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Could not start admin sign in." });
+  }
+});
+
+app.post("/api/ops/session/verify", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+
+    const admin = await verifyAdminLoginChallenge(body.challengeId, body.code, req);
+    const session = createAdminSessionToken(admin.label || "Autody admin", admin.email);
     return res.json({
       success: true,
       session,
@@ -12054,8 +12363,8 @@ app.post("/api/ops/session", async (req, res) => {
       issuedAt: new Date().toISOString()
     });
   } catch (err) {
-    console.error("Admin session creation failed:", err);
-    return res.status(500).json({ success: false, error: "Could not create admin session." });
+    console.error("Admin session verification failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Could not verify admin code." });
   }
 });
 

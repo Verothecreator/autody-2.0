@@ -23,17 +23,34 @@
     <section class="ops-gateway-grid">
       <form class="app-card ops-access-card" id="ops-gateway-form">
         <span class="muted-label">Secure entry</span>
-        <h2>Start admin session</h2>
+        <h2>Admin sign in</h2>
         <label>
-          Admin key
-          <input type="password" name="adminKey" autocomplete="off" placeholder="Enter admin key" required />
+          Admin email
+          <input type="email" name="email" autocomplete="username" placeholder="you@autodytraded.com" required />
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" autocomplete="current-password" placeholder="Enter admin password" required />
         </label>
         <label>
           Device label
           <input type="text" name="label" autocomplete="off" placeholder="Example: Vero laptop" />
         </label>
+        <button type="submit" class="btn">Send Code</button>
+        <p class="admin-notice" id="ops-gateway-notice">A short code will be sent to the admin email.</p>
+      </form>
+
+      <form class="app-card ops-access-card" id="ops-code-form" hidden>
+        <span class="muted-label">Email code</span>
+        <h2>Confirm admin access</h2>
+        <p class="supporting-copy" id="ops-code-copy">Enter the 6-digit code sent to your admin email.</p>
+        <label>
+          Admin code
+          <input type="text" name="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000" required />
+        </label>
         <button type="submit" class="btn">Open Console</button>
-        <p class="admin-notice" id="ops-gateway-notice">Session expires automatically.</p>
+        <button type="button" class="btn btn-ghost" id="ops-code-back">Back</button>
+        <p class="admin-notice" id="ops-code-notice">Code expires in 5 minutes.</p>
       </form>
 
       <article class="app-card ops-security-card">
@@ -41,8 +58,9 @@
         <h2>Not just a hidden link</h2>
         <div class="ops-security-list">
           <span>Private gateway path</span>
-          <span>Admin key required</span>
+          <span>Email and password check</span>
           <span>Signed server session</span>
+          <span>One-time email code</span>
           <span>Short expiry window</span>
           <span>No browser caching</span>
           <span>API-level rejection</span>
@@ -54,6 +72,15 @@
 
   <script src="ops-auth.js"></script>
   <script>
+    let opsPendingChallenge = null;
+    let opsPendingLabel = "";
+
+    function setGatewayNotice(element, message, state = "neutral") {
+      if (!element) return;
+      element.textContent = message;
+      element.dataset.state = state;
+    }
+
     document.getElementById("ops-gateway-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -63,25 +90,63 @@
         submit.disabled = true;
         submit.textContent = "Checking...";
         const body = Object.fromEntries(new FormData(form).entries());
+        opsPendingLabel = body.label || "Autody admin";
         const response = await fetch("/api/ops/session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
         const json = await response.json().catch(() => ({}));
-        if (!response.ok || !json.success) throw new Error(json.error || "Admin session was rejected.");
+        if (!response.ok || !json.success) throw new Error(json.error || "Admin sign in was rejected.");
+        opsPendingChallenge = json.challengeId;
+        form.hidden = true;
+        document.getElementById("ops-code-form").hidden = false;
+        document.querySelector("#ops-code-form input[name='code']")?.focus();
+        document.getElementById("ops-code-copy").textContent = `Enter the 6-digit code sent to ${json.maskedEmail || "your admin email"}.`;
+        setGatewayNotice(document.getElementById("ops-code-notice"), json.delivery || "Admin code sent.");
+      } catch (err) {
+        setGatewayNotice(notice, err.message || "Could not start admin sign in.", "error");
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Send Code";
+      }
+    });
+
+    document.getElementById("ops-code-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const notice = document.getElementById("ops-code-notice");
+      const submit = form.querySelector("button");
+      try {
+        submit.disabled = true;
+        submit.textContent = "Verifying...";
+        const body = Object.fromEntries(new FormData(form).entries());
+        body.challengeId = opsPendingChallenge;
+        body.label = opsPendingLabel;
+        const response = await fetch("/api/ops/session/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok || !json.success) throw new Error(json.error || "Admin code was rejected.");
         sessionStorage.setItem(OPS_SESSION_KEY, JSON.stringify({
           token: json.session.token,
           expiresAt: json.expiresAt
         }));
         location.href = "ops-console.html";
       } catch (err) {
-        notice.textContent = err.message || "Could not open admin session.";
-        notice.dataset.state = "error";
+        setGatewayNotice(notice, err.message || "Could not verify admin code.", "error");
       } finally {
         submit.disabled = false;
         submit.textContent = "Open Console";
       }
+    });
+
+    document.getElementById("ops-code-back")?.addEventListener("click", () => {
+      opsPendingChallenge = null;
+      document.getElementById("ops-code-form").hidden = true;
+      document.getElementById("ops-gateway-form").hidden = false;
     });
   </script>
 </body>

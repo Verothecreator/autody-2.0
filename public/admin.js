@@ -55,14 +55,13 @@ function adminOpsSession() {
 }
 
 function adminAuthHeaders() {
-  const key = adminKey();
   const session = adminOpsSession();
-  if (!key && !session?.token) {
-    throw new Error("Enter the admin key first or open an ops session.");
+  if (!session?.token) {
+    throw new Error("Open an ops session first.");
   }
   return {
     "Content-Type": "application/json",
-    ...(key ? { "x-admin-reset-key": key } : { Authorization: `Bearer ${session.token}` })
+    Authorization: `Bearer ${session.token}`
   };
 }
 
@@ -522,6 +521,22 @@ async function runAdminAction(event, path) {
 }
 
 function wireAdminPortal() {
+  const session = adminOpsSession();
+  const sessionStatus = document.getElementById("admin-session-status");
+  if (sessionStatus) {
+    sessionStatus.textContent = session?.expiresAt
+      ? `Active until ${formatAdminDate(session.expiresAt)}`
+      : "No active ops session";
+  }
+
+  if (!session) {
+    setAdminNotice("Ops session required. Redirecting to the gateway.", "error");
+    setTimeout(() => {
+      window.location.href = "ops-gateway.html";
+    }, 700);
+    return;
+  }
+
   document.getElementById("admin-connect")?.addEventListener("click", async () => {
     try {
       const overview = await loadAdminOverview();
@@ -636,11 +651,9 @@ function wireAdminPortal() {
     }
   });
 
-  if (adminKey() || adminOpsSession()) {
-    loadAdminOverview().catch((err) => {
-      setAdminNotice(err.message || "Enter the admin key to load deposit data.", "error");
-    });
-  }
+  loadAdminOverview().catch((err) => {
+    setAdminNotice(err.message || "Could not load admin data.", "error");
+  });
 }
 
 document.addEventListener("DOMContentLoaded", wireAdminPortal);
