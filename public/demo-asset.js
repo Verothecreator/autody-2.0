@@ -268,13 +268,14 @@ function detailRow(label, value) {
 }
 
 function activityMetric(asset) {
+  const isAutody = String(asset?.symbol || "").toUpperCase() === "AU";
   const liquidity = Number(asset.liquidityUsd);
   const volume = Number(asset.totalVolume);
-  if (Number.isFinite(liquidity) && liquidity > 0) {
+  if (!isAutody && Number.isFinite(liquidity) && liquidity > 0) {
     return { label: "Liquidity", value: liquidity };
   }
   if (Number.isFinite(volume) && volume > 0) {
-    return { label: asset.assetType === "crypto" ? "24h volume" : "Volume", value: volume };
+    return { label: isAutody || asset.assetType !== "crypto" ? "Volume" : "24h volume", value: volume };
   }
   return null;
 }
@@ -291,17 +292,13 @@ function renderDetails(asset, chart) {
 
   const rows = [];
 
-  if (asset.customAsset) {
-    rows.push(detailRow("Market status", asset.status || "Market maker pending"));
-    rows.push(detailRow("Backing plan", "Gold-backed AU reserve"));
-    rows.push(detailRow("Primary use", "Payments, exchange, goods, and services"));
-  } else if (asset.assetType === "crypto") {
+  if (asset.assetType === "crypto") {
     rows.push(detailRow("Network", networks[0] || "Multiple networks"));
   } else {
     rows.push(detailRow("Exchange", asset.market || "Global market"));
   }
 
-  if (networks.length > 1 && !asset.customAsset) {
+  if (networks.length > 1) {
     rows.splice(1, 0, detailRow("Deposit networks", networks.slice(0, 4).join(", ")));
   }
 

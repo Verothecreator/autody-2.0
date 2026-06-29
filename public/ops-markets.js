@@ -20,6 +20,28 @@ function auNumberInput(form, name, value) {
   if (input) input.value = value ?? "";
 }
 
+function calculateDerivedAuMetrics(form) {
+  const currentPrice = Number(form.elements.currentPrice?.value || 0);
+  const circulatingSupply = Number(form.elements.circulatingSupply?.value || 0);
+  const totalSupply = Number(form.elements.totalSupply?.value || 0);
+  return {
+    marketCap: Number.isFinite(currentPrice) && Number.isFinite(circulatingSupply) && circulatingSupply > 0
+      ? currentPrice * circulatingSupply
+      : 0,
+    fdv: Number.isFinite(currentPrice) && Number.isFinite(totalSupply) && totalSupply > 0
+      ? currentPrice * totalSupply
+      : 0
+  };
+}
+
+function renderDerivedAuMetrics() {
+  const form = document.getElementById("ops-market-form");
+  if (!form) return;
+  const derived = calculateDerivedAuMetrics(form);
+  auNumberInput(form, "marketCap", derived.marketCap ? derived.marketCap.toFixed(2) : "");
+  auNumberInput(form, "fdv", derived.fdv ? derived.fdv.toFixed(2) : "");
+}
+
 function fillControlForm(control = {}) {
   const form = document.getElementById("ops-market-form");
   if (!form) return;
@@ -37,6 +59,7 @@ function fillControlForm(control = {}) {
   auNumberInput(form, "circulatingSupply", control.circulatingSupply);
   auNumberInput(form, "totalSupply", control.totalSupply);
   if (form.elements.status) form.elements.status.value = control.status || "admin controlled";
+  renderDerivedAuMetrics();
 }
 
 function renderKpis(overview = {}) {
@@ -139,6 +162,7 @@ function formControlBody(form) {
     }
     const value = String(rawValue || "").trim();
     if (!value) continue;
+    if (["marketCap", "fdv"].includes(key)) continue;
     body[key] = ["status"].includes(key) ? value : Number(value);
   }
   if (!new FormData(form).has("enabled")) body.enabled = false;
@@ -168,6 +192,9 @@ function wireAuOps() {
 
   document.getElementById("ops-force-tick")?.addEventListener("click", () => loadAuOverview(true).catch((err) => auNotice(err.message, "error")));
   document.getElementById("ops-chart-range")?.addEventListener("change", () => loadAuOverview(false).catch((err) => auNotice(err.message, "error")));
+  document.getElementById("ops-market-form")?.addEventListener("input", (event) => {
+    if (["currentPrice", "circulatingSupply", "totalSupply"].includes(event.target?.name)) renderDerivedAuMetrics();
+  });
   loadAuOverview(false).catch((err) => auNotice(err.message || "Could not load AU control.", "error"));
 }
 

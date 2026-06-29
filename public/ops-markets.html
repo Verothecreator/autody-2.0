@@ -69,13 +69,15 @@
           <label>Step percent<input name="stepPercent" type="number" step="0.01" min="0.01" max="50" /></label>
           <label>Trend bias<input name="trendBias" type="number" step="0.01" min="-1" max="1" /></label>
         </div>
+        <p class="ops-field-help">Step percent controls the largest random move per tick. Trend bias leans each tick down (-1), neutral (0), or up (+1).</p>
         <div class="admin-form-row">
           <label>Liquidity USD<input name="liquidityUsd" type="number" step="0.01" min="0" /></label>
-          <label>Market cap<input name="marketCap" type="number" step="0.01" min="0" /></label>
-          <label>FDV<input name="fdv" type="number" step="0.01" min="0" /></label>
+          <label>Market cap<input name="marketCap" type="number" step="0.01" min="0" readonly /></label>
+          <label>FDV<input name="fdv" type="number" step="0.01" min="0" readonly /></label>
         </div>
+        <p class="ops-field-help">Market cap is price x circulating supply. FDV is price x total supply.</p>
         <div class="admin-form-row">
-          <label>24h volume<input name="totalVolume" type="number" step="0.01" min="0" /></label>
+          <label>Volume USD<input name="totalVolume" type="number" step="0.01" min="0" /></label>
           <label>Circulating supply<input name="circulatingSupply" type="number" step="any" min="0" /></label>
           <label>Total supply<input name="totalSupply" type="number" step="any" min="0" /></label>
         </div>

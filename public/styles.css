@@ -6106,6 +6106,19 @@ body.account-body.theme-light .profile-kyc-modal-card {
   font-weight: 850;
 }
 
+.ops-market-form input[readonly] {
+  color: var(--muted);
+  background: rgba(21, 25, 34, 0.72);
+  cursor: not-allowed;
+}
+
+.ops-field-help {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
 .ops-enable-check {
   width: fit-content;
   justify-self: end;

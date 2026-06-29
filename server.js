@@ -6541,12 +6541,14 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
         );
         let order;
         let realizedDelta = 0;
+        const marketImpacts = [];
 
         if (side === "buy") {
             const asset = await resolveTradeAsset(body.symbol);
             const trade = calculateTradeSize(body, asset.price);
             await adjustDbCash(client, context.wallet_id, -trade.notionalUsd);
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
+            if (asset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd: trade.notionalUsd, source: "demo-buy" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
                 assetType: tradeAssetType(asset),
@@ -6561,6 +6563,7 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity);
             realizedDelta += result.realizedProfitLoss;
             await adjustDbCash(client, context.wallet_id, trade.notionalUsd);
+            if (asset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd: trade.notionalUsd, source: "demo-sell" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
                 assetType: tradeAssetType(asset),
@@ -6587,9 +6590,11 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             const fromQuantity = notionalUsd / fromAsset.price;
             const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
             realizedDelta += sellResult.realizedProfitLoss;
+            if (fromAsset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd, source: "demo-swap-out" });
 
             const toQuantity = notionalUsd / toAsset.price;
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, notionalUsd);
+            if (toAsset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd, source: "demo-swap-in" });
             order = await insertDbOrder(client, context, {
                 symbol: toAsset.symbol,
                 assetType: tradeAssetType(toAsset),
@@ -6604,6 +6609,11 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
 
         await refreshDbPerformance(client, context, realizedDelta);
         await client.query("commit");
+        for (const impact of marketImpacts) {
+            await applyAdminControlledTradeImpact("AU", impact.side, impact.notionalUsd, impact.source).catch((err) => {
+                console.error("AU demo trade impact failed:", err.message || err);
+            });
+        }
         const account = auth.source === "supabase" && auth.profileId
             ? await getDatabaseAccountByProfileId(auth.profileId, "demo")
             : await getPracticeAccountAfterDatabaseWrite("Supabase demo order");
@@ -6690,18 +6700,21 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
 
     let order;
     let realizedDelta = 0;
+    const marketImpacts = [];
 
     if (side === "buy") {
         const asset = await resolveTradeAsset(body.symbol);
         const trade = calculateTradeSize(body, asset.price);
         adjustCash(-trade.notionalUsd);
         buyHolding(asset, trade.quantity, trade.notionalUsd);
+        if (asset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd: trade.notionalUsd, source: "demo-json-buy" });
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
     } else if (side === "sell") {
         const asset = await resolveTradeAsset(body.symbol);
         const trade = calculateTradeSize(body, asset.price);
         realizedDelta += sellHolding(asset, trade.quantity);
         adjustCash(trade.notionalUsd);
+        if (asset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd: trade.notionalUsd, source: "demo-json-sell" });
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
     } else if (side === "swap") {
         const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol);
@@ -6718,8 +6731,10 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         const fromAsset = await resolveTradeAsset(fromSymbol);
         assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
         realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price);
+        if (fromAsset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd, source: "demo-json-swap-out" });
         const toQuantity = notionalUsd / toAsset.price;
         buyHolding(toAsset, toQuantity, notionalUsd);
+        if (toAsset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd, source: "demo-json-swap-in" });
         order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };
     } else {
         throw demoTradeError(400, "Choose buy, sell, or swap.");
@@ -6753,6 +6768,11 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
     };
 
     saveDemoDb(db);
+    for (const impact of marketImpacts) {
+        await applyAdminControlledTradeImpact("AU", impact.side, impact.notionalUsd, impact.source).catch((err) => {
+            console.error("AU JSON demo trade impact failed:", err.message || err);
+        });
+    }
     return {
         order,
         account: { ...(getJsonAccountByUserId(userId, "demo") || getPracticeAccount()), source: "json" },
@@ -9324,6 +9344,23 @@ function roundMarketPrice(value) {
     return Number(number.toFixed(10));
 }
 
+function roundAdminUsd(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Number(number.toFixed(2));
+}
+
+function deriveAdminMarketMetrics(values = {}) {
+    const currentPrice = nullableNumber(values.currentPrice ?? values.current_price ?? values.price_usd) ?? 0;
+    const circulatingSupply = nullableNumber(values.circulatingSupply ?? values.circulating_supply);
+    const totalSupply = nullableNumber(values.totalSupply ?? values.total_supply);
+
+    return {
+        marketCap: circulatingSupply !== null ? roundAdminUsd(currentPrice * circulatingSupply) : 0,
+        fdv: totalSupply !== null ? roundAdminUsd(currentPrice * totalSupply) : 0
+    };
+}
+
 let adminMarketTablesReady = false;
 let adminMarketTablesPromise = null;
 
@@ -9384,7 +9421,7 @@ async function ensureAdminMarketTables(client = dbPool) {
 
 function normalizeAdminMarketControlRow(row = {}) {
     if (!row?.symbol) return null;
-    return {
+    const control = {
         symbol: controlledMarketSymbol(row.symbol),
         name: row.asset_name || "Autody AU",
         assetType: row.asset_type || "crypto",
@@ -9409,6 +9446,10 @@ function normalizeAdminMarketControlRow(row = {}) {
         lastTickAt: row.last_tick_at || null,
         createdAt: row.created_at || null,
         updatedAt: row.updated_at || null
+    };
+    return {
+        ...control,
+        ...deriveAdminMarketMetrics(control)
     };
 }
 
@@ -9582,28 +9623,103 @@ async function advanceAdminControlledMarket(symbol = "AU", options = {}) {
     const rawNext = previousPrice * (1 + movement);
     const nextPrice = roundMarketPrice(clampNumber(rawNext, control.minPrice, control.maxPrice)) || previousPrice;
     const changePct = previousPrice ? Number((((nextPrice - previousPrice) / previousPrice) * 100).toFixed(6)) : 0;
+    const tickVolume = positiveNumber(options.volumeUsd) ?? Math.max(0, roundAdminUsd((control.liquidityUsd || 0) * Math.abs(changePct) * 0.001));
+    const nextTotalVolume = roundAdminUsd((control.totalVolume || 0) + tickVolume);
+    const derived = deriveAdminMarketMetrics({
+        ...control,
+        currentPrice: nextPrice
+    });
 
     const result = await dbPool.query(`
         update admin_market_controls
         set current_price = $2,
             last_price = $3,
             change_pct = $4,
+            market_cap_usd = $5,
+            fdv_usd = $6,
+            total_volume_usd = $7,
             last_tick_at = now(),
             updated_at = now()
         where symbol = $1
         returning *
-    `, [safeSymbol, nextPrice, previousPrice, changePct]);
+    `, [safeSymbol, nextPrice, previousPrice, changePct, derived.marketCap, derived.fdv, nextTotalVolume]);
 
     await dbPool.query(`
         insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
         values ($1, $2, $3, $4, $5)
-    `, [safeSymbol, nextPrice, changePct, control.totalVolume || 0, options.source || "admin-control"]);
+    `, [safeSymbol, nextPrice, changePct, tickVolume, options.source || "admin-control"]);
 
     await trimAdminMarketTicks(safeSymbol);
     const updated = normalizeAdminMarketControlRow(result.rows[0]);
     await saveAdminMarketSnapshot(updated);
     await saveAdminControlledCharts(safeSymbol).catch((err) => {
         console.error("AU chart snapshot save failed:", err.message || err);
+    });
+    return updated;
+}
+
+async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source = "order-trade") {
+    if (!databaseConfigured()) return null;
+    const safeSymbol = controlledMarketSymbol(symbol);
+    if (safeSymbol !== "AU") return null;
+    const amountUsd = positiveNumber(notionalUsd);
+    if (!amountUsd) return null;
+
+    await ensureAdminMarketTables();
+    const control = await ensureAdminMarketControl(safeSymbol);
+    if (!control?.enabled) return control;
+
+    const currentPrice = Math.max(0.00000001, Number(control.currentPrice || controlledMarketDefaultPrice()));
+    const direction = String(side || "").toLowerCase() === "sell" ? -1 : 1;
+    const fallbackLiquidity = positiveNumber(process.env.AUTODY_AU_DEFAULT_LIQUIDITY_USD) || 10000;
+    const impactBase = Math.max(control.liquidityUsd || 0, amountUsd, fallbackLiquidity);
+    const maxImpact = clampNumber(process.env.AUTODY_AU_TRADE_MAX_IMPACT_PCT || 3, 0.01, 25) / 100;
+    const impactMultiplier = clampNumber(process.env.AUTODY_AU_TRADE_IMPACT_MULTIPLIER || 0.35, 0.01, 5);
+    const impact = Math.min(maxImpact, (amountUsd / impactBase) * impactMultiplier);
+    const nextPrice = roundMarketPrice(clampNumber(currentPrice * (1 + direction * impact), control.minPrice, control.maxPrice)) || currentPrice;
+    const changePct = currentPrice ? Number((((nextPrice - currentPrice) / currentPrice) * 100).toFixed(6)) : 0;
+    const liquidityShift = roundAdminUsd(amountUsd * 0.05);
+    const nextLiquidity = roundAdminUsd(Math.max(0, (control.liquidityUsd || 0) + (direction > 0 ? -liquidityShift : liquidityShift)));
+    const nextTotalVolume = roundAdminUsd((control.totalVolume || 0) + amountUsd);
+    const derived = deriveAdminMarketMetrics({
+        ...control,
+        currentPrice: nextPrice
+    });
+
+    const result = await dbPool.query(`
+        update admin_market_controls
+        set current_price = $2,
+            last_price = $3,
+            change_pct = $4,
+            liquidity_usd = $5,
+            market_cap_usd = $6,
+            fdv_usd = $7,
+            total_volume_usd = $8,
+            last_tick_at = now(),
+            updated_at = now()
+        where symbol = $1
+        returning *
+    `, [
+        safeSymbol,
+        nextPrice,
+        currentPrice,
+        changePct,
+        nextLiquidity,
+        derived.marketCap,
+        derived.fdv,
+        nextTotalVolume
+    ]);
+
+    await dbPool.query(`
+        insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
+        values ($1, $2, $3, $4, $5)
+    `, [safeSymbol, nextPrice, changePct, amountUsd, source]);
+
+    await trimAdminMarketTicks(safeSymbol);
+    const updated = normalizeAdminMarketControlRow(result.rows[0]);
+    await saveAdminMarketSnapshot(updated);
+    await saveAdminControlledCharts(safeSymbol).catch((err) => {
+        console.error("AU trade chart snapshot save failed:", err.message || err);
     });
     return updated;
 }
@@ -9809,6 +9925,14 @@ async function updateAdminMarketControl(body = {}) {
     const changePct = priceChanged && previousPrice
         ? Number((((currentPrice - previousPrice) / previousPrice) * 100).toFixed(6))
         : current.changePct || 0;
+    const circulatingSupply = nullableNumber(body.circulatingSupply) ?? current.circulatingSupply;
+    const totalSupply = nullableNumber(body.totalSupply) ?? current.totalSupply;
+    const maxSupply = nullableNumber(body.maxSupply) ?? current.maxSupply;
+    const derived = deriveAdminMarketMetrics({
+        currentPrice,
+        circulatingSupply,
+        totalSupply
+    });
 
     const result = await dbPool.query(`
         update admin_market_controls
@@ -9846,12 +9970,12 @@ async function updateAdminMarketControl(body = {}) {
         Math.max(0.01, Math.min(50, Number(body.stepPercent || current.stepPercent || 0.75))),
         clampNumber(body.trendBias ?? current.trendBias ?? 0, -1, 1),
         adminPositiveValue(body.liquidityUsd, current.liquidityUsd, 0),
-        adminPositiveValue(body.marketCap, current.marketCap, 0),
-        adminPositiveValue(body.fdv, current.fdv, 0),
+        derived.marketCap,
+        derived.fdv,
         adminPositiveValue(body.totalVolume, current.totalVolume, 0),
-        nullableNumber(body.circulatingSupply) ?? current.circulatingSupply,
-        nullableNumber(body.totalSupply) ?? current.totalSupply,
-        nullableNumber(body.maxSupply) ?? current.maxSupply,
+        circulatingSupply,
+        totalSupply,
+        maxSupply,
         normalizeText(body.status || current.status || "admin controlled"),
         normalizeText(body.updatedBy || "admin"),
         priceChanged
