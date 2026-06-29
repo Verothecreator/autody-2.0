@@ -275,7 +275,7 @@ function activityMetric(asset) {
     return { label: "Liquidity", value: liquidity };
   }
   if (Number.isFinite(volume) && volume > 0) {
-    return { label: isAutody || asset.assetType !== "crypto" ? "Volume" : "24h volume", value: volume };
+    return { label: isAutody || asset.assetType === "crypto" ? "24h volume" : "Volume", value: volume };
   }
   return null;
 }
@@ -412,7 +412,9 @@ function renderAsset(data) {
   const change = document.getElementById("asset-change");
   change.textContent = formatMove(asset.changePct);
   change.className = moveClass(asset.changePct);
-  document.getElementById("asset-chart-title").textContent = `${asset.name} movement`;
+  document.getElementById("asset-chart-title").textContent = String(asset.symbol || "").toUpperCase() === "AU"
+    ? "Autody Movement"
+    : `${asset.name} movement`;
   if (IS_LIVE_ASSET_PAGE) {
     const wallet = data.live?.wallet || {};
     const cashBalance = Number(wallet.cashBalance || 0);

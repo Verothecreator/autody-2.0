@@ -2245,7 +2245,7 @@ function demoTradeError(status, message) {
 }
 
 const LIVE_DEPOSIT_ASSETS = {
-    AU: { name: "Autody AU", networks: ["Polygon PoS"] },
+    AU: { name: "Autody AU", networks: ["Autody"] },
     BTC: { name: "Bitcoin", networks: ["Bitcoin"] },
     ETH: { name: "Ethereum", networks: ["Ethereum ERC-20", "Base", "Arbitrum One", "Optimism"] },
     USDT: { name: "Tether USDt", networks: ["Ethereum ERC-20", "BNB Smart Chain BEP-20", "Polygon PoS", "Arbitrum One", "Optimism", "Avalanche C-Chain", "Tron TRC-20"] },
@@ -9350,6 +9350,16 @@ function roundAdminUsd(value) {
     return Number(number.toFixed(2));
 }
 
+const ADMIN_MARKET_VOLUME_ROLL_MS = 24 * 60 * 60 * 1000;
+
+function randomAdminMarketVolume(min, max) {
+    const low = Math.max(0, Number(min || 0));
+    const high = Math.max(0, Number(max || 0));
+    if (!Number.isFinite(low) || !Number.isFinite(high) || high <= 0 || high < low) return null;
+    if (high === low) return roundAdminUsd(low);
+    return roundAdminUsd(low + Math.random() * (high - low));
+}
+
 function deriveAdminMarketMetrics(values = {}) {
     const currentPrice = nullableNumber(values.currentPrice ?? values.current_price ?? values.price_usd) ?? 0;
     const circulatingSupply = nullableNumber(values.circulatingSupply ?? values.circulating_supply);
@@ -9386,6 +9396,9 @@ async function ensureAdminMarketTables(client = dbPool) {
               market_cap_usd numeric(24, 2) not null default 0,
               fdv_usd numeric(24, 2) not null default 0,
               total_volume_usd numeric(24, 2) not null default 0,
+              volume_min_usd numeric(24, 2) not null default 0,
+              volume_max_usd numeric(24, 2) not null default 0,
+              volume_last_roll_at timestamptz,
               circulating_supply numeric(32, 8),
               total_supply numeric(32, 8),
               max_supply numeric(32, 8),
@@ -9408,6 +9421,13 @@ async function ensureAdminMarketTables(client = dbPool) {
 
             create index if not exists admin_market_ticks_symbol_time_idx
               on admin_market_ticks (symbol, created_at desc);
+
+            alter table if exists admin_market_controls
+              add column if not exists volume_min_usd numeric(24, 2) not null default 0;
+            alter table if exists admin_market_controls
+              add column if not exists volume_max_usd numeric(24, 2) not null default 0;
+            alter table if exists admin_market_controls
+              add column if not exists volume_last_roll_at timestamptz;
         `).then(() => {
             adminMarketTablesReady = true;
             return true;
@@ -9438,6 +9458,9 @@ function normalizeAdminMarketControlRow(row = {}) {
         marketCap: nullableNumber(row.market_cap_usd) ?? 0,
         fdv: nullableNumber(row.fdv_usd) ?? 0,
         totalVolume: nullableNumber(row.total_volume_usd) ?? 0,
+        volumeMinUsd: nullableNumber(row.volume_min_usd) ?? 0,
+        volumeMaxUsd: nullableNumber(row.volume_max_usd) ?? 0,
+        volumeLastRollAt: row.volume_last_roll_at || null,
         circulatingSupply: nullableNumber(row.circulating_supply),
         totalSupply: nullableNumber(row.total_supply),
         maxSupply: nullableNumber(row.max_supply),
@@ -9602,8 +9625,9 @@ async function trimAdminMarketTicks(symbol = "AU") {
 async function advanceAdminControlledMarket(symbol = "AU", options = {}) {
     if (!databaseConfigured()) return null;
     const safeSymbol = controlledMarketSymbol(symbol);
-    const control = await ensureAdminMarketControl(safeSymbol);
+    let control = await ensureAdminMarketControl(safeSymbol);
     if (!control) return null;
+    control = await rollAdminMarketVolumeIfDue(control, { forceVolumeRoll: Boolean(options.forceVolumeRoll) });
 
     const now = Date.now();
     const lastTickMs = Date.parse(control.lastTickAt || control.updatedAt || 0);
@@ -9656,6 +9680,26 @@ async function advanceAdminControlledMarket(symbol = "AU", options = {}) {
         console.error("AU chart snapshot save failed:", err.message || err);
     });
     return updated;
+}
+
+async function rollAdminMarketVolumeIfDue(control, options = {}) {
+    if (!control?.symbol || !databaseConfigured()) return control;
+    if (control.enabled === false && !options.forceVolumeRoll) return control;
+    const nextVolume = randomAdminMarketVolume(control.volumeMinUsd, control.volumeMaxUsd);
+    if (nextVolume === null) return control;
+    const lastRollMs = Date.parse(control.volumeLastRollAt || 0);
+    const due = options.forceVolumeRoll || !lastRollMs || (Date.now() - lastRollMs >= ADMIN_MARKET_VOLUME_ROLL_MS);
+    if (!due) return control;
+
+    const result = await dbPool.query(`
+        update admin_market_controls
+        set total_volume_usd = $2,
+            volume_last_roll_at = now(),
+            updated_at = now()
+        where symbol = $1
+        returning *
+    `, [control.symbol, nextVolume]);
+    return normalizeAdminMarketControlRow(result.rows[0]) || control;
 }
 
 async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source = "order-trade") {
@@ -9928,6 +9972,15 @@ async function updateAdminMarketControl(body = {}) {
     const circulatingSupply = nullableNumber(body.circulatingSupply) ?? current.circulatingSupply;
     const totalSupply = nullableNumber(body.totalSupply) ?? current.totalSupply;
     const maxSupply = nullableNumber(body.maxSupply) ?? current.maxSupply;
+    const totalVolume = adminPositiveValue(body.totalVolume, current.totalVolume, 0);
+    const volumeMinUsd = adminPositiveValue(body.volumeMinUsd, current.volumeMinUsd, 0);
+    const volumeMaxUsd = adminPositiveValue(body.volumeMaxUsd, current.volumeMaxUsd, 0);
+    if (volumeMaxUsd > 0 && volumeMaxUsd < volumeMinUsd) {
+        const err = new Error("24h volume max must be higher than 24h volume min.");
+        err.status = 400;
+        throw err;
+    }
+    const manualVolumeChanged = Object.prototype.hasOwnProperty.call(body, "totalVolume");
     const derived = deriveAdminMarketMetrics({
         currentPrice,
         circulatingSupply,
@@ -9949,12 +10002,15 @@ async function updateAdminMarketControl(body = {}) {
             market_cap_usd = $12,
             fdv_usd = $13,
             total_volume_usd = $14,
-            circulating_supply = $15,
-            total_supply = $16,
-            max_supply = $17,
-            status = $18,
-            updated_by = $19,
-            last_tick_at = case when $20 then now() else last_tick_at end,
+            volume_min_usd = $15,
+            volume_max_usd = $16,
+            circulating_supply = $17,
+            total_supply = $18,
+            max_supply = $19,
+            status = $20,
+            updated_by = $21,
+            last_tick_at = case when $22 then now() else last_tick_at end,
+            volume_last_roll_at = case when $23 then now() else volume_last_roll_at end,
             updated_at = now()
         where symbol = $1
         returning *
@@ -9972,20 +10028,23 @@ async function updateAdminMarketControl(body = {}) {
         adminPositiveValue(body.liquidityUsd, current.liquidityUsd, 0),
         derived.marketCap,
         derived.fdv,
-        adminPositiveValue(body.totalVolume, current.totalVolume, 0),
+        totalVolume,
+        volumeMinUsd,
+        volumeMaxUsd,
         circulatingSupply,
         totalSupply,
         maxSupply,
         normalizeText(body.status || current.status || "admin controlled"),
         normalizeText(body.updatedBy || "admin"),
-        priceChanged
+        priceChanged,
+        manualVolumeChanged
     ]);
 
     if (priceChanged) {
         await dbPool.query(`
             insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
             values ($1, $2, $3, $4, 'admin-manual')
-        `, [symbol, currentPrice, changePct, adminPositiveValue(body.totalVolume, current.totalVolume, 0)]);
+        `, [symbol, currentPrice, changePct, totalVolume]);
     }
 
     await trimAdminMarketTicks(symbol);
@@ -10353,7 +10412,7 @@ const AUTODY_MARKET_ASSET = {
   assetType: "crypto",
   market: "Autody",
   tags: ["Gold-backed", "Payments", "Autody ecosystem"],
-  depositNetworks: ["Polygon PoS"],
+  depositNetworks: ["Autody"],
   tradeable: true,
   customAsset: true,
   logoUrl: "Autody-Logo.png",

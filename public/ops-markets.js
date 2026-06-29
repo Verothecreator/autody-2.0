@@ -56,6 +56,8 @@ function fillControlForm(control = {}) {
   auNumberInput(form, "marketCap", control.marketCap);
   auNumberInput(form, "fdv", control.fdv);
   auNumberInput(form, "totalVolume", control.totalVolume);
+  auNumberInput(form, "volumeMinUsd", control.volumeMinUsd);
+  auNumberInput(form, "volumeMaxUsd", control.volumeMaxUsd);
   auNumberInput(form, "circulatingSupply", control.circulatingSupply);
   auNumberInput(form, "totalSupply", control.totalSupply);
   if (form.elements.status) form.elements.status.value = control.status || "admin controlled";
