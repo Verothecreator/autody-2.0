@@ -5570,7 +5570,8 @@ body.account-body.theme-light .profile-kyc-modal-card {
 }
 
 .admin-key-card input,
-.admin-action-card input {
+.admin-action-card input,
+.admin-action-card select {
   min-height: 46px;
   width: 100%;
   border: 1px solid var(--line);
@@ -5948,14 +5949,215 @@ body.account-body.theme-light .profile-kyc-modal-card {
   background: rgba(255, 88, 116, 0.12);
 }
 
+.ops-shell {
+  width: min(1520px, calc(100% - 48px));
+}
+
+.ops-hero {
+  grid-template-columns: minmax(170px, 0.18fr) minmax(0, 1fr) minmax(260px, 0.28fr);
+  align-items: center;
+}
+
+.ops-gateway-shell {
+  min-height: 100vh;
+  align-content: center;
+}
+
+.ops-gateway-grid,
+.ops-console-grid,
+.ops-market-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.ops-gateway-grid {
+  grid-template-columns: minmax(320px, 0.72fr) minmax(320px, 1fr);
+  align-items: stretch;
+}
+
+.ops-access-card,
+.ops-security-card,
+.ops-console-card,
+.ops-chart-card {
+  background:
+    linear-gradient(145deg, rgba(21, 26, 37, 0.96), rgba(13, 17, 25, 0.96)),
+    rgba(15, 19, 27, 0.92);
+}
+
+.ops-access-card,
+.ops-security-card {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.ops-access-card h2,
+.ops-security-card h2,
+.ops-console-card strong,
+.ops-chart-card h2 {
+  margin: 0;
+}
+
+.ops-access-card label,
+.ops-market-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.ops-access-card input {
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151922;
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+}
+
+.ops-security-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ops-security-list span {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid rgba(91, 95, 239, 0.32);
+  border-radius: 8px;
+  background: rgba(91, 95, 239, 0.11);
+  color: var(--text);
+  font-weight: 900;
+}
+
+.ops-session-card {
+  align-content: start;
+}
+
+.ops-session-card strong {
+  font-size: 1.1rem;
+}
+
+.ops-console-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ops-console-card {
+  min-height: 230px;
+  display: grid;
+  align-content: space-between;
+  gap: 18px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ops-console-card strong {
+  display: block;
+  color: var(--text);
+  font-size: clamp(1.6rem, 3vw, 2.35rem);
+  line-height: 1;
+}
+
+.ops-console-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.ops-console-card:hover {
+  border-color: rgba(91, 95, 239, 0.7);
+  transform: translateY(-2px);
+}
+
+.ops-market-kpis .mini-metric small.positive,
+.ops-market-kpis .mini-metric .positive {
+  color: var(--positive);
+}
+
+.ops-market-kpis .mini-metric small.negative,
+.ops-market-kpis .mini-metric .negative {
+  color: var(--negative);
+}
+
+.ops-market-layout {
+  grid-template-columns: minmax(420px, 0.72fr) minmax(520px, 1fr);
+  align-items: start;
+}
+
+.ops-market-form {
+  display: grid;
+  gap: 14px;
+}
+
+.ops-market-form input,
+.ops-market-form select,
+.ops-chart-card select {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151922;
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 850;
+}
+
+.ops-enable-check {
+  width: fit-content;
+  justify-self: end;
+}
+
+.ops-chart-card {
+  display: grid;
+  gap: 16px;
+}
+
+.ops-chart-stage {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(79, 91, 126, 0.5);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 70% 18%, rgba(45, 225, 139, 0.12), transparent 30%),
+    #090d14;
+}
+
+.ops-chart-stage svg {
+  width: 100%;
+  min-height: 330px;
+}
+
+.ops-tick-list {
+  max-height: 330px;
+}
+
+.ops-tick-record {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ops-tick-record small {
+  text-align: right;
+}
+
 @media (max-width: 1180px) {
   .admin-hero,
   .admin-grid,
-  .admin-data-grid {
+  .admin-data-grid,
+  .ops-hero,
+  .ops-gateway-grid,
+  .ops-market-layout {
     grid-template-columns: 1fr;
   }
 
-  .admin-kpi-grid {
+  .admin-kpi-grid,
+  .ops-console-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -6004,6 +6206,23 @@ body.account-body.theme-light .profile-kyc-modal-card {
   .admin-record span,
   .admin-record small {
     white-space: normal;
+  }
+
+  .ops-shell {
+    width: min(1520px, calc(100% - 28px));
+  }
+
+  .ops-console-grid,
+  .ops-security-list {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-enable-check {
+    justify-self: start;
+  }
+
+  .ops-chart-stage {
+    min-height: 280px;
   }
 }
 

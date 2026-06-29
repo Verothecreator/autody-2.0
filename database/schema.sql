@@ -345,6 +345,46 @@ create table if not exists market_latest_chart_snapshots (
   primary key (symbol, range_key)
 );
 
+create table if not exists admin_market_controls (
+  symbol text primary key,
+  asset_name text not null,
+  asset_type text not null default 'crypto',
+  enabled boolean not null default true,
+  min_price numeric(24, 10) not null default 0.0001000000,
+  max_price numeric(24, 10) not null default 0.0100000000,
+  current_price numeric(24, 10) not null default 0.0010000000,
+  last_price numeric(24, 10),
+  change_pct numeric(12, 6) not null default 0,
+  update_interval_seconds integer not null default 30,
+  step_percent numeric(12, 6) not null default 0.750000,
+  trend_bias numeric(12, 6) not null default 0,
+  liquidity_usd numeric(24, 2) not null default 0,
+  market_cap_usd numeric(24, 2) not null default 0,
+  fdv_usd numeric(24, 2) not null default 0,
+  total_volume_usd numeric(24, 2) not null default 0,
+  circulating_supply numeric(32, 8),
+  total_supply numeric(32, 8),
+  max_supply numeric(32, 8),
+  status text not null default 'admin controlled',
+  updated_by text,
+  last_tick_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists admin_market_ticks (
+  id bigserial primary key,
+  symbol text not null,
+  price_usd numeric(24, 10) not null,
+  change_pct numeric(12, 6) not null default 0,
+  volume_usd numeric(24, 2) not null default 0,
+  source text not null default 'admin-control',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists admin_market_ticks_symbol_time_idx
+  on admin_market_ticks (symbol, created_at desc);
+
 create table if not exists asset_catalog (
   symbol text primary key,
   asset_name text not null,

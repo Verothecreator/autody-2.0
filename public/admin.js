@@ -24,6 +24,8 @@ const numericFields = new Set([
 
 let adminOverview = null;
 
+const ADMIN_OPS_SESSION_KEY = "autodyOpsSession";
+
 function adminEscape(value = "") {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -35,6 +37,33 @@ function adminEscape(value = "") {
 
 function adminKey() {
   return document.getElementById("admin-key")?.value.trim() || "";
+}
+
+function adminOpsSession() {
+  try {
+    const raw = sessionStorage.getItem(ADMIN_OPS_SESSION_KEY);
+    const session = raw ? JSON.parse(raw) : null;
+    if (!session?.token) return null;
+    if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+      sessionStorage.removeItem(ADMIN_OPS_SESSION_KEY);
+      return null;
+    }
+    return session;
+  } catch (err) {
+    return null;
+  }
+}
+
+function adminAuthHeaders() {
+  const key = adminKey();
+  const session = adminOpsSession();
+  if (!key && !session?.token) {
+    throw new Error("Enter the admin key first or open an ops session.");
+  }
+  return {
+    "Content-Type": "application/json",
+    ...(key ? { "x-admin-reset-key": key } : { Authorization: `Bearer ${session.token}` })
+  };
 }
 
 function setAdminNotice(message, state = "neutral") {
@@ -90,14 +119,9 @@ function formBody(form) {
 }
 
 async function adminPost(path, body = {}) {
-  const key = adminKey();
-  if (!key) throw new Error("Enter the admin key first.");
   const response = await fetch(path, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-reset-key": key
-    },
+    headers: adminAuthHeaders(),
     body: JSON.stringify(body)
   });
   const json = await response.json().catch(() => ({}));
@@ -115,14 +139,9 @@ function fileNameFromDisposition(disposition = "") {
 }
 
 async function adminDownload(path, body = {}, fallbackName = "autody-download") {
-  const key = adminKey();
-  if (!key) throw new Error("Enter the admin key first.");
   const response = await fetch(path, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-reset-key": key
-    },
+    headers: adminAuthHeaders(),
     body: JSON.stringify(body)
   });
   if (!response.ok) {
@@ -617,7 +636,7 @@ function wireAdminPortal() {
     }
   });
 
-  if (adminKey()) {
+  if (adminKey() || adminOpsSession()) {
     loadAdminOverview().catch((err) => {
       setAdminNotice(err.message || "Enter the admin key to load deposit data.", "error");
     });

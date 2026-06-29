@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Ops Gateway</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell ops-shell ops-gateway-shell">
+    <header class="admin-hero ops-hero">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div>
+        <p class="eyebrow">Private operations</p>
+        <h1>Ops gateway</h1>
+        <p>Open a short admin session before touching deposits, identity reviews, support, or AU market controls.</p>
+      </div>
+    </header>
+
+    <section class="ops-gateway-grid">
+      <form class="app-card ops-access-card" id="ops-gateway-form">
+        <span class="muted-label">Secure entry</span>
+        <h2>Start admin session</h2>
+        <label>
+          Admin key
+          <input type="password" name="adminKey" autocomplete="off" placeholder="Enter admin key" required />
+        </label>
+        <label>
+          Device label
+          <input type="text" name="label" autocomplete="off" placeholder="Example: Vero laptop" />
+        </label>
+        <button type="submit" class="btn">Open Console</button>
+        <p class="admin-notice" id="ops-gateway-notice">Session expires automatically.</p>
+      </form>
+
+      <article class="app-card ops-security-card">
+        <span class="muted-label">Protection stack</span>
+        <h2>Not just a hidden link</h2>
+        <div class="ops-security-list">
+          <span>Private gateway path</span>
+          <span>Admin key required</span>
+          <span>Signed server session</span>
+          <span>Short expiry window</span>
+          <span>No browser caching</span>
+          <span>API-level rejection</span>
+          <span>Audit-ready actions</span>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script src="ops-auth.js"></script>
+  <script>
+    document.getElementById("ops-gateway-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const notice = document.getElementById("ops-gateway-notice");
+      const submit = form.querySelector("button");
+      try {
+        submit.disabled = true;
+        submit.textContent = "Checking...";
+        const body = Object.fromEntries(new FormData(form).entries());
+        const response = await fetch("/api/ops/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok || !json.success) throw new Error(json.error || "Admin session was rejected.");
+        sessionStorage.setItem(OPS_SESSION_KEY, JSON.stringify({
+          token: json.session.token,
+          expiresAt: json.expiresAt
+        }));
+        location.href = "ops-console.html";
+      } catch (err) {
+        notice.textContent = err.message || "Could not open admin session.";
+        notice.dataset.state = "error";
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Open Console";
+      }
+    });
+  </script>
+</body>
+</html>

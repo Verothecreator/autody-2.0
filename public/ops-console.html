@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Ops Console</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell ops-shell">
+    <header class="admin-hero ops-hero">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div>
+        <p class="eyebrow">Admin command</p>
+        <h1>Ops console</h1>
+        <p>Choose the control room you need. Each action still checks the signed admin session on the server.</p>
+      </div>
+      <div class="admin-key-card ops-session-card">
+        <span class="muted-label">Session</span>
+        <strong id="ops-session-state">Checking</strong>
+        <button type="button" class="btn btn-ghost" onclick="opsSignOut()">End Session</button>
+      </div>
+    </header>
+
+    <section class="ops-console-grid">
+      <a class="app-card ops-console-card" href="ops-markets.html">
+        <span class="muted-label">AU control</span>
+        <strong>Market maker</strong>
+        <p>Set AU min/max range, update speed, bias, supply, and graph movement.</p>
+      </a>
+      <a class="app-card ops-console-card" href="admin.html">
+        <span class="muted-label">Deposits</span>
+        <strong>Deposit portal</strong>
+        <p>Scan deposits, credit ledgers, sweep child addresses, and inspect route status.</p>
+      </a>
+      <a class="app-card ops-console-card" href="admin.html#kyc">
+        <span class="muted-label">Identity</span>
+        <strong>KYC review</strong>
+        <p>Review documents, download files, approve, reject, and clear old submissions.</p>
+      </a>
+      <a class="app-card ops-console-card" href="account.html">
+        <span class="muted-label">Preview</span>
+        <strong>Live account</strong>
+        <p>Open the user-facing account workspace after backend changes.</p>
+      </a>
+    </section>
+  </main>
+
+  <script src="ops-auth.js"></script>
+  <script>
+    (async () => {
+      const check = await opsRequireSession();
+      const state = document.getElementById("ops-session-state");
+      if (state && check?.expiresAt) {
+        state.textContent = `Active until ${new Date(check.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+      }
+    })();
+  </script>
+</body>
+</html>

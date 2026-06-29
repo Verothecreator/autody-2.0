@@ -107,6 +107,9 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || process.env.PAYMENT_P
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || process.env.PAYMENT_PROCESSOR_WEBHOOK_SECRET || "";
 const STRIPE_API_BASE = process.env.STRIPE_API_BASE || "https://api.stripe.com/v1";
 const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || "";
+const ADMIN_SESSION_HOURS = Number(process.env.ADMIN_SESSION_HOURS || 2);
+const AU_MARKET_TICK_RETENTION_DAYS = Math.max(7, Number(process.env.AU_MARKET_TICK_RETENTION_DAYS || 400));
+const AU_MARKET_TICK_MAX_ROWS = Math.max(1000, Number(process.env.AU_MARKET_TICK_MAX_ROWS || 20000));
 const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
 const REMEMBER_SESSION_HOURS = Number(process.env.REMEMBER_SESSION_HOURS || 24 * 30);
 const EMAIL_VERIFICATION_TTL_MS = Number(process.env.EMAIL_VERIFICATION_TTL_MS || 1000 * 60 * 60 * 24);
@@ -2619,10 +2622,68 @@ function evmAddressTopic(address) {
     return normalized ? ethers.zeroPadValue(normalized, 32) : "";
 }
 
+function base64UrlEncode(value) {
+    return Buffer.from(value).toString("base64url");
+}
+
+function base64UrlDecode(value = "") {
+    return Buffer.from(String(value || ""), "base64url").toString("utf8");
+}
+
+function adminSessionSignature(payload = "") {
+    if (!ADMIN_RESET_KEY) return "";
+    return crypto.createHmac("sha256", ADMIN_RESET_KEY).update(String(payload || "")).digest("base64url");
+}
+
+function createAdminSessionToken(label = "Autody admin") {
+    const now = Date.now();
+    const expiresAt = now + ADMIN_SESSION_HOURS * 60 * 60 * 1000;
+    const payload = base64UrlEncode(JSON.stringify({
+        scope: "autody-admin",
+        label: String(label || "Autody admin").slice(0, 80),
+        nonce: crypto.randomBytes(16).toString("hex"),
+        iat: now,
+        exp: expiresAt
+    }));
+    const signature = adminSessionSignature(payload);
+    return {
+        token: `${payload}.${signature}`,
+        expiresAt: new Date(expiresAt).toISOString()
+    };
+}
+
+function verifyAdminSessionToken(token = "") {
+    if (!ADMIN_RESET_KEY || !token) return null;
+    const [payload, signature] = String(token || "").split(".");
+    if (!payload || !signature) return null;
+
+    const expected = adminSessionSignature(payload);
+    const expectedBuffer = Buffer.from(expected);
+    const providedBuffer = Buffer.from(signature);
+    if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
+        return null;
+    }
+
+    try {
+        const decoded = JSON.parse(base64UrlDecode(payload));
+        if (decoded.scope !== "autody-admin" || Number(decoded.exp) <= Date.now()) return null;
+        return decoded;
+    } catch (err) {
+        return null;
+    }
+}
+
+function requestAdminSessionToken(req, body = {}) {
+    const authHeader = String(req.get("authorization") || "");
+    const bearer = authHeader.match(/^Bearer\s+(.+)$/i)?.[1];
+    return String(bearer || req.get("x-admin-session") || body.adminSession || "").trim();
+}
+
 function adminRequestAuthorized(req, body = {}) {
     if (!ADMIN_RESET_KEY) return false;
     const providedKey = normalizeText(req.get("x-admin-reset-key") || req.get("x-admin-key") || body.adminKey);
-    return Boolean(providedKey && providedKey === ADMIN_RESET_KEY);
+    if (providedKey && providedKey === ADMIN_RESET_KEY) return true;
+    return Boolean(verifyAdminSessionToken(requestAdminSessionToken(req, body)));
 }
 
 function looksLikePrivateTreasurySecret(value = "") {
@@ -8961,6 +9022,573 @@ function mergeResolvedMarketAsset(lookup, baseAsset = null, snapshot = null) {
     };
 }
 
+function controlledMarketSymbol(symbol = "AU") {
+    return String(symbol || "AU").trim().toUpperCase() || "AU";
+}
+
+function controlledMarketDefaultPrice() {
+    return Math.max(0.00000001, Number(process.env.AUTODY_AU_START_PRICE || 0.001));
+}
+
+function clampNumber(value, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return Number(min);
+    return Math.min(Number(max), Math.max(Number(min), number));
+}
+
+function roundMarketPrice(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return Number(number.toFixed(10));
+}
+
+let adminMarketTablesReady = false;
+let adminMarketTablesPromise = null;
+
+async function ensureAdminMarketTables(client = dbPool) {
+    if (!databaseConfigured()) return false;
+    if (adminMarketTablesReady) return true;
+    if (!adminMarketTablesPromise) {
+        adminMarketTablesPromise = client.query(`
+            create table if not exists admin_market_controls (
+              symbol text primary key,
+              asset_name text not null,
+              asset_type text not null default 'crypto',
+              enabled boolean not null default true,
+              min_price numeric(24, 10) not null default 0.0001000000,
+              max_price numeric(24, 10) not null default 0.0100000000,
+              current_price numeric(24, 10) not null default 0.0010000000,
+              last_price numeric(24, 10),
+              change_pct numeric(12, 6) not null default 0,
+              update_interval_seconds integer not null default 30,
+              step_percent numeric(12, 6) not null default 0.750000,
+              trend_bias numeric(12, 6) not null default 0,
+              liquidity_usd numeric(24, 2) not null default 0,
+              market_cap_usd numeric(24, 2) not null default 0,
+              fdv_usd numeric(24, 2) not null default 0,
+              total_volume_usd numeric(24, 2) not null default 0,
+              circulating_supply numeric(32, 8),
+              total_supply numeric(32, 8),
+              max_supply numeric(32, 8),
+              status text not null default 'admin controlled',
+              updated_by text,
+              last_tick_at timestamptz,
+              created_at timestamptz not null default now(),
+              updated_at timestamptz not null default now()
+            );
+
+            create table if not exists admin_market_ticks (
+              id bigserial primary key,
+              symbol text not null,
+              price_usd numeric(24, 10) not null,
+              change_pct numeric(12, 6) not null default 0,
+              volume_usd numeric(24, 2) not null default 0,
+              source text not null default 'admin-control',
+              created_at timestamptz not null default now()
+            );
+
+            create index if not exists admin_market_ticks_symbol_time_idx
+              on admin_market_ticks (symbol, created_at desc);
+        `).then(() => {
+            adminMarketTablesReady = true;
+            return true;
+        }).catch((err) => {
+            adminMarketTablesPromise = null;
+            throw err;
+        });
+    }
+    return adminMarketTablesPromise;
+}
+
+function normalizeAdminMarketControlRow(row = {}) {
+    if (!row?.symbol) return null;
+    return {
+        symbol: controlledMarketSymbol(row.symbol),
+        name: row.asset_name || "Autody AU",
+        assetType: row.asset_type || "crypto",
+        enabled: row.enabled !== false,
+        minPrice: nullableNumber(row.min_price) ?? 0.0001,
+        maxPrice: nullableNumber(row.max_price) ?? 0.01,
+        currentPrice: nullableNumber(row.current_price) ?? controlledMarketDefaultPrice(),
+        lastPrice: nullableNumber(row.last_price),
+        changePct: nullableNumber(row.change_pct) ?? 0,
+        updateIntervalSeconds: Math.max(10, Number(row.update_interval_seconds || 30)),
+        stepPercent: Math.max(0, Number(row.step_percent || 0.75)),
+        trendBias: clampNumber(row.trend_bias ?? 0, -1, 1),
+        liquidityUsd: nullableNumber(row.liquidity_usd) ?? 0,
+        marketCap: nullableNumber(row.market_cap_usd) ?? 0,
+        fdv: nullableNumber(row.fdv_usd) ?? 0,
+        totalVolume: nullableNumber(row.total_volume_usd) ?? 0,
+        circulatingSupply: nullableNumber(row.circulating_supply),
+        totalSupply: nullableNumber(row.total_supply),
+        maxSupply: nullableNumber(row.max_supply),
+        status: row.status || "admin controlled",
+        updatedBy: row.updated_by || "",
+        lastTickAt: row.last_tick_at || null,
+        createdAt: row.created_at || null,
+        updatedAt: row.updated_at || null
+    };
+}
+
+async function ensureAdminMarketControl(symbol = "AU") {
+    if (!databaseConfigured()) return null;
+    await ensureAdminMarketTables();
+    const safeSymbol = controlledMarketSymbol(symbol);
+    const startPrice = controlledMarketDefaultPrice();
+
+    await dbPool.query(`
+        insert into admin_market_controls (
+            symbol,
+            asset_name,
+            asset_type,
+            enabled,
+            min_price,
+            max_price,
+            current_price,
+            last_price,
+            change_pct,
+            update_interval_seconds,
+            step_percent,
+            trend_bias,
+            status,
+            last_tick_at
+        )
+        values ($1, $2, 'crypto', true, $3, $4, $5, $5, 0, 30, 0.75, 0, 'admin controlled', now())
+        on conflict (symbol) do nothing
+    `, [safeSymbol, safeSymbol === "AU" ? "Autody AU" : safeSymbol, 0.0001, 0.01, startPrice]);
+
+    const tickResult = await dbPool.query(`select id from admin_market_ticks where symbol = $1 limit 1`, [safeSymbol]);
+    if (!tickResult.rows.length) {
+        await dbPool.query(`
+            insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
+            values ($1, $2, 0, 0, 'admin-seed')
+        `, [safeSymbol, startPrice]);
+    }
+
+    const result = await dbPool.query(`select * from admin_market_controls where symbol = $1 limit 1`, [safeSymbol]);
+    return normalizeAdminMarketControlRow(result.rows[0]);
+}
+
+async function readAdminMarketControl(symbol = "AU") {
+    if (!databaseConfigured()) return null;
+    await ensureAdminMarketTables();
+    const safeSymbol = controlledMarketSymbol(symbol);
+    const result = await dbPool.query(`select * from admin_market_controls where symbol = $1 limit 1`, [safeSymbol]);
+    return normalizeAdminMarketControlRow(result.rows[0]);
+}
+
+async function adminMarketStats(symbol = "AU") {
+    if (!databaseConfigured()) return {};
+    await ensureAdminMarketTables();
+    const safeSymbol = controlledMarketSymbol(symbol);
+    const result = await dbPool.query(`
+        select
+            max(price_usd) filter (where created_at >= now() - interval '1 day') as high_24h,
+            min(price_usd) filter (where created_at >= now() - interval '1 day') as low_24h,
+            max(price_usd) as all_time_high,
+            min(price_usd) as all_time_low,
+            count(*) as tick_count,
+            max(created_at) as last_tick_at
+        from admin_market_ticks
+        where symbol = $1
+    `, [safeSymbol]);
+    const row = result.rows[0] || {};
+    return {
+        high24h: nullableNumber(row.high_24h),
+        low24h: nullableNumber(row.low_24h),
+        allTimeHigh: nullableNumber(row.all_time_high),
+        allTimeLow: nullableNumber(row.all_time_low),
+        tickCount: Number(row.tick_count || 0),
+        lastTickAt: row.last_tick_at || null
+    };
+}
+
+function adminMarketAssetFromControl(control, stats = {}) {
+    const asset = control?.symbol === "AU" ? AUTODY_MARKET_ASSET : {
+        rank: 999,
+        id: control?.symbol,
+        symbol: control?.symbol,
+        name: control?.name || control?.symbol,
+        assetType: control?.assetType || "crypto",
+        market: "Autody",
+        tags: ["Admin controlled"],
+        depositNetworks: [],
+        tradeable: true,
+        customAsset: true,
+        logoUrl: null,
+        status: "admin controlled"
+    };
+
+    return {
+        ...assetCatalogEntry(asset),
+        price: control.currentPrice,
+        changePct: control.changePct,
+        marketCap: control.marketCap || null,
+        fdv: control.fdv || null,
+        liquidityUsd: control.liquidityUsd || null,
+        totalVolume: control.totalVolume || null,
+        high24h: stats.high24h ?? null,
+        low24h: stats.low24h ?? null,
+        ath: stats.allTimeHigh ?? null,
+        atl: stats.allTimeLow ?? null,
+        circulatingSupply: control.circulatingSupply,
+        totalSupply: control.totalSupply,
+        maxSupply: control.maxSupply,
+        currency: "USD",
+        providerSymbol: control.symbol,
+        dataProvider: "autody-admin",
+        capturedAt: control.lastTickAt || control.updatedAt || new Date().toISOString(),
+        status: control.enabled ? "Admin controlled" : "Paused"
+    };
+}
+
+async function saveAdminMarketSnapshot(control) {
+    if (!control) return null;
+    const stats = await adminMarketStats(control.symbol).catch(() => ({}));
+    const asset = adminMarketAssetFromControl(control, stats);
+    await saveMarketSnapshots("autody-admin", "crypto", [asset]).catch((err) => {
+        console.error("AU admin snapshot save failed:", err.message || err);
+    });
+    cacheLiveMarketAssets([asset], "autody-admin");
+    return asset;
+}
+
+async function trimAdminMarketTicks(symbol = "AU") {
+    if (!databaseConfigured()) return;
+    await ensureAdminMarketTables();
+    const safeSymbol = controlledMarketSymbol(symbol);
+    await dbPool.query(`
+        delete from admin_market_ticks
+        where symbol = $1
+          and created_at < now() - make_interval(days => $2)
+    `, [safeSymbol, AU_MARKET_TICK_RETENTION_DAYS]).catch(() => null);
+
+    await dbPool.query(`
+        delete from admin_market_ticks
+        where symbol = $1
+          and id not in (
+            select id
+            from admin_market_ticks
+            where symbol = $1
+            order by created_at desc
+            limit $2
+          )
+    `, [safeSymbol, AU_MARKET_TICK_MAX_ROWS]).catch(() => null);
+}
+
+async function advanceAdminControlledMarket(symbol = "AU", options = {}) {
+    if (!databaseConfigured()) return null;
+    const safeSymbol = controlledMarketSymbol(symbol);
+    const control = await ensureAdminMarketControl(safeSymbol);
+    if (!control) return null;
+
+    const now = Date.now();
+    const lastTickMs = Date.parse(control.lastTickAt || control.updatedAt || 0);
+    const due = options.force || !lastTickMs || (now - lastTickMs >= control.updateIntervalSeconds * 1000);
+    if (!control.enabled || !due) {
+        await saveAdminMarketSnapshot(control);
+        return control;
+    }
+
+    const previousPrice = Math.max(0.00000001, Number(control.currentPrice || controlledMarketDefaultPrice()));
+    const step = Math.max(0.0001, Math.min(50, control.stepPercent || 0.75)) / 100;
+    const bias = clampNumber(control.trendBias || 0, -1, 1) * step * 0.35;
+    let movement = (Math.random() * 2 - 1) * step + bias;
+    if (previousPrice <= control.minPrice && movement < 0) movement = Math.abs(movement);
+    if (previousPrice >= control.maxPrice && movement > 0) movement = -Math.abs(movement);
+
+    const rawNext = previousPrice * (1 + movement);
+    const nextPrice = roundMarketPrice(clampNumber(rawNext, control.minPrice, control.maxPrice)) || previousPrice;
+    const changePct = previousPrice ? Number((((nextPrice - previousPrice) / previousPrice) * 100).toFixed(6)) : 0;
+
+    const result = await dbPool.query(`
+        update admin_market_controls
+        set current_price = $2,
+            last_price = $3,
+            change_pct = $4,
+            last_tick_at = now(),
+            updated_at = now()
+        where symbol = $1
+        returning *
+    `, [safeSymbol, nextPrice, previousPrice, changePct]);
+
+    await dbPool.query(`
+        insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
+        values ($1, $2, $3, $4, $5)
+    `, [safeSymbol, nextPrice, changePct, control.totalVolume || 0, options.source || "admin-control"]);
+
+    await trimAdminMarketTicks(safeSymbol);
+    const updated = normalizeAdminMarketControlRow(result.rows[0]);
+    await saveAdminMarketSnapshot(updated);
+    await saveAdminControlledCharts(safeSymbol).catch((err) => {
+        console.error("AU chart snapshot save failed:", err.message || err);
+    });
+    return updated;
+}
+
+function chartStartDateForRange(range = "1d") {
+    const selected = normalizeChartRange(range);
+    const days = {
+        "1d": 1,
+        "1w": 7,
+        "1m": 31,
+        "3m": 93,
+        "1y": 366
+    }[selected];
+    return days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString() : null;
+}
+
+function downsampleAdminTicks(rows = [], maxPoints = 240) {
+    if (rows.length <= maxPoints) return rows;
+    const step = rows.length / maxPoints;
+    const sampled = [];
+    for (let index = 0; index < maxPoints; index += 1) {
+        sampled.push(rows[Math.floor(index * step)]);
+    }
+    const last = rows[rows.length - 1];
+    if (sampled[sampled.length - 1]?.id !== last.id) sampled[sampled.length - 1] = last;
+    return sampled;
+}
+
+async function buildAdminControlledChart(symbol = "AU", range = "1d") {
+    if (!databaseConfigured()) return null;
+    await ensureAdminMarketTables();
+    const safeSymbol = controlledMarketSymbol(symbol);
+    const selectedRange = normalizeChartRange(range);
+    const startDate = chartStartDateForRange(selectedRange);
+    const result = await dbPool.query(`
+        select id, price_usd, change_pct, volume_usd, created_at
+        from admin_market_ticks
+        where symbol = $1
+          and ($2::timestamptz is null or created_at >= $2::timestamptz)
+        order by created_at asc
+        limit 5000
+    `, [safeSymbol, startDate]);
+
+    let rows = downsampleAdminTicks(result.rows || []);
+    if (!rows.length) {
+        const control = await ensureAdminMarketControl(safeSymbol);
+        rows = [{
+            id: 0,
+            price_usd: control?.currentPrice || controlledMarketDefaultPrice(),
+            change_pct: 0,
+            volume_usd: 0,
+            created_at: new Date().toISOString()
+        }];
+    }
+
+    if (rows.length === 1) {
+        const created = new Date(rows[0].created_at);
+        const earlier = new Date(created.getTime() - 60 * 1000).toISOString();
+        rows = [{ ...rows[0], id: -1, created_at: earlier }, rows[0]];
+    }
+
+    const points = rows.map((row) => ({
+        time: row.created_at,
+        close: nullableNumber(row.price_usd) ?? controlledMarketDefaultPrice(),
+        changePct: nullableNumber(row.change_pct) ?? 0,
+        volume: nullableNumber(row.volume_usd) ?? 0
+    }));
+    const values = points.map((point) => point.close).filter(Number.isFinite);
+    const allStats = await adminMarketStats(safeSymbol).catch(() => ({}));
+    const rangeHigh = values.length ? Math.max(...values) : null;
+    const rangeLow = values.length ? Math.min(...values) : null;
+
+    return {
+        range: selectedRange,
+        provider: "autody-admin",
+        providerSymbol: safeSymbol,
+        currency: "USD",
+        points,
+        stats: {
+            rangeHigh,
+            rangeLow,
+            allTimeHigh: allStats.allTimeHigh ?? rangeHigh,
+            allTimeLow: allStats.allTimeLow ?? rangeLow
+        }
+    };
+}
+
+async function saveAdminControlledCharts(symbol = "AU") {
+    const safeSymbol = controlledMarketSymbol(symbol);
+    const control = await readAdminMarketControl(safeSymbol);
+    if (!control) return [];
+    const asset = adminMarketAssetFromControl(control, await adminMarketStats(safeSymbol).catch(() => ({})));
+    const saved = [];
+    for (const range of CHART_RANGE_KEYS) {
+        const chart = await buildAdminControlledChart(safeSymbol, range);
+        if (chart?.points?.length) {
+            await saveMarketChartSnapshot("autody-admin", asset, chart);
+            saved.push(range);
+        }
+    }
+    return saved;
+}
+
+async function controlledMarketAssetForLookup(symbol = "AU", options = {}) {
+    const safeSymbol = controlledMarketSymbol(symbol);
+    if (safeSymbol !== "AU") return null;
+    if (!databaseConfigured()) return assetCatalogEntry(AUTODY_MARKET_ASSET);
+    const control = await advanceAdminControlledMarket(safeSymbol, options).catch((err) => {
+        console.error("AU controlled market advance failed:", err.message || err);
+        return null;
+    });
+    if (!control) return null;
+    const stats = await adminMarketStats(safeSymbol).catch(() => ({}));
+    return adminMarketAssetFromControl(control, stats);
+}
+
+function adminBooleanValue(value, fallback = false) {
+    if (value === undefined || value === null || value === "") return fallback;
+    if (typeof value === "boolean") return value;
+    return ["true", "1", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function adminPositiveValue(value, fallback, min = 0) {
+    const number = nullableNumber(value);
+    if (number === null) return fallback;
+    return Math.max(min, number);
+}
+
+async function latestAdminMarketTicks(symbol = "AU", limit = 40) {
+    if (!databaseConfigured()) return [];
+    await ensureAdminMarketTables();
+    const safeSymbol = controlledMarketSymbol(symbol);
+    const safeLimit = Math.max(1, Math.min(200, Number(limit || 40)));
+    const result = await dbPool.query(`
+        select id, symbol, price_usd, change_pct, volume_usd, source, created_at
+        from admin_market_ticks
+        where symbol = $1
+        order by created_at desc
+        limit $2
+    `, [safeSymbol, safeLimit]);
+    return result.rows.map((row) => ({
+        id: row.id,
+        symbol: row.symbol,
+        price: nullableNumber(row.price_usd),
+        changePct: nullableNumber(row.change_pct),
+        volumeUsd: nullableNumber(row.volume_usd),
+        source: row.source,
+        createdAt: row.created_at
+    }));
+}
+
+async function getAdminMarketOverview(body = {}) {
+    if (!databaseConfigured()) {
+        const err = new Error("Database is not configured for admin market controls.");
+        err.status = 503;
+        throw err;
+    }
+    const range = normalizeChartRange(body.range || "1d");
+    const symbol = controlledMarketSymbol(body.symbol || "AU");
+    const control = await advanceAdminControlledMarket(symbol, { force: Boolean(body.forceTick) });
+    const stats = await adminMarketStats(symbol);
+    const asset = adminMarketAssetFromControl(control, stats);
+    const chart = await buildAdminControlledChart(symbol, range);
+    const ticks = await latestAdminMarketTicks(symbol, body.limit || 40);
+
+    return {
+        success: true,
+        configured: true,
+        symbol,
+        asset,
+        control,
+        stats,
+        chart,
+        ticks,
+        retention: {
+            days: AU_MARKET_TICK_RETENTION_DAYS,
+            maxRows: AU_MARKET_TICK_MAX_ROWS
+        },
+        generatedAt: new Date().toISOString()
+    };
+}
+
+async function updateAdminMarketControl(body = {}) {
+    if (!databaseConfigured()) {
+        const err = new Error("Database is not configured for admin market controls.");
+        err.status = 503;
+        throw err;
+    }
+    const symbol = controlledMarketSymbol(body.symbol || "AU");
+    const current = await ensureAdminMarketControl(symbol);
+    const minPrice = adminPositiveValue(body.minPrice, current.minPrice, 0.00000001);
+    const maxPrice = adminPositiveValue(body.maxPrice, current.maxPrice, 0.00000001);
+    if (maxPrice <= minPrice) {
+        const err = new Error("Max price must be higher than min price.");
+        err.status = 400;
+        throw err;
+    }
+
+    const desiredPrice = adminPositiveValue(body.currentPrice, current.currentPrice, 0.00000001);
+    const currentPrice = roundMarketPrice(clampNumber(desiredPrice, minPrice, maxPrice));
+    const previousPrice = current.currentPrice || currentPrice;
+    const priceChanged = Math.abs(Number(currentPrice) - Number(previousPrice)) > 0.0000000001;
+    const changePct = priceChanged && previousPrice
+        ? Number((((currentPrice - previousPrice) / previousPrice) * 100).toFixed(6))
+        : current.changePct || 0;
+
+    const result = await dbPool.query(`
+        update admin_market_controls
+        set enabled = $2,
+            min_price = $3,
+            max_price = $4,
+            current_price = $5,
+            last_price = $6,
+            change_pct = $7,
+            update_interval_seconds = $8,
+            step_percent = $9,
+            trend_bias = $10,
+            liquidity_usd = $11,
+            market_cap_usd = $12,
+            fdv_usd = $13,
+            total_volume_usd = $14,
+            circulating_supply = $15,
+            total_supply = $16,
+            max_supply = $17,
+            status = $18,
+            updated_by = $19,
+            last_tick_at = case when $20 then now() else last_tick_at end,
+            updated_at = now()
+        where symbol = $1
+        returning *
+    `, [
+        symbol,
+        adminBooleanValue(body.enabled, current.enabled),
+        minPrice,
+        maxPrice,
+        currentPrice,
+        previousPrice,
+        changePct,
+        Math.max(10, Math.min(3600, Math.round(Number(body.updateIntervalSeconds || current.updateIntervalSeconds || 30)))),
+        Math.max(0.01, Math.min(50, Number(body.stepPercent || current.stepPercent || 0.75))),
+        clampNumber(body.trendBias ?? current.trendBias ?? 0, -1, 1),
+        adminPositiveValue(body.liquidityUsd, current.liquidityUsd, 0),
+        adminPositiveValue(body.marketCap, current.marketCap, 0),
+        adminPositiveValue(body.fdv, current.fdv, 0),
+        adminPositiveValue(body.totalVolume, current.totalVolume, 0),
+        nullableNumber(body.circulatingSupply) ?? current.circulatingSupply,
+        nullableNumber(body.totalSupply) ?? current.totalSupply,
+        nullableNumber(body.maxSupply) ?? current.maxSupply,
+        normalizeText(body.status || current.status || "admin controlled"),
+        normalizeText(body.updatedBy || "admin"),
+        priceChanged
+    ]);
+
+    if (priceChanged) {
+        await dbPool.query(`
+            insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
+            values ($1, $2, $3, $4, 'admin-manual')
+        `, [symbol, currentPrice, changePct, adminPositiveValue(body.totalVolume, current.totalVolume, 0)]);
+    }
+
+    await trimAdminMarketTicks(symbol);
+    const updated = normalizeAdminMarketControlRow(result.rows[0]);
+    await saveAdminMarketSnapshot(updated);
+    await saveAdminControlledCharts(symbol);
+    return getAdminMarketOverview({ symbol, range: body.range || "1d" });
+}
+
 async function readLatestNewsSnapshots(limit = 9) {
     if (!databaseConfigured()) return [];
 
@@ -8994,6 +9622,8 @@ async function buildMarketCatalog(type = "all") {
     if (cached && cached.expiresAt > Date.now()) {
         return cached.assets;
     }
+
+    await controlledMarketAssetForLookup("AU").catch(() => null);
 
     const includeCrypto = type !== "stocks";
     const includeStocks = type !== "crypto";
@@ -9317,11 +9947,11 @@ const AUTODY_MARKET_ASSET = {
   assetType: "crypto",
   market: "Autody",
   tags: ["Gold-backed", "Payments", "Autody ecosystem"],
-  depositNetworks: ["Autody network pending"],
-  tradeable: false,
+  depositNetworks: ["Polygon PoS"],
+  tradeable: true,
   customAsset: true,
   logoUrl: "Autody-Logo.png",
-  status: "Market maker pending"
+  status: "Admin controlled"
 };
 
 const TRADE_CRYPTO_ASSETS = [
@@ -10364,6 +10994,18 @@ async function fetchLiveAssetChartSeries(asset, requestedRange = "1d") {
 async function fetchAssetChartSeries(asset, requestedRange = "1d") {
   const selectedRange = normalizeChartRange(requestedRange);
 
+  if (String(asset?.symbol || "").toUpperCase() === "AU") {
+    const control = await advanceAdminControlledMarket("AU").catch(() => null);
+    const liveChart = await buildAdminControlledChart("AU", selectedRange).catch(() => null);
+    if (liveChart?.points?.length) {
+      const marketAsset = control
+        ? adminMarketAssetFromControl(control, await adminMarketStats("AU").catch(() => ({})))
+        : asset;
+      await saveMarketChartSnapshot("autody-admin", marketAsset, liveChart);
+      return { ...liveChart, source: "database", refreshed: true };
+    }
+  }
+
   if (asset.customAsset) {
     return {
       range: selectedRange,
@@ -11187,6 +11829,11 @@ async function findMarketAssetBySymbol(symbol) {
   const lookup = String(symbol || "").trim().toUpperCase();
   if (!lookup) return null;
 
+  if (lookup === "AU" || lookup === "AUTODY-AU" || lookup === "AUTODY") {
+    const controlledAsset = await controlledMarketAssetForLookup("AU");
+    if (controlledAsset) return controlledAsset;
+  }
+
   const cached = marketCatalogCache.get("all");
   if (cached && cached.expiresAt > Date.now()) {
     const cachedAsset = cached.assets.find((item) => marketAssetMatchesLookup(item, lookup));
@@ -11377,6 +12024,111 @@ app.get("/api/auth/verification-status", async (req, res) => {
   } catch (err) {
     console.error("Verification status failed:", err);
     return res.status(500).json({ success: false, error: "Verification status unavailable." });
+  }
+});
+
+app.post("/api/ops/session", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+
+    if (!ADMIN_RESET_KEY) {
+      return res.status(503).json({ success: false, error: "Admin access is not configured." });
+    }
+
+    const providedKey = normalizeText(body.adminKey || req.get("x-admin-reset-key") || req.get("x-admin-key"));
+    if (!providedKey || providedKey !== ADMIN_RESET_KEY) {
+      return res.status(403).json({ success: false, error: "Admin access is not authorized." });
+    }
+
+    const session = createAdminSessionToken(body.label || "Autody admin");
+    return res.json({
+      success: true,
+      session,
+      expiresAt: session.expiresAt,
+      controls: ["market", "deposits", "kyc", "support"],
+      issuedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("Admin session creation failed:", err);
+    return res.status(500).json({ success: false, error: "Could not create admin session." });
+  }
+});
+
+app.post("/api/ops/session/check", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    const session = verifyAdminSessionToken(requestAdminSessionToken(req, body));
+    if (!session) return res.status(401).json({ success: false, error: "Admin session expired or invalid." });
+    return res.json({ success: true, session, expiresAt: new Date(session.exp).toISOString() });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: "Admin session check failed." });
+  }
+});
+
+app.post("/api/admin/markets/overview", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin market overview is not authorized." });
+    }
+    const result = await getAdminMarketOverview(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin market overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Market overview failed." });
+  }
+});
+
+app.post("/api/admin/markets/control", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin market control is not authorized." });
+    }
+    const result = await updateAdminMarketControl(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin market control failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Market control failed." });
+  }
+});
+
+app.post("/api/admin/markets/tick", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin market tick is not authorized." });
+    }
+    const result = await getAdminMarketOverview({ ...body, forceTick: true });
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin market tick failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Market tick failed." });
   }
 });
 
