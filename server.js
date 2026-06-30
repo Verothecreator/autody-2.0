@@ -9380,6 +9380,12 @@ function roundAdminUsd(value) {
     return Number(number.toFixed(2));
 }
 
+function roundAdminReserveQuantity(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Number(number.toFixed(8));
+}
+
 const ADMIN_MARKET_DEFAULT_VOLUME_ROLL_MINUTES = 24 * 60;
 
 function randomAdminMarketVolume(min, max) {
@@ -9399,6 +9405,13 @@ function deriveAdminMarketMetrics(values = {}) {
         marketCap: circulatingSupply !== null ? roundAdminUsd(currentPrice * circulatingSupply) : 0,
         fdv: totalSupply !== null ? roundAdminUsd(currentPrice * totalSupply) : 0
     };
+}
+
+function deriveAdminMarketReservePrice(assetReserve, usdReserve) {
+    const base = positiveNumber(assetReserve);
+    const quote = positiveNumber(usdReserve);
+    if (!base || !quote) return null;
+    return roundMarketPrice(quote / base);
 }
 
 let adminMarketTablesReady = false;
@@ -9423,6 +9436,8 @@ async function ensureAdminMarketTables(client = dbPool) {
               step_percent numeric(12, 6) not null default 0.750000,
               trend_bias numeric(12, 6) not null default 0,
               liquidity_usd numeric(24, 2) not null default 0,
+              reserve_asset_quantity numeric(32, 8) not null default 0,
+              reserve_usd numeric(24, 2) not null default 0,
               market_cap_usd numeric(24, 2) not null default 0,
               fdv_usd numeric(24, 2) not null default 0,
               total_volume_usd numeric(24, 2) not null default 0,
@@ -9465,6 +9480,10 @@ async function ensureAdminMarketTables(client = dbPool) {
               add column if not exists volume_last_roll_at timestamptz;
             alter table if exists admin_market_controls
               add column if not exists max_supply numeric(32, 8);
+            alter table if exists admin_market_controls
+              add column if not exists reserve_asset_quantity numeric(32, 8) not null default 0;
+            alter table if exists admin_market_controls
+              add column if not exists reserve_usd numeric(24, 2) not null default 0;
         `).then(() => {
             adminMarketTablesReady = true;
             return true;
@@ -9492,6 +9511,8 @@ function normalizeAdminMarketControlRow(row = {}) {
         stepPercent: Math.max(0, Number(row.step_percent || 0.75)),
         trendBias: clampNumber(row.trend_bias ?? 0, -1, 1),
         liquidityUsd: nullableNumber(row.liquidity_usd) ?? 0,
+        reserveAssetQuantity: nullableNumber(row.reserve_asset_quantity) ?? 0,
+        reserveUsd: nullableNumber(row.reserve_usd) ?? 0,
         marketCap: nullableNumber(row.market_cap_usd) ?? 0,
         fdv: nullableNumber(row.fdv_usd) ?? 0,
         totalVolume: nullableNumber(row.total_volume_usd) ?? 0,
@@ -9508,8 +9529,10 @@ function normalizeAdminMarketControlRow(row = {}) {
         createdAt: row.created_at || null,
         updatedAt: row.updated_at || null
     };
+    const reservePrice = deriveAdminMarketReservePrice(control.reserveAssetQuantity, control.reserveUsd);
     return {
         ...control,
+        reservePrice,
         ...deriveAdminMarketMetrics(control)
     };
 }
@@ -9629,6 +9652,8 @@ async function createAdminMarketControl(body = {}) {
             step_percent,
             trend_bias,
             liquidity_usd,
+            reserve_asset_quantity,
+            reserve_usd,
             market_cap_usd,
             fdv_usd,
             total_volume_usd,
@@ -9638,7 +9663,7 @@ async function createAdminMarketControl(body = {}) {
             updated_by,
             last_tick_at
         )
-        values ($1, $2, $3, true, $4, $5, $6, $6, 0, 30, 0.75, 0, 0, $7, $8, 0, $9, $10, 'admin controlled', 'admin', now())
+        values ($1, $2, $3, true, $4, $5, $6, $6, 0, 30, 0.75, 0, 0, 0, 0, $7, $8, 0, $9, $10, 'admin controlled', 'admin', now())
     `, [
         symbol,
         name,
@@ -9711,7 +9736,7 @@ function adminMarketAssetFromControl(control, stats = {}) {
         changePct: control.changePct,
         marketCap: control.marketCap || null,
         fdv: control.fdv || null,
-        liquidityUsd: control.liquidityUsd || null,
+        liquidityUsd: control.reserveUsd || control.liquidityUsd || null,
         totalVolume: control.totalVolume || null,
         high24h: stats.high24h ?? null,
         low24h: stats.low24h ?? null,
@@ -9862,15 +9887,41 @@ async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source
 
     const currentPrice = Math.max(0.00000001, Number(control.currentPrice || controlledMarketDefaultPrice()));
     const direction = String(side || "").toLowerCase() === "sell" ? -1 : 1;
-    const fallbackLiquidity = positiveNumber(process.env.AUTODY_AU_DEFAULT_LIQUIDITY_USD) || 10000;
-    const impactBase = Math.max(control.liquidityUsd || 0, amountUsd, fallbackLiquidity);
-    const maxImpact = clampNumber(process.env.AUTODY_AU_TRADE_MAX_IMPACT_PCT || 3, 0.01, 25) / 100;
-    const impactMultiplier = clampNumber(process.env.AUTODY_AU_TRADE_IMPACT_MULTIPLIER || 0.35, 0.01, 5);
-    const impact = Math.min(maxImpact, (amountUsd / impactBase) * impactMultiplier);
-    const nextPrice = roundMarketPrice(clampNumber(currentPrice * (1 + direction * impact), control.minPrice, control.maxPrice)) || currentPrice;
+    const reserveAsset = positiveNumber(control.reserveAssetQuantity);
+    const reserveUsd = positiveNumber(control.reserveUsd);
+    let nextReserveAsset = control.reserveAssetQuantity || 0;
+    let nextReserveUsd = control.reserveUsd || 0;
+    let nextLiquidity = control.liquidityUsd || 0;
+    let nextPrice;
+    let impactSource = source;
+
+    if (reserveAsset && reserveUsd) {
+        const constantProduct = reserveAsset * reserveUsd;
+        if (direction > 0) {
+            nextReserveUsd = reserveUsd + amountUsd;
+            nextReserveAsset = constantProduct / Math.max(0.00000001, nextReserveUsd);
+        } else {
+            const assetIn = amountUsd / currentPrice;
+            nextReserveAsset = reserveAsset + assetIn;
+            nextReserveUsd = constantProduct / Math.max(0.00000001, nextReserveAsset);
+        }
+        const reservePrice = nextReserveUsd / Math.max(0.00000001, nextReserveAsset);
+        nextPrice = roundMarketPrice(clampNumber(reservePrice, control.minPrice, control.maxPrice)) || currentPrice;
+        nextReserveAsset = roundAdminReserveQuantity(nextReserveAsset);
+        nextReserveUsd = roundAdminUsd(nextPrice * nextReserveAsset);
+        nextLiquidity = nextReserveUsd;
+        impactSource = `${source}:reserve-pool`;
+    } else {
+        const fallbackLiquidity = positiveNumber(process.env.AUTODY_AU_DEFAULT_LIQUIDITY_USD) || 10000;
+        const impactBase = Math.max(control.liquidityUsd || 0, amountUsd, fallbackLiquidity);
+        const maxImpact = clampNumber(process.env.AUTODY_AU_TRADE_MAX_IMPACT_PCT || 3, 0.01, 25) / 100;
+        const impactMultiplier = clampNumber(process.env.AUTODY_AU_TRADE_IMPACT_MULTIPLIER || 0.35, 0.01, 5);
+        const impact = Math.min(maxImpact, (amountUsd / impactBase) * impactMultiplier);
+        nextPrice = roundMarketPrice(clampNumber(currentPrice * (1 + direction * impact), control.minPrice, control.maxPrice)) || currentPrice;
+        const liquidityShift = roundAdminUsd(amountUsd * 0.05);
+        nextLiquidity = roundAdminUsd(Math.max(0, (control.liquidityUsd || 0) + (direction > 0 ? -liquidityShift : liquidityShift)));
+    }
     const changePct = currentPrice ? Number((((nextPrice - currentPrice) / currentPrice) * 100).toFixed(6)) : 0;
-    const liquidityShift = roundAdminUsd(amountUsd * 0.05);
-    const nextLiquidity = roundAdminUsd(Math.max(0, (control.liquidityUsd || 0) + (direction > 0 ? -liquidityShift : liquidityShift)));
     const nextTotalVolume = roundAdminUsd((control.totalVolume || 0) + amountUsd);
     const derived = deriveAdminMarketMetrics({
         ...control,
@@ -9883,9 +9934,11 @@ async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source
             last_price = $3,
             change_pct = $4,
             liquidity_usd = $5,
-            market_cap_usd = $6,
-            fdv_usd = $7,
-            total_volume_usd = $8,
+            reserve_asset_quantity = $6,
+            reserve_usd = $7,
+            market_cap_usd = $8,
+            fdv_usd = $9,
+            total_volume_usd = $10,
             last_tick_at = now(),
             updated_at = now()
         where symbol = $1
@@ -9896,6 +9949,8 @@ async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source
         currentPrice,
         changePct,
         nextLiquidity,
+        nextReserveAsset,
+        nextReserveUsd,
         derived.marketCap,
         derived.fdv,
         nextTotalVolume
@@ -9904,7 +9959,7 @@ async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source
     await dbPool.query(`
         insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
         values ($1, $2, $3, $4, $5)
-    `, [safeSymbol, nextPrice, changePct, amountUsd, source]);
+    `, [safeSymbol, nextPrice, changePct, amountUsd, impactSource]);
 
     await trimAdminMarketTicks(safeSymbol);
     const updated = normalizeAdminMarketControlRow(result.rows[0]);
@@ -10208,6 +10263,9 @@ async function updateAdminMarketControl(body = {}) {
     const volumeRollIntervalMinutes = Math.max(1, Math.min(10080, Math.round(Number(
         body.volumeRollIntervalMinutes || current.volumeRollIntervalMinutes || ADMIN_MARKET_DEFAULT_VOLUME_ROLL_MINUTES
     ))));
+    const reserveAssetQuantity = adminPositiveValue(body.reserveAssetQuantity, current.reserveAssetQuantity, 0);
+    const reserveUsd = adminPositiveValue(body.reserveUsd, current.reserveUsd || current.liquidityUsd, 0);
+    const liquidityUsd = reserveUsd || adminPositiveValue(body.liquidityUsd, current.liquidityUsd, 0);
     if (volumeMaxUsd > 0 && volumeMaxUsd < volumeMinUsd) {
         const err = new Error("24h volume max must be higher than 24h volume min.");
         err.status = 400;
@@ -10232,19 +10290,21 @@ async function updateAdminMarketControl(body = {}) {
             step_percent = $9,
             trend_bias = $10,
             liquidity_usd = $11,
-            market_cap_usd = $12,
-            fdv_usd = $13,
-            total_volume_usd = $14,
-            volume_min_usd = $15,
-            volume_max_usd = $16,
-            volume_roll_interval_minutes = $17,
-            circulating_supply = $18,
-            total_supply = $19,
-            max_supply = $20,
-            status = $21,
-            updated_by = $22,
-            last_tick_at = case when $23 then now() else last_tick_at end,
-            volume_last_roll_at = case when $24 then now() else volume_last_roll_at end,
+            reserve_asset_quantity = $12,
+            reserve_usd = $13,
+            market_cap_usd = $14,
+            fdv_usd = $15,
+            total_volume_usd = $16,
+            volume_min_usd = $17,
+            volume_max_usd = $18,
+            volume_roll_interval_minutes = $19,
+            circulating_supply = $20,
+            total_supply = $21,
+            max_supply = $22,
+            status = $23,
+            updated_by = $24,
+            last_tick_at = case when $25 then now() else last_tick_at end,
+            volume_last_roll_at = case when $26 then now() else volume_last_roll_at end,
             updated_at = now()
         where symbol = $1
         returning *
@@ -10259,7 +10319,9 @@ async function updateAdminMarketControl(body = {}) {
         Math.max(10, Math.min(3600, Math.round(Number(body.updateIntervalSeconds || current.updateIntervalSeconds || 30)))),
         Math.max(0.01, Math.min(50, Number(body.stepPercent || current.stepPercent || 0.75))),
         clampNumber(body.trendBias ?? current.trendBias ?? 0, -1, 1),
-        adminPositiveValue(body.liquidityUsd, current.liquidityUsd, 0),
+        liquidityUsd,
+        reserveAssetQuantity,
+        reserveUsd,
         derived.marketCap,
         derived.fdv,
         totalVolume,

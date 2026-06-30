@@ -91,7 +91,8 @@ function fillControlForm(control = {}) {
   controlNumberInput(form, "updateIntervalSeconds", control.updateIntervalSeconds);
   controlNumberInput(form, "stepPercent", control.stepPercent);
   controlNumberInput(form, "trendBias", control.trendBias);
-  controlNumberInput(form, "liquidityUsd", control.liquidityUsd);
+  controlNumberInput(form, "reserveAssetQuantity", control.reserveAssetQuantity);
+  controlNumberInput(form, "reserveUsd", control.reserveUsd || control.liquidityUsd);
   controlNumberInput(form, "marketCap", control.marketCap);
   controlNumberInput(form, "fdv", control.fdv);
   controlNumberInput(form, "totalVolume", control.totalVolume);

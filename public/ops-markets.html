@@ -135,11 +135,14 @@
           </div>
           <p class="ops-field-help">Step percent controls each tick size. Example: at 1%, a $7.00 asset can move roughly to $6.93 or $7.07 per tick. Trend bias pushes probability: -1 leans down, 0 is neutral, +1 leans up.</p>
           <div class="admin-form-row">
-            <label>Liquidity USD<input name="liquidityUsd" type="number" step="0.01" min="0" /></label>
+            <label>Asset reserve<input name="reserveAssetQuantity" type="number" step="any" min="0" /></label>
+            <label>USD reserve<input name="reserveUsd" type="number" step="0.01" min="0" /></label>
             <label>Market cap<input name="marketCap" type="number" step="0.01" min="0" readonly /></label>
+          </div>
+          <div class="admin-form-row">
             <label>FDV<input name="fdv" type="number" step="0.01" min="0" readonly /></label>
           </div>
-          <p class="ops-field-help">Market cap is price x circulating supply. FDV is price x total supply.</p>
+          <p class="ops-field-help">Reserve model affects real buy, sell, and swap impact. Example: 100,000 asset reserve and $700,000 USD reserve gives a $7 base ratio. Keep current price aligned with USD reserve / asset reserve when you want the pool ratio to be the displayed starting price. Buys lower asset reserve and raise USD reserve; sells do the reverse. Market cap is price x circulating supply. FDV is price x total supply.</p>
           <div class="admin-form-row">
             <label>24h volume<input name="totalVolume" type="number" step="0.01" min="0" /></label>
             <label>24h volume min<input name="volumeMinUsd" type="number" step="0.01" min="0" /></label>
