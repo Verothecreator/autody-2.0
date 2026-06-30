@@ -6073,6 +6073,85 @@ body.account-body.theme-light .profile-kyc-modal-card {
   transform: translateY(-2px);
 }
 
+.ops-control-list-card {
+  display: grid;
+  gap: 16px;
+  background:
+    linear-gradient(145deg, rgba(21, 26, 37, 0.96), rgba(13, 17, 25, 0.96)),
+    rgba(15, 19, 27, 0.92);
+}
+
+.ops-control-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-control-pill {
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(24, 28, 38, 0.86);
+  color: var(--text);
+  padding: 14px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ops-control-pill strong,
+.ops-control-pill span {
+  display: block;
+}
+
+.ops-control-pill strong {
+  font-size: 1.05rem;
+}
+
+.ops-control-pill span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.ops-control-pill.active,
+.ops-control-pill:hover {
+  border-color: rgba(91, 95, 239, 0.72);
+  background: rgba(91, 95, 239, 0.18);
+}
+
+.ops-new-control-form {
+  display: grid;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.ops-new-control-form[hidden] {
+  display: none;
+}
+
+.ops-new-control-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.ops-new-control-form input,
+.ops-new-control-form select {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151922;
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 850;
+}
+
 .ops-market-kpis .mini-metric small.positive,
 .ops-market-kpis .mini-metric .positive {
   color: var(--positive);
@@ -6170,7 +6249,8 @@ body.account-body.theme-light .profile-kyc-modal-card {
   }
 
   .admin-kpi-grid,
-  .ops-console-grid {
+  .ops-console-grid,
+  .ops-control-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -6226,6 +6306,7 @@ body.account-body.theme-light .profile-kyc-modal-card {
   }
 
   .ops-console-grid,
+  .ops-control-list,
   .ops-security-list {
     grid-template-columns: 1fr;
   }

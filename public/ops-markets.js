@@ -1,26 +1,52 @@
-const auMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 8 });
-const auCompactMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 });
-let auOverview = null;
+const controlMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 8 });
+let controlOverview = null;
+let controlList = [];
+let activeSymbol = new URLSearchParams(window.location.search).get("symbol") || "AU";
+activeSymbol = activeSymbol.trim().toUpperCase() || "AU";
 
-function auNotice(message, tone = "neutral") {
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function controlNotice(message, tone = "neutral") {
   const node = document.getElementById("ops-market-notice");
   if (!node) return;
   node.textContent = message;
   node.dataset.state = tone;
 }
 
-function auFormatPrice(value) {
+function formatControlPrice(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "$0.00";
-  return auMoney.format(number);
+  return controlMoney.format(number);
 }
 
-function auNumberInput(form, name, value) {
+function controlNumberInput(form, name, value) {
   const input = form.elements[name];
   if (input) input.value = value ?? "";
 }
 
-function calculateDerivedAuMetrics(form) {
+function activeControl() {
+  return controlOverview?.control || controlList.find((item) => item.symbol === activeSymbol) || {};
+}
+
+function controlDisplayName(control = activeControl()) {
+  return control.name || control.asset?.name || activeSymbol;
+}
+
+function setActiveSymbol(symbol) {
+  activeSymbol = String(symbol || "AU").trim().toUpperCase() || "AU";
+  const url = new URL(window.location.href);
+  url.searchParams.set("symbol", activeSymbol);
+  window.history.replaceState({}, "", url);
+}
+
+function calculateDerivedMetrics(form) {
   const currentPrice = Number(form.elements.currentPrice?.value || 0);
   const circulatingSupply = Number(form.elements.circulatingSupply?.value || 0);
   const totalSupply = Number(form.elements.totalSupply?.value || 0);
@@ -34,34 +60,52 @@ function calculateDerivedAuMetrics(form) {
   };
 }
 
-function renderDerivedAuMetrics() {
+function renderDerivedMetrics() {
   const form = document.getElementById("ops-market-form");
   if (!form) return;
-  const derived = calculateDerivedAuMetrics(form);
-  auNumberInput(form, "marketCap", derived.marketCap ? derived.marketCap.toFixed(2) : "");
-  auNumberInput(form, "fdv", derived.fdv ? derived.fdv.toFixed(2) : "");
+  const derived = calculateDerivedMetrics(form);
+  controlNumberInput(form, "marketCap", derived.marketCap ? derived.marketCap.toFixed(2) : "");
+  controlNumberInput(form, "fdv", derived.fdv ? derived.fdv.toFixed(2) : "");
 }
 
 function fillControlForm(control = {}) {
   const form = document.getElementById("ops-market-form");
   if (!form) return;
   form.elements.enabled.checked = control.enabled !== false;
-  auNumberInput(form, "currentPrice", control.currentPrice);
-  auNumberInput(form, "minPrice", control.minPrice);
-  auNumberInput(form, "maxPrice", control.maxPrice);
-  auNumberInput(form, "updateIntervalSeconds", control.updateIntervalSeconds);
-  auNumberInput(form, "stepPercent", control.stepPercent);
-  auNumberInput(form, "trendBias", control.trendBias);
-  auNumberInput(form, "liquidityUsd", control.liquidityUsd);
-  auNumberInput(form, "marketCap", control.marketCap);
-  auNumberInput(form, "fdv", control.fdv);
-  auNumberInput(form, "totalVolume", control.totalVolume);
-  auNumberInput(form, "volumeMinUsd", control.volumeMinUsd);
-  auNumberInput(form, "volumeMaxUsd", control.volumeMaxUsd);
-  auNumberInput(form, "circulatingSupply", control.circulatingSupply);
-  auNumberInput(form, "totalSupply", control.totalSupply);
+  controlNumberInput(form, "currentPrice", control.currentPrice);
+  controlNumberInput(form, "minPrice", control.minPrice);
+  controlNumberInput(form, "maxPrice", control.maxPrice);
+  controlNumberInput(form, "updateIntervalSeconds", control.updateIntervalSeconds);
+  controlNumberInput(form, "stepPercent", control.stepPercent);
+  controlNumberInput(form, "trendBias", control.trendBias);
+  controlNumberInput(form, "liquidityUsd", control.liquidityUsd);
+  controlNumberInput(form, "marketCap", control.marketCap);
+  controlNumberInput(form, "fdv", control.fdv);
+  controlNumberInput(form, "totalVolume", control.totalVolume);
+  controlNumberInput(form, "volumeMinUsd", control.volumeMinUsd);
+  controlNumberInput(form, "volumeMaxUsd", control.volumeMaxUsd);
+  controlNumberInput(form, "circulatingSupply", control.circulatingSupply);
+  controlNumberInput(form, "totalSupply", control.totalSupply);
   if (form.elements.status) form.elements.status.value = control.status || "admin controlled";
-  renderDerivedAuMetrics();
+  renderDerivedMetrics();
+}
+
+function updateControlLabels() {
+  const control = activeControl();
+  const name = controlDisplayName(control);
+  const title = document.getElementById("ops-control-title");
+  const description = document.getElementById("ops-control-description");
+  const price = document.getElementById("ops-price-label");
+  const settings = document.getElementById("ops-settings-label");
+  const chart = document.getElementById("ops-chart-label");
+  const save = document.getElementById("ops-save-label");
+
+  if (title) title.textContent = `${name} control`;
+  if (description) description.textContent = `Control ${activeSymbol} pricing, range, 24h volume, supply, and graph movement from the database.`;
+  if (price) price.textContent = `${activeSymbol} price`;
+  if (settings) settings.textContent = `${activeSymbol} settings`;
+  if (chart) chart.textContent = `${activeSymbol} graph`;
+  if (save) save.textContent = "Save Control";
 }
 
 function renderKpis(overview = {}) {
@@ -74,13 +118,13 @@ function renderKpis(overview = {}) {
   const retention = document.querySelector('[data-au-kpi="retention"]');
   const status = document.querySelector('[data-au-kpi="status"]');
   const interval = document.querySelector('[data-au-kpi="interval"]');
-  if (price) price.textContent = auFormatPrice(control.currentPrice);
+  if (price) price.textContent = formatControlPrice(control.currentPrice);
   if (change) {
     const value = Number(control.changePct || 0);
     change.textContent = `${value > 0 ? "+" : ""}${value.toFixed(4)}%`;
     change.className = value > 0 ? "positive" : value < 0 ? "negative" : "";
   }
-  if (range) range.textContent = `${auFormatPrice(control.minPrice)} - ${auFormatPrice(control.maxPrice)}`;
+  if (range) range.textContent = `${formatControlPrice(control.minPrice)} - ${formatControlPrice(control.maxPrice)}`;
   if (ticks) ticks.textContent = stats.tickCount || 0;
   if (retention) retention.textContent = `${overview.retention?.days || 0} days / ${overview.retention?.maxRows || 0} max`;
   if (status) status.textContent = control.enabled === false ? "Paused" : "Active";
@@ -92,7 +136,7 @@ function renderChart(chart = {}) {
   if (!target) return;
   const points = (chart.points || []).map((point) => ({ ...point, close: Number(point.close) })).filter((point) => Number.isFinite(point.close));
   if (points.length < 2) {
-    target.innerHTML = `<div class="admin-empty">AU chart history is warming up.</div>`;
+    target.innerHTML = `<div class="admin-empty">${escapeHtml(activeSymbol)} chart history is warming up.</div>`;
     return;
   }
   const width = 760;
@@ -109,14 +153,14 @@ function renderChart(chart = {}) {
   }).join(" ");
   const area = `${path} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
   target.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="AU controlled price chart">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(activeSymbol)} controlled price chart">
       <defs>
-        <linearGradient id="auOpsFill" x1="0" x2="0" y1="0" y2="1">
+        <linearGradient id="opsControlFill" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stop-color="#2de18b" stop-opacity="0.4" />
           <stop offset="100%" stop-color="#2de18b" stop-opacity="0" />
         </linearGradient>
       </defs>
-      <path d="${area}" fill="url(#auOpsFill)"></path>
+      <path d="${area}" fill="url(#opsControlFill)"></path>
       <path d="${path}" fill="none" stroke="#2de18b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
     </svg>
   `;
@@ -126,14 +170,14 @@ function renderTicks(ticks = []) {
   const target = document.getElementById("ops-tick-list");
   if (!target) return;
   if (!ticks.length) {
-    target.innerHTML = `<div class="admin-empty">No AU ticks yet.</div>`;
+    target.innerHTML = `<div class="admin-empty">No ${escapeHtml(activeSymbol)} ticks yet.</div>`;
     return;
   }
   target.innerHTML = ticks.slice(0, 12).map((tick) => `
     <article class="admin-record ops-tick-record">
       <div>
-        <strong>${auFormatPrice(tick.price)}</strong>
-        <span>${tick.source || "admin-control"}</span>
+        <strong>${formatControlPrice(tick.price)}</strong>
+        <span>${escapeHtml(tick.source || "admin-control")}</span>
       </div>
       <div>
         <span>${Number(tick.changePct || 0).toFixed(4)}%</span>
@@ -143,20 +187,54 @@ function renderTicks(ticks = []) {
   `).join("");
 }
 
-async function loadAuOverview(forceTick = false) {
+function renderControlList() {
+  const target = document.getElementById("ops-control-list");
+  if (!target) return;
+  if (!controlList.length) {
+    target.innerHTML = `<div class="admin-empty">No controlled assets yet.</div>`;
+    return;
+  }
+  target.innerHTML = controlList.map((control) => {
+    const active = control.symbol === activeSymbol;
+    return `
+      <button type="button" class="ops-control-pill${active ? " active" : ""}" data-symbol="${escapeHtml(control.symbol)}">
+        <strong>${escapeHtml(control.symbol)} control</strong>
+        <span>${escapeHtml(control.name || control.symbol)} / ${escapeHtml(control.assetType || "crypto")}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+async function loadControlList() {
+  const result = await opsPost("/api/admin/markets/list", {});
+  controlList = Array.isArray(result.controls) ? result.controls : [];
+  if (!controlList.some((item) => item.symbol === activeSymbol)) {
+    activeSymbol = controlList[0]?.symbol || "AU";
+    setActiveSymbol(activeSymbol);
+  }
+  renderControlList();
+}
+
+async function loadControlOverview(forceTick = false) {
   await opsRequireSession();
   const range = document.getElementById("ops-chart-range")?.value || "1d";
-  auNotice(forceTick ? "Advancing AU price..." : "Loading AU control...", "neutral");
-  auOverview = await opsPost("/api/admin/markets/overview", { symbol: "AU", range, forceTick });
-  fillControlForm(auOverview.control);
-  renderKpis(auOverview);
-  renderChart(auOverview.chart);
-  renderTicks(auOverview.ticks || []);
-  auNotice(`AU market loaded. Last tick ${auOverview.stats?.lastTickAt ? new Date(auOverview.stats.lastTickAt).toLocaleTimeString() : "not yet"}.`, "success");
+  controlNotice(forceTick ? `Advancing ${activeSymbol} price...` : `Loading ${activeSymbol} control...`, "neutral");
+  controlOverview = await opsPost("/api/admin/markets/overview", { symbol: activeSymbol, range, forceTick });
+  const listed = controlList.find((item) => item.symbol === controlOverview.control?.symbol);
+  if (!listed && controlOverview.control?.symbol) {
+    controlList.push(controlOverview.control);
+    renderControlList();
+  }
+  fillControlForm(controlOverview.control);
+  updateControlLabels();
+  renderKpis(controlOverview);
+  renderChart(controlOverview.chart);
+  renderTicks(controlOverview.ticks || []);
+  controlNotice(`${activeSymbol} market loaded. Last tick ${controlOverview.stats?.lastTickAt ? new Date(controlOverview.stats.lastTickAt).toLocaleTimeString() : "not yet"}.`, "success");
 }
 
 function formControlBody(form) {
-  const body = { symbol: "AU", range: document.getElementById("ops-chart-range")?.value || "1d" };
+  const body = { symbol: activeSymbol, range: document.getElementById("ops-chart-range")?.value || "1d" };
   for (const [key, rawValue] of new FormData(form).entries()) {
     if (key === "enabled") {
       body.enabled = true;
@@ -171,33 +249,118 @@ function formControlBody(form) {
   return body;
 }
 
-function wireAuOps() {
-  document.getElementById("ops-market-form")?.addEventListener("submit", async (event) => {
+function newControlBody(form) {
+  const body = {};
+  for (const [key, rawValue] of new FormData(form).entries()) {
+    const value = String(rawValue || "").trim();
+    if (!value) continue;
+    body[key] = ["symbol", "name", "assetType"].includes(key) ? value : Number(value);
+  }
+  body.range = document.getElementById("ops-chart-range")?.value || "1d";
+  return body;
+}
+
+async function saveControl(form, submit) {
+  submit.disabled = true;
+  submit.textContent = "Saving...";
+  controlOverview = await opsPost("/api/admin/markets/control", formControlBody(form));
+  fillControlForm(controlOverview.control);
+  updateControlLabels();
+  renderKpis(controlOverview);
+  renderChart(controlOverview.chart);
+  renderTicks(controlOverview.ticks || []);
+  await loadControlList().catch(() => null);
+  controlNotice(`${activeSymbol} control saved.`, "success");
+  submit.disabled = false;
+  submit.textContent = "Save Control";
+}
+
+function wireControlOps() {
+  document.getElementById("ops-control-list")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-symbol]");
+    if (!button) return;
+    setActiveSymbol(button.dataset.symbol);
+    renderControlList();
+    loadControlOverview(false).catch((err) => controlNotice(err.message, "error"));
+  });
+
+  document.getElementById("ops-new-control-toggle")?.addEventListener("click", () => {
+    const form = document.getElementById("ops-new-control-form");
+    if (!form) return;
+    form.hidden = !form.hidden;
+  });
+
+  document.getElementById("ops-new-control-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const submit = event.currentTarget.querySelector('button[type="submit"]');
     try {
       submit.disabled = true;
-      submit.textContent = "Saving...";
-      auOverview = await opsPost("/api/admin/markets/control", formControlBody(event.currentTarget));
-      fillControlForm(auOverview.control);
-      renderKpis(auOverview);
-      renderChart(auOverview.chart);
-      renderTicks(auOverview.ticks || []);
-      auNotice("AU control saved.", "success");
+      submit.textContent = "Creating...";
+      const result = await opsPost("/api/admin/markets/create", newControlBody(event.currentTarget));
+      setActiveSymbol(result.symbol || result.control?.symbol || event.currentTarget.elements.symbol.value);
+      event.currentTarget.reset();
+      event.currentTarget.hidden = true;
+      await loadControlList();
+      await loadControlOverview(false);
+      controlNotice(`${activeSymbol} control created.`, "success");
     } catch (err) {
-      auNotice(err.message || "Could not save AU control.", "error");
+      controlNotice(err.message || "Could not create asset control.", "error");
     } finally {
       submit.disabled = false;
-      submit.textContent = "Save AU Control";
+      submit.textContent = "Create Asset";
     }
   });
 
-  document.getElementById("ops-force-tick")?.addEventListener("click", () => loadAuOverview(true).catch((err) => auNotice(err.message, "error")));
-  document.getElementById("ops-chart-range")?.addEventListener("change", () => loadAuOverview(false).catch((err) => auNotice(err.message, "error")));
-  document.getElementById("ops-market-form")?.addEventListener("input", (event) => {
-    if (["currentPrice", "circulatingSupply", "totalSupply"].includes(event.target?.name)) renderDerivedAuMetrics();
+  document.getElementById("ops-market-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.currentTarget.querySelector('button[type="submit"]');
+    try {
+      await saveControl(event.currentTarget, submit);
+    } catch (err) {
+      controlNotice(err.message || "Could not save control.", "error");
+      submit.disabled = false;
+      submit.textContent = "Save Control";
+    }
   });
-  loadAuOverview(false).catch((err) => auNotice(err.message || "Could not load AU control.", "error"));
+
+  document.getElementById("ops-force-tick")?.addEventListener("click", () => loadControlOverview(true).catch((err) => controlNotice(err.message, "error")));
+  document.getElementById("ops-chart-range")?.addEventListener("change", () => loadControlOverview(false).catch((err) => controlNotice(err.message, "error")));
+  document.getElementById("ops-reset-control")?.addEventListener("click", async () => {
+    const ok = window.confirm(`Reset ${activeSymbol} market history, snapshots, 24h volume, and chart data? User wallets and orders will not be changed.`);
+    if (!ok) return;
+    try {
+      controlNotice(`Resetting ${activeSymbol}...`, "neutral");
+      controlOverview = await opsPost("/api/admin/markets/reset", {
+        symbol: activeSymbol,
+        currentPrice: document.getElementById("ops-market-form")?.elements.currentPrice?.value,
+        minPrice: document.getElementById("ops-market-form")?.elements.minPrice?.value,
+        maxPrice: document.getElementById("ops-market-form")?.elements.maxPrice?.value,
+        range: document.getElementById("ops-chart-range")?.value || "1d"
+      });
+      fillControlForm(controlOverview.control);
+      updateControlLabels();
+      renderKpis(controlOverview);
+      renderChart(controlOverview.chart);
+      renderTicks(controlOverview.ticks || []);
+      await loadControlList().catch(() => null);
+      controlNotice(`${activeSymbol} reset. You can enter fresh data from here.`, "success");
+    } catch (err) {
+      controlNotice(err.message || "Could not reset market control.", "error");
+    }
+  });
+
+  document.getElementById("ops-market-form")?.addEventListener("input", (event) => {
+    if (["currentPrice", "circulatingSupply", "totalSupply"].includes(event.target?.name)) renderDerivedMetrics();
+  });
 }
 
-document.addEventListener("DOMContentLoaded", wireAuOps);
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    await opsRequireSession();
+    wireControlOps();
+    await loadControlList();
+    await loadControlOverview(false);
+  } catch (err) {
+    controlNotice(err.message || "Could not load market control.", "error");
+  }
+});

@@ -6548,7 +6548,7 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             const trade = calculateTradeSize(body, asset.price);
             await adjustDbCash(client, context.wallet_id, -trade.notionalUsd);
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
-            if (asset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd: trade.notionalUsd, source: "demo-buy" });
+            marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "demo-buy" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
                 assetType: tradeAssetType(asset),
@@ -6563,7 +6563,7 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity);
             realizedDelta += result.realizedProfitLoss;
             await adjustDbCash(client, context.wallet_id, trade.notionalUsd);
-            if (asset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd: trade.notionalUsd, source: "demo-sell" });
+            marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "demo-sell" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
                 assetType: tradeAssetType(asset),
@@ -6590,11 +6590,11 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             const fromQuantity = notionalUsd / fromAsset.price;
             const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
             realizedDelta += sellResult.realizedProfitLoss;
-            if (fromAsset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd, source: "demo-swap-out" });
+            marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "demo-swap-out" });
 
             const toQuantity = notionalUsd / toAsset.price;
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, notionalUsd);
-            if (toAsset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd, source: "demo-swap-in" });
+            marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd, source: "demo-swap-in" });
             order = await insertDbOrder(client, context, {
                 symbol: toAsset.symbol,
                 assetType: tradeAssetType(toAsset),
@@ -6610,8 +6610,8 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
         await refreshDbPerformance(client, context, realizedDelta);
         await client.query("commit");
         for (const impact of marketImpacts) {
-            await applyAdminControlledTradeImpact("AU", impact.side, impact.notionalUsd, impact.source).catch((err) => {
-                console.error("AU demo trade impact failed:", err.message || err);
+            await applyAdminControlledTradeImpact(impact.symbol, impact.side, impact.notionalUsd, impact.source).catch((err) => {
+                console.error("Admin controlled demo trade impact failed:", err.message || err);
             });
         }
         const account = auth.source === "supabase" && auth.profileId
@@ -6707,14 +6707,14 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         const trade = calculateTradeSize(body, asset.price);
         adjustCash(-trade.notionalUsd);
         buyHolding(asset, trade.quantity, trade.notionalUsd);
-        if (asset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd: trade.notionalUsd, source: "demo-json-buy" });
+        marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "demo-json-buy" });
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
     } else if (side === "sell") {
         const asset = await resolveTradeAsset(body.symbol);
         const trade = calculateTradeSize(body, asset.price);
         realizedDelta += sellHolding(asset, trade.quantity);
         adjustCash(trade.notionalUsd);
-        if (asset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd: trade.notionalUsd, source: "demo-json-sell" });
+        marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "demo-json-sell" });
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
     } else if (side === "swap") {
         const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol);
@@ -6731,10 +6731,10 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         const fromAsset = await resolveTradeAsset(fromSymbol);
         assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
         realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price);
-        if (fromAsset.symbol === "AU") marketImpacts.push({ side: "sell", notionalUsd, source: "demo-json-swap-out" });
+        marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "demo-json-swap-out" });
         const toQuantity = notionalUsd / toAsset.price;
         buyHolding(toAsset, toQuantity, notionalUsd);
-        if (toAsset.symbol === "AU") marketImpacts.push({ side: "buy", notionalUsd, source: "demo-json-swap-in" });
+        marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd, source: "demo-json-swap-in" });
         order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };
     } else {
         throw demoTradeError(400, "Choose buy, sell, or swap.");
@@ -6769,8 +6769,8 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
 
     saveDemoDb(db);
     for (const impact of marketImpacts) {
-        await applyAdminControlledTradeImpact("AU", impact.side, impact.notionalUsd, impact.source).catch((err) => {
-            console.error("AU JSON demo trade impact failed:", err.message || err);
+        await applyAdminControlledTradeImpact(impact.symbol, impact.side, impact.notionalUsd, impact.source).catch((err) => {
+            console.error("Admin controlled JSON demo trade impact failed:", err.message || err);
         });
     }
     return {
@@ -9332,6 +9332,36 @@ function controlledMarketDefaultPrice() {
     return Math.max(0.00000001, Number(process.env.AUTODY_AU_START_PRICE || 0.001));
 }
 
+function normalizeAdminMarketAssetType(value = "crypto") {
+    const normalized = String(value || "crypto").trim().toLowerCase();
+    const map = {
+        crypto: "crypto",
+        token: "crypto",
+        coin: "crypto",
+        stock: "stock",
+        stocks: "stock",
+        equity: "stock",
+        equities: "stock",
+        etf: "etf",
+        etfs: "etf",
+        fund: "etf",
+        commodity: "commodity",
+        commodities: "commodity",
+        oil: "commodity",
+        metal: "commodity",
+        metals: "commodity"
+    };
+    return map[normalized] || "crypto";
+}
+
+function adminMarketNameForType(assetType = "crypto") {
+    const normalized = normalizeAdminMarketAssetType(assetType);
+    if (normalized === "stock") return "Stocks";
+    if (normalized === "etf") return "ETFs";
+    if (normalized === "commodity") return "Oil and metals";
+    return "Crypto";
+}
+
 function clampNumber(value, min, max) {
     const number = Number(value);
     if (!Number.isFinite(number)) return Number(min);
@@ -9423,11 +9453,15 @@ async function ensureAdminMarketTables(client = dbPool) {
               on admin_market_ticks (symbol, created_at desc);
 
             alter table if exists admin_market_controls
+              add column if not exists asset_type text not null default 'crypto';
+            alter table if exists admin_market_controls
               add column if not exists volume_min_usd numeric(24, 2) not null default 0;
             alter table if exists admin_market_controls
               add column if not exists volume_max_usd numeric(24, 2) not null default 0;
             alter table if exists admin_market_controls
               add column if not exists volume_last_roll_at timestamptz;
+            alter table if exists admin_market_controls
+              add column if not exists max_supply numeric(32, 8);
         `).then(() => {
             adminMarketTablesReady = true;
             return true;
@@ -9444,7 +9478,7 @@ function normalizeAdminMarketControlRow(row = {}) {
     const control = {
         symbol: controlledMarketSymbol(row.symbol),
         name: row.asset_name || "Autody AU",
-        assetType: row.asset_type || "crypto",
+        assetType: normalizeAdminMarketAssetType(row.asset_type),
         enabled: row.enabled !== false,
         minPrice: nullableNumber(row.min_price) ?? 0.0001,
         maxPrice: nullableNumber(row.max_price) ?? 0.01,
@@ -9523,6 +9557,108 @@ async function readAdminMarketControl(symbol = "AU") {
     return normalizeAdminMarketControlRow(result.rows[0]);
 }
 
+async function listAdminMarketControls() {
+    if (!databaseConfigured()) {
+        const err = new Error("Database is not configured for admin market controls.");
+        err.status = 503;
+        throw err;
+    }
+    await ensureAdminMarketTables();
+    await ensureAdminMarketControl("AU");
+    const result = await dbPool.query(`
+        select *
+        from admin_market_controls
+        order by case when symbol = 'AU' then 0 else 1 end, asset_type asc, symbol asc
+    `);
+    return result.rows.map(normalizeAdminMarketControlRow).filter(Boolean);
+}
+
+async function createAdminMarketControl(body = {}) {
+    if (!databaseConfigured()) {
+        const err = new Error("Database is not configured for admin market controls.");
+        err.status = 503;
+        throw err;
+    }
+    await ensureAdminMarketTables();
+    const rawSymbol = String(body.symbol || "").trim().toUpperCase();
+    const symbol = controlledMarketSymbol(rawSymbol);
+    if (!rawSymbol || !/^[A-Z0-9.:-]{1,20}$/.test(symbol)) {
+        const err = new Error("Enter a valid asset symbol.");
+        err.status = 400;
+        throw err;
+    }
+    const existing = await readAdminMarketControl(symbol);
+    if (existing) {
+        const err = new Error(`${symbol} already has a control.`);
+        err.status = 409;
+        throw err;
+    }
+
+    const assetType = normalizeAdminMarketAssetType(body.assetType || "crypto");
+    const name = normalizeText(body.name || body.assetName || symbol).slice(0, 90) || symbol;
+    const currentPrice = roundMarketPrice(adminPositiveValue(body.currentPrice, controlledMarketDefaultPrice(), 0.00000001));
+    const minPrice = roundMarketPrice(adminPositiveValue(body.minPrice, Math.max(0.00000001, currentPrice * 0.5), 0.00000001));
+    const maxPriceFallback = Math.max(currentPrice * 2, minPrice + 0.00000001);
+    const maxPrice = roundMarketPrice(adminPositiveValue(body.maxPrice, maxPriceFallback, 0.00000001));
+    if (maxPrice <= minPrice) {
+        const err = new Error("Max price must be higher than min price.");
+        err.status = 400;
+        throw err;
+    }
+
+    const circulatingSupply = nullableNumber(body.circulatingSupply);
+    const totalSupply = nullableNumber(body.totalSupply);
+    const derived = deriveAdminMarketMetrics({ currentPrice, circulatingSupply, totalSupply });
+
+    await dbPool.query(`
+        insert into admin_market_controls (
+            symbol,
+            asset_name,
+            asset_type,
+            enabled,
+            min_price,
+            max_price,
+            current_price,
+            last_price,
+            change_pct,
+            update_interval_seconds,
+            step_percent,
+            trend_bias,
+            liquidity_usd,
+            market_cap_usd,
+            fdv_usd,
+            total_volume_usd,
+            circulating_supply,
+            total_supply,
+            status,
+            updated_by,
+            last_tick_at
+        )
+        values ($1, $2, $3, true, $4, $5, $6, $6, 0, 30, 0.75, 0, 0, $7, $8, 0, $9, $10, 'admin controlled', 'admin', now())
+    `, [
+        symbol,
+        name,
+        assetType,
+        minPrice,
+        maxPrice,
+        currentPrice,
+        derived.marketCap,
+        derived.fdv,
+        circulatingSupply,
+        totalSupply
+    ]);
+
+    await dbPool.query(`
+        insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
+        values ($1, $2, 0, 0, 'admin-seed')
+    `, [symbol, currentPrice]);
+
+    const control = await readAdminMarketControl(symbol);
+    await saveAdminMarketSnapshot(control);
+    await saveAdminControlledCharts(symbol);
+    return getAdminMarketOverview({ symbol, range: body.range || "1d" });
+}
+
 async function adminMarketStats(symbol = "AU") {
     if (!databaseConfigured()) return {};
     await ensureAdminMarketTables();
@@ -9556,7 +9692,7 @@ function adminMarketAssetFromControl(control, stats = {}) {
         symbol: control?.symbol,
         name: control?.name || control?.symbol,
         assetType: control?.assetType || "crypto",
-        market: "Autody",
+        market: adminMarketNameForType(control?.assetType),
         tags: ["Admin controlled"],
         depositNetworks: [],
         tradeable: true,
@@ -9592,10 +9728,13 @@ async function saveAdminMarketSnapshot(control) {
     if (!control) return null;
     const stats = await adminMarketStats(control.symbol).catch(() => ({}));
     const asset = adminMarketAssetFromControl(control, stats);
-    await saveMarketSnapshots("autody-admin", "crypto", [asset]).catch((err) => {
-        console.error("AU admin snapshot save failed:", err.message || err);
+    await saveMarketSnapshots("autody-admin", asset.assetType || control.assetType || "crypto", [asset]).catch((err) => {
+        console.error("Admin market snapshot save failed:", err.message || err);
     });
     cacheLiveMarketAssets([asset], "autody-admin");
+    marketCatalogCache.delete("all");
+    marketCatalogCache.delete(asset.assetType || control.assetType || "crypto");
+    marketCatalogCache.delete(["stock", "etf", "commodity"].includes(asset.assetType) ? "stocks" : "crypto");
     return asset;
 }
 
@@ -9677,7 +9816,7 @@ async function advanceAdminControlledMarket(symbol = "AU", options = {}) {
     const updated = normalizeAdminMarketControlRow(result.rows[0]);
     await saveAdminMarketSnapshot(updated);
     await saveAdminControlledCharts(safeSymbol).catch((err) => {
-        console.error("AU chart snapshot save failed:", err.message || err);
+        console.error("Admin chart snapshot save failed:", err.message || err);
     });
     return updated;
 }
@@ -9705,7 +9844,8 @@ async function rollAdminMarketVolumeIfDue(control, options = {}) {
 async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source = "order-trade") {
     if (!databaseConfigured()) return null;
     const safeSymbol = controlledMarketSymbol(symbol);
-    if (safeSymbol !== "AU") return null;
+    const existing = await readAdminMarketControl(safeSymbol);
+    if (!existing) return null;
     const amountUsd = positiveNumber(notionalUsd);
     if (!amountUsd) return null;
 
@@ -9763,7 +9903,7 @@ async function applyAdminControlledTradeImpact(symbol, side, notionalUsd, source
     const updated = normalizeAdminMarketControlRow(result.rows[0]);
     await saveAdminMarketSnapshot(updated);
     await saveAdminControlledCharts(safeSymbol).catch((err) => {
-        console.error("AU trade chart snapshot save failed:", err.message || err);
+        console.error("Admin trade chart snapshot save failed:", err.message || err);
     });
     return updated;
 }
@@ -9869,15 +10009,39 @@ async function saveAdminControlledCharts(symbol = "AU") {
 
 async function controlledMarketAssetForLookup(symbol = "AU", options = {}) {
     const safeSymbol = controlledMarketSymbol(symbol);
-    if (safeSymbol !== "AU") return null;
-    if (!databaseConfigured()) return assetCatalogEntry(AUTODY_MARKET_ASSET);
+    if (!databaseConfigured()) return safeSymbol === "AU" ? assetCatalogEntry(AUTODY_MARKET_ASSET) : null;
+    const existing = await readAdminMarketControl(safeSymbol);
+    if (!existing && safeSymbol !== "AU") return null;
     const control = await advanceAdminControlledMarket(safeSymbol, options).catch((err) => {
-        console.error("AU controlled market advance failed:", err.message || err);
+        console.error("Admin controlled market advance failed:", err.message || err);
         return null;
     });
     if (!control) return null;
     const stats = await adminMarketStats(safeSymbol).catch(() => ({}));
     return adminMarketAssetFromControl(control, stats);
+}
+
+async function refreshAdminControlledMarketsForCatalog() {
+    if (!databaseConfigured()) {
+        await controlledMarketAssetForLookup("AU").catch(() => null);
+        return;
+    }
+    const controls = await listAdminMarketControls().catch((err) => {
+        console.error("Admin controlled market list refresh failed:", err.message || err);
+        return [];
+    });
+    const now = Date.now();
+    const dueControls = controls.filter((control) => {
+        if (control.enabled === false) return false;
+        const lastTickMs = Date.parse(control.lastTickAt || control.updatedAt || 0);
+        return !lastTickMs || (now - lastTickMs >= (control.updateIntervalSeconds || 30) * 1000);
+    });
+    await Promise.allSettled(dueControls.slice(0, 50).map((control) => (
+        advanceAdminControlledMarket(control.symbol).catch((err) => {
+            console.error("Admin controlled market refresh failed:", err.message || err);
+            return null;
+        })
+    )));
 }
 
 function adminBooleanValue(value, fallback = false) {
@@ -9944,6 +10108,65 @@ async function getAdminMarketOverview(body = {}) {
         },
         generatedAt: new Date().toISOString()
     };
+}
+
+async function resetAdminMarketControl(body = {}) {
+    if (!databaseConfigured()) {
+        const err = new Error("Database is not configured for admin market controls.");
+        err.status = 503;
+        throw err;
+    }
+    await ensureAdminMarketTables();
+    const symbol = controlledMarketSymbol(body.symbol || "AU");
+    const current = await ensureAdminMarketControl(symbol);
+    if (!current) {
+        const err = new Error("Market control not found.");
+        err.status = 404;
+        throw err;
+    }
+
+    const minPrice = adminPositiveValue(body.minPrice, current.minPrice, 0.00000001);
+    const maxPrice = adminPositiveValue(body.maxPrice, current.maxPrice, 0.00000001);
+    if (maxPrice <= minPrice) {
+        const err = new Error("Max price must be higher than min price.");
+        err.status = 400;
+        throw err;
+    }
+    const desiredPrice = adminPositiveValue(body.currentPrice, current.currentPrice || controlledMarketDefaultPrice(), 0.00000001);
+    const currentPrice = roundMarketPrice(clampNumber(desiredPrice, minPrice, maxPrice));
+    const derived = deriveAdminMarketMetrics({ ...current, currentPrice });
+
+    await dbPool.query(`delete from admin_market_ticks where symbol = $1`, [symbol]);
+    await dbPool.query(`delete from market_latest_snapshots where upper(symbol) = upper($1) and provider = 'autody-admin'`, [symbol]).catch(() => null);
+    await dbPool.query(`delete from market_latest_chart_snapshots where upper(symbol) = upper($1) and provider = 'autody-admin'`, [symbol]).catch(() => null);
+
+    const result = await dbPool.query(`
+        update admin_market_controls
+        set current_price = $2,
+            last_price = $2,
+            change_pct = 0,
+            min_price = $3,
+            max_price = $4,
+            market_cap_usd = $5,
+            fdv_usd = $6,
+            total_volume_usd = 0,
+            volume_last_roll_at = null,
+            last_tick_at = now(),
+            updated_by = $7,
+            updated_at = now()
+        where symbol = $1
+        returning *
+    `, [symbol, currentPrice, minPrice, maxPrice, derived.marketCap, derived.fdv, normalizeText(body.updatedBy || "admin")]);
+
+    await dbPool.query(`
+        insert into admin_market_ticks (symbol, price_usd, change_pct, volume_usd, source)
+        values ($1, $2, 0, 0, 'admin-reset')
+    `, [symbol, currentPrice]);
+
+    const updated = normalizeAdminMarketControlRow(result.rows[0]);
+    await saveAdminMarketSnapshot(updated);
+    await saveAdminControlledCharts(symbol);
+    return getAdminMarketOverview({ symbol, range: body.range || "1d" });
 }
 
 async function updateAdminMarketControl(body = {}) {
@@ -10088,7 +10311,7 @@ async function buildMarketCatalog(type = "all") {
         return cached.assets;
     }
 
-    await controlledMarketAssetForLookup("AU").catch(() => null);
+    await refreshAdminControlledMarketsForCatalog();
 
     const includeCrypto = type !== "stocks";
     const includeStocks = type !== "crypto";
@@ -10140,6 +10363,41 @@ async function buildMarketCatalog(type = "all") {
                 status: "Cached live"
             }));
         catalog = [...catalog, ...supplementalCrypto];
+    }
+
+    const catalogSymbols = new Set(catalog.map((asset) => asset.symbol));
+    const controlledSupplemental = snapshots
+        .filter((asset) => asset?.symbol && asset.provider === "autody-admin" && !catalogSymbols.has(asset.symbol))
+        .map((asset, index) => assetCatalogEntry({
+            rank: 900 + index,
+            symbol: asset.symbol,
+            name: asset.name || asset.symbol,
+            assetType: asset.assetType || "crypto",
+            market: asset.market || adminMarketNameForType(asset.assetType),
+            region: asset.assetType === "crypto" ? "Global" : "Admin",
+            currency: asset.currency || "USD",
+            price: asset.price,
+            changePct: asset.changePct,
+            marketCap: asset.marketCap,
+            fdv: asset.fdv,
+            liquidityUsd: asset.liquidityUsd,
+            totalVolume: asset.totalVolume,
+            high24h: asset.high24h,
+            low24h: asset.low24h,
+            ath: asset.ath,
+            atl: asset.atl,
+            circulatingSupply: asset.circulatingSupply,
+            totalSupply: asset.totalSupply,
+            maxSupply: asset.maxSupply,
+            logoUrl: asset.logoUrl,
+            depositNetworks: asset.depositNetworks || [],
+            dataProvider: asset.provider,
+            capturedAt: asset.capturedAt,
+            customAsset: true,
+            status: "Admin controlled"
+        }));
+    if (controlledSupplemental.length) {
+        catalog = [...catalog, ...controlledSupplemental];
     }
 
     const assets = catalog.map((asset) => {
@@ -12294,10 +12552,9 @@ async function findMarketAssetBySymbol(symbol) {
   const lookup = String(symbol || "").trim().toUpperCase();
   if (!lookup) return null;
 
-  if (lookup === "AU" || lookup === "AUTODY-AU" || lookup === "AUTODY") {
-    const controlledAsset = await controlledMarketAssetForLookup("AU");
-    if (controlledAsset) return controlledAsset;
-  }
+  const controlledLookup = lookup === "AUTODY-AU" || lookup === "AUTODY" ? "AU" : lookup;
+  const controlledAsset = await controlledMarketAssetForLookup(controlledLookup);
+  if (controlledAsset) return controlledAsset;
 
   const cached = marketCatalogCache.get("all");
   if (cached && cached.expiresAt > Date.now()) {
@@ -12586,6 +12843,49 @@ app.post("/api/admin/markets/overview", async (req, res) => {
   }
 });
 
+app.post("/api/admin/markets/list", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin market list is not authorized." });
+    }
+    const controls = await listAdminMarketControls();
+    return res.json({
+      success: true,
+      configured: true,
+      controls,
+      generatedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("Admin market list failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Market control list failed." });
+  }
+});
+
+app.post("/api/admin/markets/create", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin market create is not authorized." });
+    }
+    const result = await createAdminMarketControl(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin market create failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Market control create failed." });
+  }
+});
+
 app.post("/api/admin/markets/control", async (req, res) => {
   try {
     let body = {};
@@ -12602,6 +12902,25 @@ app.post("/api/admin/markets/control", async (req, res) => {
   } catch (err) {
     console.error("Admin market control failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "Market control failed." });
+  }
+});
+
+app.post("/api/admin/markets/reset", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin market reset is not authorized." });
+    }
+    const result = await resetAdminMarketControl(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin market reset failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Market reset failed." });
   }
 });
 
