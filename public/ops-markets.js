@@ -1,8 +1,8 @@
 const controlMoney = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 8 });
 let controlOverview = null;
 let controlList = [];
-let activeSymbol = new URLSearchParams(window.location.search).get("symbol") || "AU";
-activeSymbol = activeSymbol.trim().toUpperCase() || "AU";
+const initialControlSymbol = new URLSearchParams(window.location.search).get("symbol");
+let activeSymbol = initialControlSymbol ? initialControlSymbol.trim().toUpperCase() : "";
 
 function escapeHtml(value = "") {
   return String(value)
@@ -36,14 +36,27 @@ function activeControl() {
 }
 
 function controlDisplayName(control = activeControl()) {
-  return control.name || control.asset?.name || activeSymbol;
+  return control.name || control.asset?.name || activeSymbol || "Control center";
 }
 
-function setActiveSymbol(symbol) {
-  activeSymbol = String(symbol || "AU").trim().toUpperCase() || "AU";
+function setActiveSymbol(symbol = "") {
+  activeSymbol = String(symbol || "").trim().toUpperCase();
   const url = new URL(window.location.href);
-  url.searchParams.set("symbol", activeSymbol);
+  if (activeSymbol) {
+    url.searchParams.set("symbol", activeSymbol);
+  } else {
+    url.searchParams.delete("symbol");
+  }
   window.history.replaceState({}, "", url);
+  syncControlWorkspace();
+}
+
+function syncControlWorkspace() {
+  const home = document.getElementById("ops-control-home");
+  const detail = document.getElementById("ops-control-detail");
+  const hasAsset = Boolean(activeSymbol);
+  if (home) home.hidden = hasAsset;
+  if (detail) detail.hidden = !hasAsset;
 }
 
 function calculateDerivedMetrics(form) {
@@ -95,13 +108,26 @@ function updateControlLabels() {
   const name = controlDisplayName(control);
   const title = document.getElementById("ops-control-title");
   const description = document.getElementById("ops-control-description");
+  const activeKind = document.getElementById("ops-active-kind");
+  const activeTitle = document.getElementById("ops-active-title");
+  const activeCopy = document.getElementById("ops-active-copy");
   const price = document.getElementById("ops-price-label");
   const settings = document.getElementById("ops-settings-label");
   const chart = document.getElementById("ops-chart-label");
   const save = document.getElementById("ops-save-label");
 
+  if (!activeSymbol) {
+    if (title) title.textContent = "Control center";
+    if (description) description.textContent = "Choose a controlled asset, open its own workspace, and manage pricing, graph movement, supply, and live display data.";
+    if (save) save.textContent = "Save Control";
+    return;
+  }
+
   if (title) title.textContent = `${name} control`;
   if (description) description.textContent = `Control ${activeSymbol} pricing, range, 24h volume, supply, and graph movement from the database.`;
+  if (activeKind) activeKind.textContent = `${control.assetType || "asset"} workspace`;
+  if (activeTitle) activeTitle.textContent = `${name} market control`;
+  if (activeCopy) activeCopy.textContent = `This is ${activeSymbol}'s own control page. Reset, force a tick, edit the formula, and review chart history without touching other assets.`;
   if (price) price.textContent = `${activeSymbol} price`;
   if (settings) settings.textContent = `${activeSymbol} settings`;
   if (chart) chart.textContent = `${activeSymbol} graph`;
@@ -189,6 +215,8 @@ function renderTicks(ticks = []) {
 
 function renderControlList() {
   const target = document.getElementById("ops-control-list");
+  const count = document.getElementById("ops-control-count");
+  if (count) count.textContent = controlList.length;
   if (!target) return;
   if (!controlList.length) {
     target.innerHTML = `<div class="admin-empty">No controlled assets yet.</div>`;
@@ -196,10 +224,20 @@ function renderControlList() {
   }
   target.innerHTML = controlList.map((control) => {
     const active = control.symbol === activeSymbol;
+    const change = Number(control.changePct || 0);
+    const changeClass = change > 0 ? "positive" : change < 0 ? "negative" : "";
     return `
       <button type="button" class="ops-control-pill${active ? " active" : ""}" data-symbol="${escapeHtml(control.symbol)}">
-        <strong>${escapeHtml(control.symbol)} control</strong>
-        <span>${escapeHtml(control.name || control.symbol)} / ${escapeHtml(control.assetType || "crypto")}</span>
+        <span class="ops-control-pill-top">
+          <strong>${escapeHtml(control.symbol)} control</strong>
+          <em>${escapeHtml(control.assetType || "crypto")}</em>
+        </span>
+        <span>${escapeHtml(control.name || control.symbol)}</span>
+        <span class="ops-control-pill-meta">
+          <b>${formatControlPrice(control.currentPrice)}</b>
+          <i class="${changeClass}">${change > 0 ? "+" : ""}${change.toFixed(4)}%</i>
+        </span>
+        <span class="ops-control-pill-open">Open workspace</span>
       </button>
     `;
   }).join("");
@@ -208,15 +246,23 @@ function renderControlList() {
 async function loadControlList() {
   const result = await opsPost("/api/admin/markets/list", {});
   controlList = Array.isArray(result.controls) ? result.controls : [];
-  if (!controlList.some((item) => item.symbol === activeSymbol)) {
-    activeSymbol = controlList[0]?.symbol || "AU";
-    setActiveSymbol(activeSymbol);
+  if (activeSymbol && !controlList.some((item) => item.symbol === activeSymbol)) {
+    controlOverview = null;
+    setActiveSymbol("");
   }
   renderControlList();
+  updateControlLabels();
 }
 
 async function loadControlOverview(forceTick = false) {
   await opsRequireSession();
+  if (!activeSymbol) {
+    controlOverview = null;
+    syncControlWorkspace();
+    updateControlLabels();
+    controlNotice("Select an asset control to open its dedicated workspace.", "neutral");
+    return;
+  }
   const range = document.getElementById("ops-chart-range")?.value || "1d";
   controlNotice(forceTick ? `Advancing ${activeSymbol} price...` : `Loading ${activeSymbol} control...`, "neutral");
   controlOverview = await opsPost("/api/admin/markets/overview", { symbol: activeSymbol, range, forceTick });
@@ -260,6 +306,12 @@ function newControlBody(form) {
   return body;
 }
 
+async function openControlWorkspace(symbol, options = {}) {
+  setActiveSymbol(symbol);
+  renderControlList();
+  await loadControlOverview(Boolean(options.forceTick));
+}
+
 async function saveControl(form, submit) {
   submit.disabled = true;
   submit.textContent = "Saving...";
@@ -279,9 +331,15 @@ function wireControlOps() {
   document.getElementById("ops-control-list")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-symbol]");
     if (!button) return;
-    setActiveSymbol(button.dataset.symbol);
+    openControlWorkspace(button.dataset.symbol).catch((err) => controlNotice(err.message, "error"));
+  });
+
+  document.getElementById("ops-control-back")?.addEventListener("click", () => {
+    setActiveSymbol("");
+    controlOverview = null;
     renderControlList();
-    loadControlOverview(false).catch((err) => controlNotice(err.message, "error"));
+    updateControlLabels();
+    controlNotice("Select an asset control to open its dedicated workspace.", "neutral");
   });
 
   document.getElementById("ops-new-control-toggle")?.addEventListener("click", () => {
@@ -323,9 +381,19 @@ function wireControlOps() {
     }
   });
 
-  document.getElementById("ops-force-tick")?.addEventListener("click", () => loadControlOverview(true).catch((err) => controlNotice(err.message, "error")));
-  document.getElementById("ops-chart-range")?.addEventListener("change", () => loadControlOverview(false).catch((err) => controlNotice(err.message, "error")));
+  document.getElementById("ops-force-tick")?.addEventListener("click", () => {
+    if (!activeSymbol) return controlNotice("Select an asset before forcing a tick.", "error");
+    return loadControlOverview(true).catch((err) => controlNotice(err.message, "error"));
+  });
+  document.getElementById("ops-chart-range")?.addEventListener("change", () => {
+    if (!activeSymbol) return;
+    loadControlOverview(false).catch((err) => controlNotice(err.message, "error"));
+  });
   document.getElementById("ops-reset-control")?.addEventListener("click", async () => {
+    if (!activeSymbol) {
+      controlNotice("Select an asset before resetting.", "error");
+      return;
+    }
     const ok = window.confirm(`Reset ${activeSymbol} market history, snapshots, 24h volume, and chart data? User wallets and orders will not be changed.`);
     if (!ok) return;
     try {
@@ -359,7 +427,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     await opsRequireSession();
     wireControlOps();
     await loadControlList();
-    await loadControlOverview(false);
+    if (activeSymbol) {
+      await loadControlOverview(false);
+    } else {
+      syncControlWorkspace();
+      updateControlLabels();
+      controlNotice("Select an asset control to open its dedicated workspace.", "neutral");
+    }
   } catch (err) {
     controlNotice(err.message || "Could not load market control.", "error");
   }

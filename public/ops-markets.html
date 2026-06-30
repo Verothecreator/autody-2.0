@@ -15,131 +15,164 @@
       </a>
       <div>
         <p class="eyebrow">Control</p>
-        <h1 id="ops-control-title">Market control</h1>
-        <p id="ops-control-description">Create, select, and manage platform-controlled assets while their charts build real platform history over time.</p>
+        <h1 id="ops-control-title">Control center</h1>
+        <p id="ops-control-description">Choose a controlled asset, open its own workspace, and manage pricing, graph movement, supply, and live display data.</p>
       </div>
       <div class="admin-key-card ops-session-card">
         <span class="muted-label">Controls</span>
-        <button type="button" class="btn" id="ops-force-tick">Force Tick</button>
-        <button type="button" class="btn btn-ghost admin-danger" id="ops-reset-control">Reset Asset</button>
         <button type="button" class="btn btn-ghost" onclick="opsSignOut()">End Session</button>
       </div>
     </header>
 
     <p class="admin-notice" id="ops-market-notice">Loading market control.</p>
 
-    <section class="app-card ops-control-list-card">
-      <div class="card-heading">
+    <section class="ops-control-home" id="ops-control-home">
+      <div class="ops-control-hub-grid">
+        <article class="app-card ops-control-spotlight">
+          <span class="muted-label">Control desk</span>
+          <h2>Every asset gets its own control room.</h2>
+          <p>Select AU or any future controlled asset to open its dedicated market engine, rolling chart, reset action, and live data settings.</p>
+        </article>
+        <article class="app-card ops-control-stat-card">
+          <span class="muted-label">Under control</span>
+          <strong id="ops-control-count">0</strong>
+          <p>Assets using Autody's controlled market formula.</p>
+        </article>
+        <article class="app-card ops-control-stat-card">
+          <span class="muted-label">Formula</span>
+          <strong>30s+</strong>
+          <p>Price ticks can run at each asset's own speed.</p>
+        </article>
+      </div>
+
+      <section class="app-card ops-control-list-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Controlled assets</span>
+            <h2>Control list</h2>
+          </div>
+          <button type="button" class="btn btn-ghost" id="ops-new-control-toggle">+ New</button>
+        </div>
+        <div class="ops-control-list" id="ops-control-list"></div>
+        <form class="ops-new-control-form" id="ops-new-control-form" hidden>
+          <div class="admin-form-row">
+            <label>Symbol<input name="symbol" maxlength="20" placeholder="AUX" required /></label>
+            <label>Asset name<input name="name" maxlength="90" placeholder="Autody Example" required /></label>
+            <label>Asset type
+              <select name="assetType">
+                <option value="crypto">Crypto</option>
+                <option value="stock">Stock</option>
+                <option value="etf">ETF</option>
+                <option value="commodity">Oil and metals</option>
+              </select>
+            </label>
+          </div>
+          <div class="admin-form-row">
+            <label>Starting price<input name="currentPrice" type="number" step="0.0000000001" min="0" placeholder="0.001" /></label>
+            <label>Min price<input name="minPrice" type="number" step="0.0000000001" min="0" placeholder="0.0001" /></label>
+            <label>Max price<input name="maxPrice" type="number" step="0.0000000001" min="0" placeholder="0.01" /></label>
+          </div>
+          <button type="submit" class="btn">Create Asset</button>
+        </form>
+      </section>
+    </section>
+
+    <section class="ops-control-detail" id="ops-control-detail" hidden>
+      <section class="app-card ops-control-detail-hero">
         <div>
-          <span class="muted-label">Controlled assets</span>
-          <h2>Control list</h2>
+          <button type="button" class="ops-control-back" id="ops-control-back">Back to control list</button>
+          <span class="muted-label" id="ops-active-kind">Asset workspace</span>
+          <h2 id="ops-active-title">Asset control</h2>
+          <p id="ops-active-copy">Manage this asset's live market formula, user-facing stats, and graph data.</p>
         </div>
-        <button type="button" class="btn btn-ghost" id="ops-new-control-toggle">+ New</button>
-      </div>
-      <div class="ops-control-list" id="ops-control-list"></div>
-      <form class="ops-new-control-form" id="ops-new-control-form" hidden>
-        <div class="admin-form-row">
-          <label>Symbol<input name="symbol" maxlength="20" placeholder="AUX" required /></label>
-          <label>Asset name<input name="name" maxlength="90" placeholder="Autody Example" required /></label>
-          <label>Asset type
-            <select name="assetType">
-              <option value="crypto">Crypto</option>
-              <option value="stock">Stock</option>
-              <option value="etf">ETF</option>
-              <option value="commodity">Oil and metals</option>
+        <div class="ops-detail-actions">
+          <button type="button" class="btn" id="ops-force-tick">Force Tick</button>
+          <button type="button" class="btn btn-ghost admin-danger" id="ops-reset-control">Reset This Asset</button>
+        </div>
+      </section>
+
+      <section class="admin-kpi-grid ops-market-kpis">
+        <div class="app-card mini-metric">
+          <span class="muted-label" id="ops-price-label">Asset price</span>
+          <strong data-au-kpi="price">$0.00</strong>
+          <small data-au-kpi="change">0.00%</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Range</span>
+          <strong data-au-kpi="range">$0.00 - $0.00</strong>
+          <small>Admin guardrails</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Graph ticks</span>
+          <strong data-au-kpi="ticks">0</strong>
+          <small data-au-kpi="retention">Rolling history</small>
+        </div>
+        <div class="app-card mini-metric">
+          <span class="muted-label">Mode</span>
+          <strong data-au-kpi="status">Checking</strong>
+          <small data-au-kpi="interval">30s updates</small>
+        </div>
+      </section>
+
+      <section class="ops-market-layout">
+        <form class="app-card admin-action-card ops-market-form" id="ops-market-form">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label" id="ops-settings-label">Asset settings</span>
+              <h2>Price engine</h2>
+            </div>
+            <label class="admin-check ops-enable-check"><input name="enabled" type="checkbox" checked /> Enabled</label>
+          </div>
+          <div class="admin-form-row">
+            <label>Current price<input name="currentPrice" type="number" step="0.0000000001" min="0" /></label>
+            <label>Min price<input name="minPrice" type="number" step="0.0000000001" min="0" /></label>
+            <label>Max price<input name="maxPrice" type="number" step="0.0000000001" min="0" /></label>
+          </div>
+          <div class="admin-form-row">
+            <label>Update seconds<input name="updateIntervalSeconds" type="number" min="10" max="3600" /></label>
+            <label>Step percent<input name="stepPercent" type="number" step="0.01" min="0.01" max="50" /></label>
+            <label>Trend bias<input name="trendBias" type="number" step="0.01" min="-1" max="1" /></label>
+          </div>
+          <p class="ops-field-help">Step percent controls each tick size. Example: at 1%, a $7.00 asset can move roughly to $6.93 or $7.07 per tick. Trend bias pushes probability: -1 leans down, 0 is neutral, +1 leans up.</p>
+          <div class="admin-form-row">
+            <label>Liquidity USD<input name="liquidityUsd" type="number" step="0.01" min="0" /></label>
+            <label>Market cap<input name="marketCap" type="number" step="0.01" min="0" readonly /></label>
+            <label>FDV<input name="fdv" type="number" step="0.01" min="0" readonly /></label>
+          </div>
+          <p class="ops-field-help">Market cap is price x circulating supply. FDV is price x total supply.</p>
+          <div class="admin-form-row">
+            <label>24h volume<input name="totalVolume" type="number" step="0.01" min="0" /></label>
+            <label>24h volume min<input name="volumeMinUsd" type="number" step="0.01" min="0" /></label>
+            <label>24h volume max<input name="volumeMaxUsd" type="number" step="0.01" min="0" /></label>
+          </div>
+          <p class="ops-field-help">24h volume is the USD trading volume shown to users for this asset. It is not AU quantity. Set it manually, or set a min and max so Autody rolls a fresh USD volume once every 24 hours.</p>
+          <div class="admin-form-row">
+            <label>Circulating supply<input name="circulatingSupply" type="number" step="any" min="0" /></label>
+            <label>Total supply<input name="totalSupply" type="number" step="any" min="0" /></label>
+          </div>
+          <label>Status<input name="status" placeholder="admin controlled" /></label>
+          <button type="submit" class="btn" id="ops-save-label">Save Control</button>
+        </form>
+
+        <article class="app-card ops-chart-card">
+          <div class="card-heading">
+            <div>
+              <span class="muted-label" id="ops-chart-label">Asset graph</span>
+              <h2>Rolling chart</h2>
+            </div>
+            <select id="ops-chart-range" aria-label="Chart range">
+              <option value="1d">1D</option>
+              <option value="1w">1W</option>
+              <option value="1m">1M</option>
+              <option value="3m">3M</option>
+              <option value="1y">1Y</option>
+              <option value="all">All</option>
             </select>
-          </label>
-        </div>
-        <div class="admin-form-row">
-          <label>Starting price<input name="currentPrice" type="number" step="0.0000000001" min="0" placeholder="0.001" /></label>
-          <label>Min price<input name="minPrice" type="number" step="0.0000000001" min="0" placeholder="0.0001" /></label>
-          <label>Max price<input name="maxPrice" type="number" step="0.0000000001" min="0" placeholder="0.01" /></label>
-        </div>
-        <button type="submit" class="btn">Create Asset</button>
-      </form>
-    </section>
-
-    <section class="admin-kpi-grid ops-market-kpis">
-      <div class="app-card mini-metric">
-        <span class="muted-label" id="ops-price-label">Asset price</span>
-        <strong data-au-kpi="price">$0.00</strong>
-        <small data-au-kpi="change">0.00%</small>
-      </div>
-      <div class="app-card mini-metric">
-        <span class="muted-label">Range</span>
-        <strong data-au-kpi="range">$0.00 - $0.00</strong>
-        <small>Admin guardrails</small>
-      </div>
-      <div class="app-card mini-metric">
-        <span class="muted-label">Graph ticks</span>
-        <strong data-au-kpi="ticks">0</strong>
-        <small data-au-kpi="retention">Rolling history</small>
-      </div>
-      <div class="app-card mini-metric">
-        <span class="muted-label">Mode</span>
-        <strong data-au-kpi="status">Checking</strong>
-        <small data-au-kpi="interval">30s updates</small>
-      </div>
-    </section>
-
-    <section class="ops-market-layout">
-      <form class="app-card admin-action-card ops-market-form" id="ops-market-form">
-        <div class="card-heading">
-          <div>
-            <span class="muted-label" id="ops-settings-label">Asset settings</span>
-            <h2>Price engine</h2>
           </div>
-          <label class="admin-check ops-enable-check"><input name="enabled" type="checkbox" checked /> Enabled</label>
-        </div>
-        <div class="admin-form-row">
-          <label>Current price<input name="currentPrice" type="number" step="0.0000000001" min="0" /></label>
-          <label>Min price<input name="minPrice" type="number" step="0.0000000001" min="0" /></label>
-          <label>Max price<input name="maxPrice" type="number" step="0.0000000001" min="0" /></label>
-        </div>
-        <div class="admin-form-row">
-          <label>Update seconds<input name="updateIntervalSeconds" type="number" min="10" max="3600" /></label>
-          <label>Step percent<input name="stepPercent" type="number" step="0.01" min="0.01" max="50" /></label>
-          <label>Trend bias<input name="trendBias" type="number" step="0.01" min="-1" max="1" /></label>
-        </div>
-        <p class="ops-field-help">Step percent controls each tick size. Example: 1% can move a $0.0010 price near $0.00099 or $0.00101. Trend bias leans that movement down (-1), neutral (0), or up (+1).</p>
-        <div class="admin-form-row">
-          <label>Liquidity USD<input name="liquidityUsd" type="number" step="0.01" min="0" /></label>
-          <label>Market cap<input name="marketCap" type="number" step="0.01" min="0" readonly /></label>
-          <label>FDV<input name="fdv" type="number" step="0.01" min="0" readonly /></label>
-        </div>
-        <p class="ops-field-help">Market cap is price x circulating supply. FDV is price x total supply.</p>
-        <div class="admin-form-row">
-          <label>24h volume<input name="totalVolume" type="number" step="0.01" min="0" /></label>
-          <label>24h volume min<input name="volumeMinUsd" type="number" step="0.01" min="0" /></label>
-          <label>24h volume max<input name="volumeMaxUsd" type="number" step="0.01" min="0" /></label>
-        </div>
-        <p class="ops-field-help">Set 24h volume manually, or set min and max so Autody refreshes the 24h volume once each day.</p>
-        <div class="admin-form-row">
-          <label>Circulating supply<input name="circulatingSupply" type="number" step="any" min="0" /></label>
-          <label>Total supply<input name="totalSupply" type="number" step="any" min="0" /></label>
-        </div>
-        <label>Status<input name="status" placeholder="admin controlled" /></label>
-        <button type="submit" class="btn" id="ops-save-label">Save Control</button>
-      </form>
-
-      <article class="app-card ops-chart-card">
-        <div class="card-heading">
-          <div>
-            <span class="muted-label" id="ops-chart-label">Asset graph</span>
-            <h2>Rolling chart</h2>
-          </div>
-          <select id="ops-chart-range" aria-label="Chart range">
-            <option value="1d">1D</option>
-            <option value="1w">1W</option>
-            <option value="1m">1M</option>
-            <option value="3m">3M</option>
-            <option value="1y">1Y</option>
-            <option value="all">All</option>
-          </select>
-        </div>
-        <div class="ops-chart-stage" id="ops-chart-stage"></div>
-        <div class="admin-table ops-tick-list" id="ops-tick-list"></div>
-      </article>
+          <div class="ops-chart-stage" id="ops-chart-stage"></div>
+          <div class="admin-table ops-tick-list" id="ops-tick-list"></div>
+        </article>
+      </section>
     </section>
   </main>
 
