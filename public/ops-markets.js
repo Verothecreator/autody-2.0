@@ -97,6 +97,7 @@ function fillControlForm(control = {}) {
   controlNumberInput(form, "totalVolume", control.totalVolume);
   controlNumberInput(form, "volumeMinUsd", control.volumeMinUsd);
   controlNumberInput(form, "volumeMaxUsd", control.volumeMaxUsd);
+  controlNumberInput(form, "volumeRollIntervalMinutes", control.volumeRollIntervalMinutes || 1440);
   controlNumberInput(form, "circulatingSupply", control.circulatingSupply);
   controlNumberInput(form, "totalSupply", control.totalSupply);
   if (form.elements.status) form.elements.status.value = control.status || "admin controlled";

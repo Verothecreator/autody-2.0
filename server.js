@@ -9380,7 +9380,7 @@ function roundAdminUsd(value) {
     return Number(number.toFixed(2));
 }
 
-const ADMIN_MARKET_VOLUME_ROLL_MS = 24 * 60 * 60 * 1000;
+const ADMIN_MARKET_DEFAULT_VOLUME_ROLL_MINUTES = 24 * 60;
 
 function randomAdminMarketVolume(min, max) {
     const low = Math.max(0, Number(min || 0));
@@ -9428,6 +9428,7 @@ async function ensureAdminMarketTables(client = dbPool) {
               total_volume_usd numeric(24, 2) not null default 0,
               volume_min_usd numeric(24, 2) not null default 0,
               volume_max_usd numeric(24, 2) not null default 0,
+              volume_roll_interval_minutes integer not null default 1440,
               volume_last_roll_at timestamptz,
               circulating_supply numeric(32, 8),
               total_supply numeric(32, 8),
@@ -9458,6 +9459,8 @@ async function ensureAdminMarketTables(client = dbPool) {
               add column if not exists volume_min_usd numeric(24, 2) not null default 0;
             alter table if exists admin_market_controls
               add column if not exists volume_max_usd numeric(24, 2) not null default 0;
+            alter table if exists admin_market_controls
+              add column if not exists volume_roll_interval_minutes integer not null default 1440;
             alter table if exists admin_market_controls
               add column if not exists volume_last_roll_at timestamptz;
             alter table if exists admin_market_controls
@@ -9494,6 +9497,7 @@ function normalizeAdminMarketControlRow(row = {}) {
         totalVolume: nullableNumber(row.total_volume_usd) ?? 0,
         volumeMinUsd: nullableNumber(row.volume_min_usd) ?? 0,
         volumeMaxUsd: nullableNumber(row.volume_max_usd) ?? 0,
+        volumeRollIntervalMinutes: Math.max(1, Number(row.volume_roll_interval_minutes || ADMIN_MARKET_DEFAULT_VOLUME_ROLL_MINUTES)),
         volumeLastRollAt: row.volume_last_roll_at || null,
         circulatingSupply: nullableNumber(row.circulating_supply),
         totalSupply: nullableNumber(row.total_supply),
@@ -9786,8 +9790,10 @@ async function advanceAdminControlledMarket(symbol = "AU", options = {}) {
     const rawNext = previousPrice * (1 + movement);
     const nextPrice = roundMarketPrice(clampNumber(rawNext, control.minPrice, control.maxPrice)) || previousPrice;
     const changePct = previousPrice ? Number((((nextPrice - previousPrice) / previousPrice) * 100).toFixed(6)) : 0;
-    const tickVolume = positiveNumber(options.volumeUsd) ?? Math.max(0, roundAdminUsd((control.liquidityUsd || 0) * Math.abs(changePct) * 0.001));
-    const nextTotalVolume = roundAdminUsd((control.totalVolume || 0) + tickVolume);
+    const tickVolume = positiveNumber(options.volumeUsd) ?? 0;
+    const nextTotalVolume = tickVolume
+        ? roundAdminUsd((control.totalVolume || 0) + tickVolume)
+        : roundAdminUsd(control.totalVolume || 0);
     const derived = deriveAdminMarketMetrics({
         ...control,
         currentPrice: nextPrice
@@ -9827,7 +9833,8 @@ async function rollAdminMarketVolumeIfDue(control, options = {}) {
     const nextVolume = randomAdminMarketVolume(control.volumeMinUsd, control.volumeMaxUsd);
     if (nextVolume === null) return control;
     const lastRollMs = Date.parse(control.volumeLastRollAt || 0);
-    const due = options.forceVolumeRoll || !lastRollMs || (Date.now() - lastRollMs >= ADMIN_MARKET_VOLUME_ROLL_MS);
+    const intervalMinutes = Math.max(1, Number(control.volumeRollIntervalMinutes || ADMIN_MARKET_DEFAULT_VOLUME_ROLL_MINUTES));
+    const due = options.forceVolumeRoll || !lastRollMs || (Date.now() - lastRollMs >= intervalMinutes * 60 * 1000);
     if (!due) return control;
 
     const result = await dbPool.query(`
@@ -10198,6 +10205,9 @@ async function updateAdminMarketControl(body = {}) {
     const totalVolume = adminPositiveValue(body.totalVolume, current.totalVolume, 0);
     const volumeMinUsd = adminPositiveValue(body.volumeMinUsd, current.volumeMinUsd, 0);
     const volumeMaxUsd = adminPositiveValue(body.volumeMaxUsd, current.volumeMaxUsd, 0);
+    const volumeRollIntervalMinutes = Math.max(1, Math.min(10080, Math.round(Number(
+        body.volumeRollIntervalMinutes || current.volumeRollIntervalMinutes || ADMIN_MARKET_DEFAULT_VOLUME_ROLL_MINUTES
+    ))));
     if (volumeMaxUsd > 0 && volumeMaxUsd < volumeMinUsd) {
         const err = new Error("24h volume max must be higher than 24h volume min.");
         err.status = 400;
@@ -10227,13 +10237,14 @@ async function updateAdminMarketControl(body = {}) {
             total_volume_usd = $14,
             volume_min_usd = $15,
             volume_max_usd = $16,
-            circulating_supply = $17,
-            total_supply = $18,
-            max_supply = $19,
-            status = $20,
-            updated_by = $21,
-            last_tick_at = case when $22 then now() else last_tick_at end,
-            volume_last_roll_at = case when $23 then now() else volume_last_roll_at end,
+            volume_roll_interval_minutes = $17,
+            circulating_supply = $18,
+            total_supply = $19,
+            max_supply = $20,
+            status = $21,
+            updated_by = $22,
+            last_tick_at = case when $23 then now() else last_tick_at end,
+            volume_last_roll_at = case when $24 then now() else volume_last_roll_at end,
             updated_at = now()
         where symbol = $1
         returning *
@@ -10254,6 +10265,7 @@ async function updateAdminMarketControl(body = {}) {
         totalVolume,
         volumeMinUsd,
         volumeMaxUsd,
+        volumeRollIntervalMinutes,
         circulatingSupply,
         totalSupply,
         maxSupply,

@@ -145,7 +145,8 @@
             <label>24h volume min<input name="volumeMinUsd" type="number" step="0.01" min="0" /></label>
             <label>24h volume max<input name="volumeMaxUsd" type="number" step="0.01" min="0" /></label>
           </div>
-          <p class="ops-field-help">24h volume is the USD trading volume shown to users for this asset. It is not AU quantity. Set it manually, or set a min and max so Autody rolls a fresh USD volume once every 24 hours.</p>
+          <label>Volume update minutes<input name="volumeRollIntervalMinutes" type="number" min="1" max="10080" /></label>
+          <p class="ops-field-help">24h volume is the USD trading volume shown to users for this asset. It is not AU quantity and liquidity will not overwrite it. Set it manually, or set min/max and choose how often Autody rolls a fresh volume. Use 1440 for once per day, 60 for hourly, or 10 for a faster live feel.</p>
           <div class="admin-form-row">
             <label>Circulating supply<input name="circulatingSupply" type="number" step="any" min="0" /></label>
             <label>Total supply<input name="totalSupply" type="number" step="any" min="0" /></label>
