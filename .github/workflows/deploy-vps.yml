@@ -1,0 +1,49 @@
+name: Deploy VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Update Autody VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull latest code and restart app
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+
+            APP_DIR="${{ secrets.VPS_APP_DIR }}"
+            APP_NAME="${{ secrets.PM2_APP_NAME || 'autody' }}"
+
+            if [ -z "$APP_DIR" ]; then
+              echo "Missing VPS_APP_DIR GitHub secret."
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin main
+            git pull --ff-only origin main
+            npm install --omit=dev
+
+            if command -v pm2 >/dev/null 2>&1; then
+              if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
+                pm2 restart "$APP_NAME" --update-env
+              else
+                pm2 start server.js --name "$APP_NAME"
+              fi
+              pm2 save
+            elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then
+              systemctl restart autody
+            else
+              echo "No PM2 app or autody.service found on the VPS."
+              echo "Install PM2 or create a systemd service, then rerun this workflow."
+              exit 1
+            fi
