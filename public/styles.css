@@ -6162,7 +6162,7 @@ body.account-body.theme-light .profile-kyc-modal-card {
   padding: 16px;
   text-align: left;
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .ops-control-pill strong {
@@ -6220,13 +6220,34 @@ body.account-body.theme-light .profile-kyc-modal-card {
   color: var(--negative);
 }
 
-.ops-control-pill-open {
+.ops-control-pill-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ops-control-pill-open,
+.ops-control-delete {
   width: fit-content;
   padding: 8px 12px;
+  border: 1px solid rgba(91, 95, 239, 0.28);
   border-radius: 999px;
   background: rgba(91, 95, 239, 0.16);
   color: var(--brand-2) !important;
   font-weight: 950;
+  cursor: pointer;
+}
+
+.ops-control-delete {
+  background: rgba(255, 88, 116, 0.08);
+  border-color: rgba(255, 88, 116, 0.28);
+  color: var(--negative) !important;
+}
+
+.ops-control-delete:hover {
+  background: rgba(255, 88, 116, 0.16);
 }
 
 .ops-control-pill.active,
@@ -6264,7 +6285,7 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
 .ops-detail-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
   gap: 12px;
 }
 

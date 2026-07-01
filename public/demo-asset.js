@@ -68,10 +68,35 @@ function titleLabel(value = "") {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function normalizedAssetType(asset = {}) {
+  return String(asset.assetType || "asset").trim().toLowerCase();
+}
+
+function assetVenue(asset = {}) {
+  const type = normalizedAssetType(asset);
+  const market = String(asset.market || "").trim();
+  const generic = {
+    crypto: ["crypto", "global"],
+    stock: ["stock", "stocks", "equities"],
+    etf: ["etf", "etfs", "fund"],
+    commodity: ["commodity", "commodities", "oil and metals", "metals"]
+  };
+  if (!market || (generic[type] || []).includes(market.toLowerCase())) return "";
+  return titleLabel(market);
+}
+
 function assetTypeLabel(asset) {
-  const labels = [asset.assetType, asset.market].filter(Boolean);
-  const uniqueLabels = labels.filter((label, index) => labels.findIndex((item) => String(item).toLowerCase() === String(label).toLowerCase()) === index);
-  return uniqueLabels.map(titleLabel).join(" ");
+  const type = normalizedAssetType(asset);
+  const base = type === "etf"
+    ? "ETF"
+    : type === "commodity"
+      ? "Commodity"
+      : type === "stock"
+        ? "Stock"
+        : type === "crypto"
+          ? "Crypto"
+          : titleLabel(type);
+  return [base, assetVenue(asset)].filter(Boolean).join(" ");
 }
 
 function escapeHtml(value = "") {
@@ -94,7 +119,7 @@ function logoFallbackText(asset) {
 
 function assetLogoSrc(asset) {
   if (asset.logoUrl) return asset.logoUrl;
-  if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+  if (String(asset.symbol || "").toUpperCase() === "AU") return "Autody-Logo.png";
   if (asset.assetType === "crypto") return `https://assets.coincap.io/assets/icons/${encodeURIComponent(logoFallbackText(asset).toLowerCase())}@2x.png`;
   return "";
 }
@@ -102,7 +127,7 @@ function assetLogoSrc(asset) {
 function assetLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallbackText(asset);
   const src = assetLogoSrc(asset);
-  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const autodyClass = String(asset.symbol || "").toUpperCase() === "AU" ? "autody-logo" : "";
   const img = src
     ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
     : "";
@@ -269,13 +294,14 @@ function detailRow(label, value) {
 
 function activityMetric(asset) {
   const isAutody = String(asset?.symbol || "").toUpperCase() === "AU";
+  const type = normalizedAssetType(asset);
   const liquidity = Number(asset.liquidityUsd);
   const volume = Number(asset.totalVolume);
-  if (!isAutody && Number.isFinite(liquidity) && liquidity > 0) {
+  if (type === "crypto" && !isAutody && Number.isFinite(liquidity) && liquidity > 0) {
     return { label: "Liquidity", value: liquidity };
   }
   if (Number.isFinite(volume) && volume > 0) {
-    return { label: isAutody || asset.assetType === "crypto" ? "24h volume" : "Volume", value: volume };
+    return { label: "24h volume", value: volume };
   }
   return null;
 }

@@ -1431,7 +1431,7 @@ function cryptoLogoSymbol(asset) {
 
 function assetLogoUrl(asset) {
     if (asset.logoUrl || asset.image) return asset.logoUrl || asset.image;
-    if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+    if (String(asset.symbol || "").toUpperCase() === "AU") return "Autody-Logo.png";
     if (asset.assetType === "crypto") {
         const symbol = cryptoLogoSymbol(asset);
         return symbol ? `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(symbol)}.png` : null;
@@ -9362,6 +9362,102 @@ function adminMarketNameForType(assetType = "crypto") {
     return "Crypto";
 }
 
+const ADMIN_CONTROLLED_LOGO_DIR = path.join(__dirname, "public", "assets", "logos", "generated");
+const ADMIN_CONTROLLED_LOGO_PUBLIC_BASE = "assets/logos/generated";
+
+function adminMarketDefaultVenueForType(assetType = "crypto", symbol = "") {
+    const normalized = normalizeAdminMarketAssetType(assetType);
+    const safeSymbol = controlledMarketSymbol(symbol || "");
+    if (safeSymbol === "AU") return "Autody";
+    if (normalized === "stock") return "Nasdaq";
+    if (normalized === "etf") return "Nasdaq";
+    if (normalized === "commodity") return "NYSE Arca";
+    return "Crypto";
+}
+
+function normalizeAdminMarketVenue(assetType = "crypto", symbol = "", market = "") {
+    const normalized = normalizeAdminMarketAssetType(assetType);
+    const raw = normalizeText(market || "").slice(0, 40);
+    const genericByType = {
+        crypto: new Set(["crypto", "digital assets", "global"]),
+        stock: new Set(["stock", "stocks", "equities"]),
+        etf: new Set(["etf", "etfs", "fund", "funds"]),
+        commodity: new Set(["commodity", "commodities", "oil and metals", "oils and metals", "metals"])
+    };
+    if (!raw || (genericByType[normalized] || new Set()).has(raw.toLowerCase())) {
+        return adminMarketDefaultVenueForType(normalized, symbol);
+    }
+    return raw;
+}
+
+function escapeSvgText(value = "") {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+}
+
+function hashAdminLogoSeed(value = "") {
+    let hash = 0;
+    for (const char of String(value)) {
+        hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    }
+    return hash;
+}
+
+function ensureAdminControlledLogo(control = {}) {
+    const symbol = controlledMarketSymbol(control.symbol || "");
+    if (!symbol || symbol === "AU") return "Autody-Logo.png";
+    const existing = normalizeText(control.logoUrl || "");
+    if (existing && !existing.includes("Autody-Logo.png")) return existing;
+
+    const name = normalizeText(control.name || control.assetName || symbol) || symbol;
+    const assetType = normalizeAdminMarketAssetType(control.assetType || "asset");
+    const market = normalizeAdminMarketVenue(assetType, symbol, control.market);
+    const seed = hashAdminLogoSeed(`${symbol}:${name}:${assetType}:${market}`);
+    const palettes = [
+        ["#5b5fef", "#24d18f"],
+        ["#2a7fff", "#60f0ff"],
+        ["#f0557a", "#f5b851"],
+        ["#7c4dff", "#e078ff"],
+        ["#111827", "#7dd3fc"],
+        ["#0f766e", "#bef264"]
+    ];
+    const palette = palettes[seed % palettes.length];
+    const ringOpacity = 0.22 + ((seed % 20) / 100);
+    const angle = seed % 360;
+    const initials = escapeSvgText(symbol.slice(0, 3));
+    const safeName = escapeSvgText(name);
+    const typeLabel = escapeSvgText(assetType.toUpperCase());
+    const fileName = `${symbol.toLowerCase().replace(/[^a-z0-9_-]/gi, "-")}.svg`;
+    const filePath = path.join(ADMIN_CONTROLLED_LOGO_DIR, fileName);
+    const publicPath = `${ADMIN_CONTROLLED_LOGO_PUBLIC_BASE}/${fileName}`;
+
+    try {
+        fs.mkdirSync(ADMIN_CONTROLLED_LOGO_DIR, { recursive: true });
+        if (!fs.existsSync(filePath)) {
+            fs.writeFileSync(filePath, `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="g" x1="18" y1="15" x2="112" y2="114" gradientUnits="userSpaceOnUse"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient><radialGradient id="shine" cx="35%" cy="20%" r="70%"><stop stop-color="#fff" stop-opacity=".35"/><stop offset=".65" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
+<rect width="128" height="128" rx="28" fill="#0b1018"/>
+<circle cx="64" cy="64" r="50" fill="url(#g)" opacity=".96"/>
+<circle cx="64" cy="64" r="39" fill="none" stroke="#fff" stroke-width="2.5" opacity="${ringOpacity.toFixed(2)}" transform="rotate(${angle} 64 64)"/>
+<path d="M30 84 C43 72 85 72 98 84" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity=".28"/>
+<path d="M24 40 L42 24 M104 40 L86 24 M24 88 L42 104 M104 88 L86 104" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".22"/>
+<circle cx="64" cy="64" r="50" fill="url(#shine)"/>
+<text x="64" y="68" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="900" fill="#fff">${initials}</text>
+<text x="64" y="101" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="800" letter-spacing="1" fill="#e8edff" opacity=".9">${typeLabel}</text>
+<title>${safeName}</title>
+</svg>`, "utf8");
+        }
+    } catch (err) {
+        console.error("Could not write generated asset logo:", err.message || err);
+    }
+
+    return publicPath;
+}
+
 function clampNumber(value, min, max) {
     const number = Number(value);
     if (!Number.isFinite(number)) return Number(min);
@@ -9426,6 +9522,8 @@ async function ensureAdminMarketTables(client = dbPool) {
               symbol text primary key,
               asset_name text not null,
               asset_type text not null default 'crypto',
+              market text,
+              logo_url text,
               enabled boolean not null default true,
               min_price numeric(24, 10) not null default 0.0001000000,
               max_price numeric(24, 10) not null default 0.0100000000,
@@ -9471,6 +9569,10 @@ async function ensureAdminMarketTables(client = dbPool) {
             alter table if exists admin_market_controls
               add column if not exists asset_type text not null default 'crypto';
             alter table if exists admin_market_controls
+              add column if not exists market text;
+            alter table if exists admin_market_controls
+              add column if not exists logo_url text;
+            alter table if exists admin_market_controls
               add column if not exists volume_min_usd numeric(24, 2) not null default 0;
             alter table if exists admin_market_controls
               add column if not exists volume_max_usd numeric(24, 2) not null default 0;
@@ -9497,10 +9599,15 @@ async function ensureAdminMarketTables(client = dbPool) {
 
 function normalizeAdminMarketControlRow(row = {}) {
     if (!row?.symbol) return null;
+    const symbol = controlledMarketSymbol(row.symbol);
+    const assetType = normalizeAdminMarketAssetType(row.asset_type);
+    const market = normalizeAdminMarketVenue(assetType, symbol, row.market);
     const control = {
-        symbol: controlledMarketSymbol(row.symbol),
-        name: row.asset_name || "Autody AU",
-        assetType: normalizeAdminMarketAssetType(row.asset_type),
+        symbol,
+        name: row.asset_name || (symbol === "AU" ? "Autody AU" : symbol),
+        assetType,
+        market,
+        logoUrl: normalizeText(row.logo_url || "") || null,
         enabled: row.enabled !== false,
         minPrice: nullableNumber(row.min_price) ?? 0.0001,
         maxPrice: nullableNumber(row.max_price) ?? 0.01,
@@ -9548,6 +9655,8 @@ async function ensureAdminMarketControl(symbol = "AU") {
             symbol,
             asset_name,
             asset_type,
+            market,
+            logo_url,
             enabled,
             min_price,
             max_price,
@@ -9560,9 +9669,17 @@ async function ensureAdminMarketControl(symbol = "AU") {
             status,
             last_tick_at
         )
-        values ($1, $2, 'crypto', true, $3, $4, $5, $5, 0, 30, 0.75, 0, 'admin controlled', now())
+        values ($1, $2, 'crypto', $3, $4, true, $5, $6, $7, $7, 0, 30, 0.75, 0, 'admin controlled', now())
         on conflict (symbol) do nothing
-    `, [safeSymbol, safeSymbol === "AU" ? "Autody AU" : safeSymbol, 0.0001, 0.01, startPrice]);
+    `, [
+        safeSymbol,
+        safeSymbol === "AU" ? "Autody AU" : safeSymbol,
+        adminMarketDefaultVenueForType("crypto", safeSymbol),
+        safeSymbol === "AU" ? "Autody-Logo.png" : ensureAdminControlledLogo({ symbol: safeSymbol, assetType: "crypto" }),
+        0.0001,
+        0.01,
+        startPrice
+    ]);
 
     const tickResult = await dbPool.query(`select id from admin_market_ticks where symbol = $1 limit 1`, [safeSymbol]);
     if (!tickResult.rows.length) {
@@ -9623,6 +9740,8 @@ async function createAdminMarketControl(body = {}) {
 
     const assetType = normalizeAdminMarketAssetType(body.assetType || "crypto");
     const name = normalizeText(body.name || body.assetName || symbol).slice(0, 90) || symbol;
+    const market = normalizeAdminMarketVenue(assetType, symbol, body.market || body.exchange);
+    const logoUrl = ensureAdminControlledLogo({ symbol, name, assetType, market });
     const currentPrice = roundMarketPrice(adminPositiveValue(body.currentPrice, controlledMarketDefaultPrice(), 0.00000001));
     const minPrice = roundMarketPrice(adminPositiveValue(body.minPrice, Math.max(0.00000001, currentPrice * 0.5), 0.00000001));
     const maxPriceFallback = Math.max(currentPrice * 2, minPrice + 0.00000001);
@@ -9642,6 +9761,8 @@ async function createAdminMarketControl(body = {}) {
             symbol,
             asset_name,
             asset_type,
+            market,
+            logo_url,
             enabled,
             min_price,
             max_price,
@@ -9663,11 +9784,13 @@ async function createAdminMarketControl(body = {}) {
             updated_by,
             last_tick_at
         )
-        values ($1, $2, $3, true, $4, $5, $6, $6, 0, 30, 0.75, 0, 0, 0, 0, $7, $8, 0, $9, $10, 'admin controlled', 'admin', now())
+        values ($1, $2, $3, $4, $5, true, $6, $7, $8, $8, 0, 30, 0.75, 0, 0, 0, 0, $9, $10, 0, $11, $12, 'admin controlled', 'admin', now())
     `, [
         symbol,
         name,
         assetType,
+        market,
+        logoUrl,
         minPrice,
         maxPrice,
         currentPrice,
@@ -9715,18 +9838,29 @@ async function adminMarketStats(symbol = "AU") {
 }
 
 function adminMarketAssetFromControl(control, stats = {}) {
-    const asset = control?.symbol === "AU" ? AUTODY_MARKET_ASSET : {
+    const symbol = controlledMarketSymbol(control?.symbol || "AU");
+    const assetType = normalizeAdminMarketAssetType(control?.assetType || "crypto");
+    const market = normalizeAdminMarketVenue(assetType, symbol, control?.market);
+    const logoUrl = symbol === "AU"
+        ? "Autody-Logo.png"
+        : ensureAdminControlledLogo({ ...control, symbol, assetType, market });
+    const asset = symbol === "AU" ? {
+        ...AUTODY_MARKET_ASSET,
+        market,
+        logoUrl,
+        customAsset: true
+    } : {
         rank: 999,
-        id: control?.symbol,
-        symbol: control?.symbol,
-        name: control?.name || control?.symbol,
-        assetType: control?.assetType || "crypto",
-        market: adminMarketNameForType(control?.assetType),
+        id: symbol,
+        symbol,
+        name: control?.name || symbol,
+        assetType,
+        market,
         tags: ["Admin controlled"],
         depositNetworks: [],
         tradeable: true,
         customAsset: true,
-        logoUrl: null,
+        logoUrl,
         status: "admin controlled"
     };
 
@@ -10277,6 +10411,10 @@ async function updateAdminMarketControl(body = {}) {
         circulatingSupply,
         totalSupply
     });
+    const market = normalizeAdminMarketVenue(current.assetType, symbol, body.market || current.market);
+    const logoUrl = symbol === "AU"
+        ? "Autody-Logo.png"
+        : ensureAdminControlledLogo({ ...current, symbol, market });
 
     const result = await dbPool.query(`
         update admin_market_controls
@@ -10305,6 +10443,8 @@ async function updateAdminMarketControl(body = {}) {
             updated_by = $24,
             last_tick_at = case when $25 then now() else last_tick_at end,
             volume_last_roll_at = case when $26 then now() else volume_last_roll_at end,
+            market = $27,
+            logo_url = coalesce(nullif($28, ''), logo_url),
             updated_at = now()
         where symbol = $1
         returning *
@@ -10334,7 +10474,9 @@ async function updateAdminMarketControl(body = {}) {
         normalizeText(body.status || current.status || "admin controlled"),
         normalizeText(body.updatedBy || "admin"),
         priceChanged,
-        manualVolumeChanged
+        manualVolumeChanged,
+        market,
+        logoUrl
     ]);
 
     if (priceChanged) {
@@ -10349,6 +10491,64 @@ async function updateAdminMarketControl(body = {}) {
     await saveAdminMarketSnapshot(updated);
     await saveAdminControlledCharts(symbol);
     return getAdminMarketOverview({ symbol, range: body.range || "1d" });
+}
+
+async function deleteAdminMarketControl(body = {}) {
+    if (!databaseConfigured()) {
+        const err = new Error("Database is not configured for admin market controls.");
+        err.status = 503;
+        throw err;
+    }
+    await ensureAdminMarketTables();
+    const symbol = controlledMarketSymbol(body.symbol || "");
+    if (!symbol) {
+        const err = new Error("Choose a controlled asset to delete.");
+        err.status = 400;
+        throw err;
+    }
+    if (symbol === "AU") {
+        const err = new Error("Autody AU cannot be deleted.");
+        err.status = 400;
+        throw err;
+    }
+
+    const current = await readAdminMarketControl(symbol);
+    if (!current) {
+        const err = new Error("Market control not found.");
+        err.status = 404;
+        throw err;
+    }
+
+    await dbPool.query(`delete from admin_market_ticks where symbol = $1`, [symbol]);
+    await dbPool.query(`delete from market_latest_snapshots where upper(symbol) = upper($1) and provider = 'autody-admin'`, [symbol]).catch(() => null);
+    await dbPool.query(`delete from market_latest_chart_snapshots where upper(symbol) = upper($1) and provider = 'autody-admin'`, [symbol]).catch(() => null);
+    await dbPool.query(`delete from admin_market_controls where symbol = $1`, [symbol]);
+
+    const logoUrl = normalizeText(current.logoUrl || "");
+    if (logoUrl.startsWith(`${ADMIN_CONTROLLED_LOGO_PUBLIC_BASE}/`)) {
+        const logoFile = path.join(__dirname, "public", logoUrl.replace(/\//g, path.sep));
+        try {
+            fs.unlinkSync(logoFile);
+        } catch (_) {
+            // The database delete is the source of truth; a missing generated logo is harmless.
+        }
+    }
+
+    try {
+        marketCatalogCache.clear();
+    } catch (_) {}
+    try {
+        liveMarketAssetCache.bySymbol.delete(symbol);
+        liveMarketAssetCache.assets = liveMarketAssetCache.assets.filter((asset) => asset.symbol !== symbol);
+    } catch (_) {}
+
+    return {
+        success: true,
+        configured: true,
+        symbol,
+        controls: await listAdminMarketControls(),
+        generatedAt: new Date().toISOString()
+    };
 }
 
 async function readLatestNewsSnapshots(limit = 9) {
@@ -10447,8 +10647,8 @@ async function buildMarketCatalog(type = "all") {
             symbol: asset.symbol,
             name: asset.name || asset.symbol,
             assetType: asset.assetType || "crypto",
-            market: asset.market || adminMarketNameForType(asset.assetType),
-            region: asset.assetType === "crypto" ? "Global" : "Admin",
+            market: normalizeAdminMarketVenue(asset.assetType, asset.symbol, asset.market),
+            region: asset.assetType === "crypto" ? "Global" : normalizeAdminMarketVenue(asset.assetType, asset.symbol, asset.market),
             currency: asset.currency || "USD",
             price: asset.price,
             changePct: asset.changePct,
@@ -12995,6 +13195,25 @@ app.post("/api/admin/markets/reset", async (req, res) => {
   } catch (err) {
     console.error("Admin market reset failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "Market reset failed." });
+  }
+});
+
+app.post("/api/admin/markets/delete", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin market delete is not authorized." });
+    }
+    const result = await deleteAdminMarketControl(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin market delete failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Market delete failed." });
   }
 });
 

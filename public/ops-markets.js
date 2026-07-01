@@ -39,6 +39,45 @@ function controlDisplayName(control = activeControl()) {
   return control.name || control.asset?.name || activeSymbol || "Control center";
 }
 
+function defaultVenueForControl(type = "asset", symbol = "") {
+  const safeType = String(type || "").trim().toLowerCase();
+  const safeSymbol = String(symbol || "").trim().toUpperCase();
+  if (safeSymbol === "AU") return "Autody";
+  if (safeType === "stock") return "Nasdaq";
+  if (safeType === "etf") return "Nasdaq";
+  if (safeType === "commodity") return "NYSE Arca";
+  return "Crypto";
+}
+
+function cleanControlVenue(control = {}) {
+  const type = String(control.assetType || "asset").trim().toLowerCase();
+  const market = String(control.market || "").trim();
+  const generic = {
+    crypto: ["crypto", "digital assets", "global"],
+    stock: ["stock", "stocks", "equities"],
+    etf: ["etf", "etfs", "fund", "funds"],
+    commodity: ["commodity", "commodities", "oil and metals", "oils and metals", "metals"]
+  }[type] || [];
+  if (!market || generic.includes(market.toLowerCase())) return defaultVenueForControl(type, control.symbol);
+  return market;
+}
+
+function controlTypeLabel(control = {}) {
+  const type = String(control.assetType || "asset").trim().toLowerCase();
+  const market = cleanControlVenue(control);
+  const base = {
+    crypto: "Crypto",
+    stock: "Stock",
+    etf: "ETF",
+    commodity: "Oil and metals"
+  }[type] || "Asset";
+  return [base, market].filter(Boolean).join(" / ");
+}
+
+function canDeleteControl(control = activeControl()) {
+  return String(control.symbol || "").trim().toUpperCase() !== "AU";
+}
+
 function setActiveSymbol(symbol = "") {
   activeSymbol = String(symbol || "").trim().toUpperCase();
   const url = new URL(window.location.href);
@@ -101,6 +140,7 @@ function fillControlForm(control = {}) {
   controlNumberInput(form, "volumeRollIntervalMinutes", control.volumeRollIntervalMinutes || 1440);
   controlNumberInput(form, "circulatingSupply", control.circulatingSupply);
   controlNumberInput(form, "totalSupply", control.totalSupply);
+  if (form.elements.market) form.elements.market.value = cleanControlVenue(control);
   if (form.elements.status) form.elements.status.value = control.status || "admin controlled";
   renderDerivedMetrics();
 }
@@ -117,11 +157,13 @@ function updateControlLabels() {
   const settings = document.getElementById("ops-settings-label");
   const chart = document.getElementById("ops-chart-label");
   const save = document.getElementById("ops-save-label");
+  const deleteButton = document.getElementById("ops-delete-control");
 
   if (!activeSymbol) {
     if (title) title.textContent = "Control center";
     if (description) description.textContent = "Choose a controlled asset, open its own workspace, and manage pricing, graph movement, supply, and live display data.";
     if (save) save.textContent = "Save Control";
+    if (deleteButton) deleteButton.hidden = true;
     return;
   }
 
@@ -134,6 +176,7 @@ function updateControlLabels() {
   if (settings) settings.textContent = `${activeSymbol} settings`;
   if (chart) chart.textContent = `${activeSymbol} graph`;
   if (save) save.textContent = "Save Control";
+  if (deleteButton) deleteButton.hidden = !canDeleteControl(control);
 }
 
 function renderKpis(overview = {}) {
@@ -228,19 +271,23 @@ function renderControlList() {
     const active = control.symbol === activeSymbol;
     const change = Number(control.changePct || 0);
     const changeClass = change > 0 ? "positive" : change < 0 ? "negative" : "";
+    const deletable = canDeleteControl(control);
     return `
-      <button type="button" class="ops-control-pill${active ? " active" : ""}" data-symbol="${escapeHtml(control.symbol)}">
+      <article class="ops-control-pill${active ? " active" : ""}" data-symbol="${escapeHtml(control.symbol)}">
         <span class="ops-control-pill-top">
           <strong>${escapeHtml(control.symbol)} control</strong>
-          <em>${escapeHtml(control.assetType || "crypto")}</em>
+          <em>${escapeHtml(controlTypeLabel(control))}</em>
         </span>
         <span>${escapeHtml(control.name || control.symbol)}</span>
         <span class="ops-control-pill-meta">
           <b>${formatControlPrice(control.currentPrice)}</b>
           <i class="${changeClass}">${change > 0 ? "+" : ""}${change.toFixed(4)}%</i>
         </span>
-        <span class="ops-control-pill-open">Open workspace</span>
-      </button>
+        <span class="ops-control-pill-actions">
+          <button type="button" class="ops-control-pill-open" data-open-control="${escapeHtml(control.symbol)}">Open workspace</button>
+          ${deletable ? `<button type="button" class="ops-control-delete" data-delete-control="${escapeHtml(control.symbol)}">Delete</button>` : ""}
+        </span>
+      </article>
     `;
   }).join("");
 }
@@ -291,7 +338,7 @@ function formControlBody(form) {
     const value = String(rawValue || "").trim();
     if (!value) continue;
     if (["marketCap", "fdv"].includes(key)) continue;
-    body[key] = ["status"].includes(key) ? value : Number(value);
+    body[key] = ["status", "market"].includes(key) ? value : Number(value);
   }
   if (!new FormData(form).has("enabled")) body.enabled = false;
   return body;
@@ -302,7 +349,7 @@ function newControlBody(form) {
   for (const [key, rawValue] of new FormData(form).entries()) {
     const value = String(rawValue || "").trim();
     if (!value) continue;
-    body[key] = ["symbol", "name", "assetType"].includes(key) ? value : Number(value);
+    body[key] = ["symbol", "name", "assetType", "market"].includes(key) ? value : Number(value);
   }
   body.range = document.getElementById("ops-chart-range")?.value || "1d";
   return body;
@@ -312,6 +359,26 @@ async function openControlWorkspace(symbol, options = {}) {
   setActiveSymbol(symbol);
   renderControlList();
   await loadControlOverview(Boolean(options.forceTick));
+}
+
+async function deleteControl(symbol) {
+  const safe = String(symbol || "").trim().toUpperCase();
+  if (!safe || safe === "AU") {
+    controlNotice("Autody AU cannot be deleted.", "error");
+    return;
+  }
+  const ok = window.confirm(`Delete ${safe} from controlled assets? This removes its admin history and market snapshot.`);
+  if (!ok) return;
+  controlNotice(`Deleting ${safe}...`, "neutral");
+  const result = await opsPost("/api/admin/markets/delete", { symbol: safe });
+  controlList = Array.isArray(result.controls) ? result.controls : controlList.filter((item) => item.symbol !== safe);
+  if (activeSymbol === safe) {
+    controlOverview = null;
+    setActiveSymbol("");
+  }
+  renderControlList();
+  updateControlLabels();
+  controlNotice(`${safe} deleted from controlled assets.`, "success");
 }
 
 async function saveControl(form, submit) {
@@ -331,9 +398,16 @@ async function saveControl(form, submit) {
 
 function wireControlOps() {
   document.getElementById("ops-control-list")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-symbol]");
-    if (!button) return;
-    openControlWorkspace(button.dataset.symbol).catch((err) => controlNotice(err.message, "error"));
+    const deleteButton = event.target.closest("[data-delete-control]");
+    if (deleteButton) {
+      deleteControl(deleteButton.dataset.deleteControl).catch((err) => controlNotice(err.message, "error"));
+      return;
+    }
+    const openButton = event.target.closest("[data-open-control]");
+    const card = event.target.closest("[data-symbol]");
+    const symbol = openButton?.dataset.openControl || card?.dataset.symbol;
+    if (!symbol) return;
+    openControlWorkspace(symbol).catch((err) => controlNotice(err.message, "error"));
   });
 
   document.getElementById("ops-control-back")?.addEventListener("click", () => {
@@ -417,6 +491,10 @@ function wireControlOps() {
     } catch (err) {
       controlNotice(err.message || "Could not reset market control.", "error");
     }
+  });
+  document.getElementById("ops-delete-control")?.addEventListener("click", () => {
+    if (!activeSymbol) return controlNotice("Select an asset before deleting.", "error");
+    return deleteControl(activeSymbol).catch((err) => controlNotice(err.message, "error"));
   });
 
   document.getElementById("ops-market-form")?.addEventListener("input", (event) => {
