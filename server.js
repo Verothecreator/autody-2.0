@@ -9411,46 +9411,57 @@ function ensureAdminControlledLogo(control = {}) {
     const symbol = controlledMarketSymbol(control.symbol || "");
     if (!symbol || symbol === "AU") return "Autody-Logo.png";
     const existing = normalizeText(control.logoUrl || "");
-    if (existing && !existing.includes("Autody-Logo.png")) return existing;
+    const generatedBase = `${ADMIN_CONTROLLED_LOGO_PUBLIC_BASE}/`;
+    if (existing && !existing.includes("Autody-Logo.png") && !existing.startsWith(generatedBase)) return existing;
 
     const name = normalizeText(control.name || control.assetName || symbol) || symbol;
     const assetType = normalizeAdminMarketAssetType(control.assetType || "asset");
     const market = normalizeAdminMarketVenue(assetType, symbol, control.market);
     const seed = hashAdminLogoSeed(`${symbol}:${name}:${assetType}:${market}`);
     const palettes = [
-        ["#5b5fef", "#24d18f"],
-        ["#2a7fff", "#60f0ff"],
-        ["#f0557a", "#f5b851"],
-        ["#7c4dff", "#e078ff"],
-        ["#111827", "#7dd3fc"],
-        ["#0f766e", "#bef264"]
+        ["#5b5fef", "#26d4a0", "#10162a"],
+        ["#2488ff", "#73f2ff", "#07182a"],
+        ["#ff5d7d", "#ffc45c", "#271018"],
+        ["#8957ff", "#f18cff", "#190f2b"],
+        ["#111827", "#8ee8ff", "#050910"],
+        ["#0f766e", "#c4ff68", "#071815"],
+        ["#ff7a3d", "#ffd76a", "#211106"],
+        ["#38bdf8", "#a78bfa", "#08111f"]
     ];
     const palette = palettes[seed % palettes.length];
-    const ringOpacity = 0.22 + ((seed % 20) / 100);
+    const glowOpacity = 0.45 + ((seed % 20) / 100);
     const angle = seed % 360;
     const initials = escapeSvgText(symbol.slice(0, 3));
     const safeName = escapeSvgText(name);
-    const typeLabel = escapeSvgText(assetType.toUpperCase());
-    const fileName = `${symbol.toLowerCase().replace(/[^a-z0-9_-]/gi, "-")}.svg`;
+    const orbX = 28 + ((seed >> 3) % 72);
+    const orbY = 24 + ((seed >> 8) % 70);
+    const ringSize = 34 + ((seed >> 13) % 15);
+    const slashOne = 14 + ((seed >> 17) % 28);
+    const slashTwo = 82 + ((seed >> 21) % 24);
+    const lowerArc = 78 + ((seed >> 25) % 12);
+    const fileName = `${symbol.toLowerCase().replace(/[^a-z0-9_-]/gi, "-")}-mark.svg`;
     const filePath = path.join(ADMIN_CONTROLLED_LOGO_DIR, fileName);
     const publicPath = `${ADMIN_CONTROLLED_LOGO_PUBLIC_BASE}/${fileName}`;
 
     try {
         fs.mkdirSync(ADMIN_CONTROLLED_LOGO_DIR, { recursive: true });
-        if (!fs.existsSync(filePath)) {
-            fs.writeFileSync(filePath, `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-<defs><linearGradient id="g" x1="18" y1="15" x2="112" y2="114" gradientUnits="userSpaceOnUse"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient><radialGradient id="shine" cx="35%" cy="20%" r="70%"><stop stop-color="#fff" stop-opacity=".35"/><stop offset=".65" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
-<rect width="128" height="128" rx="28" fill="#0b1018"/>
-<circle cx="64" cy="64" r="50" fill="url(#g)" opacity=".96"/>
-<circle cx="64" cy="64" r="39" fill="none" stroke="#fff" stroke-width="2.5" opacity="${ringOpacity.toFixed(2)}" transform="rotate(${angle} 64 64)"/>
-<path d="M30 84 C43 72 85 72 98 84" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity=".28"/>
-<path d="M24 40 L42 24 M104 40 L86 24 M24 88 L42 104 M104 88 L86 104" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".22"/>
-<circle cx="64" cy="64" r="50" fill="url(#shine)"/>
-<text x="64" y="68" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="900" fill="#fff">${initials}</text>
-<text x="64" y="101" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="800" letter-spacing="1" fill="#e8edff" opacity=".9">${typeLabel}</text>
+        fs.writeFileSync(filePath, `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" data-autody-generated-logo="2">
+<defs>
+  <linearGradient id="bg" x1="16" y1="12" x2="116" y2="118" gradientUnits="userSpaceOnUse"><stop stop-color="${palette[2]}"/><stop offset="1" stop-color="#05070d"/></linearGradient>
+  <linearGradient id="accent" x1="18" y1="18" x2="110" y2="112" gradientUnits="userSpaceOnUse"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient>
+  <radialGradient id="orb" cx="35%" cy="25%" r="68%"><stop stop-color="#fff" stop-opacity=".55"/><stop offset=".55" stop-color="${palette[1]}" stop-opacity=".18"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  <filter id="softGlow" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="128" height="128" rx="30" fill="url(#bg)"/>
+<circle cx="${orbX}" cy="${orbY}" r="58" fill="url(#orb)" opacity="${glowOpacity.toFixed(2)}"/>
+<path d="M${slashOne} 108 L${slashTwo} 14" stroke="url(#accent)" stroke-width="18" stroke-linecap="round" opacity=".24" transform="rotate(${angle} 64 64)"/>
+<path d="M18 ${lowerArc} C38 52 88 52 110 ${lowerArc}" fill="none" stroke="url(#accent)" stroke-width="10" stroke-linecap="round" opacity=".55"/>
+<circle cx="64" cy="64" r="${ringSize}" fill="none" stroke="url(#accent)" stroke-width="4" opacity=".78" filter="url(#softGlow)"/>
+<circle cx="64" cy="64" r="${ringSize - 12}" fill="#0a0f1b" opacity=".42"/>
+<text x="64" y="75" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${initials.length > 2 ? 31 : 40}" font-weight="900" letter-spacing="-1" fill="#fff">${initials}</text>
+<path d="M43 92 C53 99 75 99 85 92" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".38"/>
 <title>${safeName}</title>
 </svg>`, "utf8");
-        }
     } catch (err) {
         console.error("Could not write generated asset logo:", err.message || err);
     }
@@ -11988,19 +11999,40 @@ async function fetchLiveAssetChartSeries(asset, requestedRange = "1d") {
   return chart;
 }
 
+function isAdminControlledMarketAsset(asset = {}) {
+  const symbol = String(asset?.symbol || "").toUpperCase();
+  const provider = String(asset?.dataProvider || asset?.provider || "").toLowerCase();
+  const status = String(asset?.status || "").toLowerCase();
+  const tags = Array.isArray(asset?.tags) ? asset.tags.map((tag) => String(tag).toLowerCase()) : [];
+  return symbol === "AU" || provider === "autody-admin" || status === "admin controlled" || tags.includes("admin controlled");
+}
+
+async function fetchAdminControlledChartSeries(asset, requestedRange = "1d") {
+  const selectedRange = normalizeChartRange(requestedRange);
+  const symbol = controlledMarketSymbol(asset?.symbol || "AU");
+  const control = await advanceAdminControlledMarket(symbol).catch((err) => {
+    console.error(`Admin controlled market advance failed for ${symbol}:`, err.message || err);
+    return null;
+  });
+  const liveChart = await buildAdminControlledChart(symbol, selectedRange).catch((err) => {
+    console.error(`Admin controlled chart failed for ${symbol} ${selectedRange}:`, err.message || err);
+    return null;
+  });
+  if (!liveChart?.points?.length) return null;
+
+  const marketAsset = control
+    ? adminMarketAssetFromControl(control, await adminMarketStats(symbol).catch(() => ({})))
+    : asset;
+  await saveMarketChartSnapshot("autody-admin", marketAsset, liveChart);
+  return { ...liveChart, source: "database", refreshed: true };
+}
+
 async function fetchAssetChartSeries(asset, requestedRange = "1d") {
   const selectedRange = normalizeChartRange(requestedRange);
 
-  if (String(asset?.symbol || "").toUpperCase() === "AU") {
-    const control = await advanceAdminControlledMarket("AU").catch(() => null);
-    const liveChart = await buildAdminControlledChart("AU", selectedRange).catch(() => null);
-    if (liveChart?.points?.length) {
-      const marketAsset = control
-        ? adminMarketAssetFromControl(control, await adminMarketStats("AU").catch(() => ({})))
-        : asset;
-      await saveMarketChartSnapshot("autody-admin", marketAsset, liveChart);
-      return { ...liveChart, source: "database", refreshed: true };
-    }
+  if (isAdminControlledMarketAsset(asset)) {
+    const liveChart = await fetchAdminControlledChartSeries(asset, selectedRange);
+    if (liveChart) return liveChart;
   }
 
   if (asset.customAsset) {
