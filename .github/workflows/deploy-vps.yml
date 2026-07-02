@@ -48,9 +48,14 @@ jobs:
             git remote set-url origin "$REPO_URL"
             git fetch origin main
             git pull --ff-only origin main
-            npm install --omit=dev
+            npm install --omit=dev --no-package-lock
 
             if command -v pm2 >/dev/null 2>&1; then
+              if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then
+                systemctl stop autody || true
+                systemctl disable autody || true
+              fi
+
               if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
                 pm2 restart "$APP_NAME" --update-env
               else
