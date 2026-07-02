@@ -9851,6 +9851,7 @@ async function adminMarketStats(symbol = "AU") {
 function adminMarketAssetFromControl(control, stats = {}) {
     const symbol = controlledMarketSymbol(control?.symbol || "AU");
     const assetType = normalizeAdminMarketAssetType(control?.assetType || "crypto");
+    const exposesTokenMetrics = assetType === "crypto" || symbol === "AU";
     const market = normalizeAdminMarketVenue(assetType, symbol, control?.market);
     const logoUrl = symbol === "AU"
         ? "Autody-Logo.png"
@@ -9879,17 +9880,17 @@ function adminMarketAssetFromControl(control, stats = {}) {
         ...assetCatalogEntry(asset),
         price: control.currentPrice,
         changePct: control.changePct,
-        marketCap: control.marketCap || null,
-        fdv: control.fdv || null,
-        liquidityUsd: control.reserveUsd || control.liquidityUsd || null,
-        totalVolume: control.totalVolume || null,
+        marketCap: exposesTokenMetrics ? control.marketCap || null : null,
+        fdv: exposesTokenMetrics ? control.fdv || null : null,
+        liquidityUsd: exposesTokenMetrics ? control.reserveUsd || control.liquidityUsd || null : null,
+        totalVolume: exposesTokenMetrics ? control.totalVolume || null : null,
         high24h: stats.high24h ?? null,
         low24h: stats.low24h ?? null,
         ath: stats.allTimeHigh ?? null,
         atl: stats.allTimeLow ?? null,
-        circulatingSupply: control.circulatingSupply,
-        totalSupply: control.totalSupply,
-        maxSupply: control.maxSupply,
+        circulatingSupply: exposesTokenMetrics ? control.circulatingSupply : null,
+        totalSupply: exposesTokenMetrics ? control.totalSupply : null,
+        maxSupply: exposesTokenMetrics ? control.maxSupply : null,
         currency: "USD",
         providerSymbol: control.symbol,
         dataProvider: "autody-admin",

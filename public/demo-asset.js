@@ -292,15 +292,18 @@ function detailRow(label, value) {
   return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
+function isCryptoAsset(asset) {
+  return normalizedAssetType(asset) === "crypto" || String(asset?.symbol || "").toUpperCase() === "AU";
+}
+
 function activityMetric(asset) {
   const isAutody = String(asset?.symbol || "").toUpperCase() === "AU";
-  const type = normalizedAssetType(asset);
   const liquidity = Number(asset.liquidityUsd);
   const volume = Number(asset.totalVolume);
-  if (type === "crypto" && !isAutody && Number.isFinite(liquidity) && liquidity > 0) {
+  if (isCryptoAsset(asset) && !isAutody && Number.isFinite(liquidity) && liquidity > 0) {
     return { label: "Liquidity", value: liquidity };
   }
-  if (Number.isFinite(volume) && volume > 0) {
+  if (isCryptoAsset(asset) && Number.isFinite(volume) && volume > 0) {
     return { label: "24h volume", value: volume };
   }
   return null;
@@ -310,6 +313,7 @@ function renderDetails(asset, chart) {
   const stats = chart.stats || {};
   const networks = asset.depositNetworks || [];
   const currency = chart.currency || asset.currency || "USD";
+  const cryptoAsset = isCryptoAsset(asset);
   const marketCap = asset.marketCap ?? stats.marketCap;
   const fdv = asset.fdv ?? stats.fdv;
   const activity = activityMetric(asset);
@@ -318,7 +322,7 @@ function renderDetails(asset, chart) {
 
   const rows = [];
 
-  if (asset.assetType === "crypto") {
+  if (cryptoAsset) {
     rows.push(detailRow("Network", networks[0] || "Multiple networks"));
   } else {
     rows.push(detailRow("Exchange", asset.market || "Global market"));
@@ -329,14 +333,14 @@ function renderDetails(asset, chart) {
   }
 
   rows.push(detailRow("Quote currency", currency));
-  if (marketCap) rows.push(detailRow("Market cap", formatPrice(marketCap, "USD")));
-  if (asset.assetType === "crypto" && fdv) rows.push(detailRow("FDV", formatPrice(fdv, "USD")));
+  if (cryptoAsset && marketCap) rows.push(detailRow("Market cap", formatPrice(marketCap, "USD")));
+  if (cryptoAsset && fdv) rows.push(detailRow("FDV", formatPrice(fdv, "USD")));
   if (activity) rows.push(detailRow(activity.label, formatPrice(activity.value, "USD")));
   if (allTimeHigh) rows.push(detailRow("All-time high", formatPrice(allTimeHigh, currency)));
   if (allTimeLow) rows.push(detailRow("All-time low", formatPrice(allTimeLow, currency)));
-  if (asset.assetType === "crypto" && asset.circulatingSupply) rows.push(detailRow("Circulating supply", `${formatNumber(asset.circulatingSupply)} ${asset.symbol}`));
+  if (cryptoAsset && asset.circulatingSupply) rows.push(detailRow("Circulating supply", `${formatNumber(asset.circulatingSupply)} ${asset.symbol}`));
 
-  document.getElementById("asset-detail-heading").textContent = asset.assetType === "crypto" ? "Token details" : "Market details";
+  document.getElementById("asset-detail-heading").textContent = cryptoAsset ? "Token details" : "Market details";
   document.getElementById("asset-detail-list").innerHTML = rows.join("");
 }
 
@@ -479,11 +483,12 @@ function renderChartStats(asset, chart) {
   const stats = chart.stats || {};
   const target = document.getElementById("asset-chart-stats");
   const currency = chart.currency || asset.currency || "USD";
+  const cryptoAsset = isCryptoAsset(asset);
   const activity = activityMetric(asset);
   const rows = [];
 
   if (Number.isFinite(Number(asset.changePct))) rows.push(detailRow("24h move", formatMove(asset.changePct)));
-  if (asset.marketCap ?? stats.marketCap) rows.push(detailRow("Market cap", formatPrice(asset.marketCap ?? stats.marketCap, "USD")));
+  if (cryptoAsset && (asset.marketCap ?? stats.marketCap)) rows.push(detailRow("Market cap", formatPrice(asset.marketCap ?? stats.marketCap, "USD")));
   if (activity) rows.push(detailRow(activity.label, formatPrice(activity.value, "USD")));
   if (stats.rangeHigh) rows.push(detailRow("Chart high", formatPrice(stats.rangeHigh, currency)));
   if (stats.rangeLow) rows.push(detailRow("Chart low", formatPrice(stats.rangeLow, currency)));
