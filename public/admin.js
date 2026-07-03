@@ -130,36 +130,6 @@ async function adminPost(path, body = {}) {
   return json;
 }
 
-function fileNameFromDisposition(disposition = "") {
-  const utfMatch = String(disposition).match(/filename\*=UTF-8''([^;]+)/i);
-  if (utfMatch) return decodeURIComponent(utfMatch[1].replace(/"/g, ""));
-  const match = String(disposition).match(/filename="?([^";]+)"?/i);
-  return match ? match[1] : "";
-}
-
-async function adminDownload(path, body = {}, fallbackName = "autody-download") {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: adminAuthHeaders(),
-    body: JSON.stringify(body)
-  });
-  if (!response.ok) {
-    const json = await response.json().catch(() => ({}));
-    throw new Error(json.error || `${path} returned ${response.status}`);
-  }
-  const blob = await response.blob();
-  const fileName = fileNameFromDisposition(response.headers.get("Content-Disposition") || "") || fallbackName;
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return { success: true, fileName };
-}
-
 function populateDatalists(assets = []) {
   const assetList = document.getElementById("admin-asset-options");
   const networkList = document.getElementById("admin-network-options");
@@ -201,19 +171,6 @@ function renderEmpty(target, message) {
 function copyButton(value, label = "Copy") {
   if (!value) return "";
   return `<button type="button" class="admin-copy" data-copy="${adminEscape(value)}" data-copy-label="${adminEscape(label)}">${adminEscape(label)}</button>`;
-}
-
-function kycDownloadButton(row = {}, kind = "document", label = "Download") {
-  const fileName = kind === "selfie"
-    ? row.selfieFileName
-    : kind === "document_back"
-      ? row.documentBackFileName
-      : row.documentFileName;
-  return `<button type="button" class="admin-download" data-kyc-download="${adminEscape(row.id)}" data-kyc-file-kind="${adminEscape(kind)}" data-kyc-file-name="${adminEscape(fileName || label)}">${adminEscape(label)}</button>`;
-}
-
-function kycDeleteButton(row = {}) {
-  return `<button type="button" class="btn btn-ghost admin-danger" data-kyc-delete="${adminEscape(row.id)}">Delete files</button>`;
 }
 
 function renderAddresses(rows = []) {
@@ -297,6 +254,10 @@ function renderEvents(rows = []) {
         ${copyButton(row.txHash, "Tx")}
       </div>
       <div>
+        <span class="admin-mono">${adminEscape(truncateMiddle(row.address, 14, 10))}</span>
+        ${copyButton(row.address, "Address")}
+      </div>
+      <div>
         <span class="admin-status ${statusClass(row.status)}">${adminEscape(row.status)}</span>
         <small>${row.confirmations} confirmations</small>
       </div>
@@ -336,110 +297,6 @@ function renderScanStates(rows = []) {
   `).join("");
 }
 
-function formatKycDocumentType(value = "") {
-  return String(value || "government_id")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-const kycRejectionReasons = [
-  ["invalid_document", "Invalid document"],
-  ["invalid_id", "Invalid ID"],
-  ["inadequate_selfie", "Inadequate selfie"],
-  ["document_selfie_mismatch", "Document and selfie mismatch"],
-  ["expired_document", "Expired document"],
-  ["unclear_document", "Unclear document"],
-  ["unsupported_document", "Unsupported document"],
-  ["other", "Other"]
-];
-
-function kycReasonLabel(value = "") {
-  const match = kycRejectionReasons.find(([key]) => key === value);
-  return match ? match[1] : "Other";
-}
-
-function kycRejectionReasonControls(row = {}) {
-  const currentReason = row.reviewReason || "invalid_document";
-  const options = kycRejectionReasons.map(([value, label]) => (
-    `<option value="${adminEscape(value)}"${value === currentReason ? " selected" : ""}>${adminEscape(label)}</option>`
-  )).join("");
-  return `
-    <label class="admin-kyc-reason">
-      <span>Reject reason</span>
-      <select data-kyc-reason="${adminEscape(row.id)}">${options}</select>
-    </label>
-    <label class="admin-kyc-reason">
-      <span>Optional user note</span>
-      <input type="text" data-kyc-note="${adminEscape(row.id)}" value="${adminEscape(row.reviewNote || "")}" placeholder="Add a short note if needed" />
-    </label>
-  `;
-}
-
-function findKycControl(selector, submissionId) {
-  return Array.from(document.querySelectorAll(selector)).find((node) => node.dataset.kycReason === submissionId || node.dataset.kycNote === submissionId);
-}
-
-function renderKycPreview(url = "", type = "", label = "Preview") {
-  if (!url) return `<div class="admin-kyc-preview admin-empty-preview">${adminEscape(label)} unavailable</div>`;
-  const safeUrl = adminEscape(url);
-  if (String(type || "").toLowerCase().startsWith("image/")) {
-    return `
-      <a class="admin-kyc-preview" href="${safeUrl}" target="_blank" rel="noopener">
-        <img src="${safeUrl}" alt="${adminEscape(label)}" loading="lazy" />
-      </a>
-    `;
-  }
-  return `
-    <a class="admin-kyc-preview admin-file-preview" href="${safeUrl}" target="_blank" rel="noopener">
-      Open ${adminEscape(label)}
-    </a>
-  `;
-}
-
-function renderKycSubmissions(rows = []) {
-  const target = document.getElementById("admin-kyc-submissions");
-  const count = document.querySelector('[data-count="kyc"]');
-  if (count) count.textContent = rows.length;
-  if (!target) return;
-  if (!rows.length) return renderEmpty(target, "No KYC submissions yet.");
-  target.innerHTML = rows.map((row) => `
-    <article class="admin-kyc-record">
-      <div class="admin-kyc-person">
-        <strong>${adminEscape(row.displayName || row.email)}</strong>
-        <span>${adminEscape(row.email)}</span>
-        <small>${adminEscape(row.country || "Country unavailable")} - ${formatAdminDate(row.createdAt)}</small>
-        <span class="admin-status ${statusClass(row.status)}">${adminEscape(row.status)}</span>
-      </div>
-      <div class="admin-kyc-files">
-        <div>
-          <small>${adminEscape(formatKycDocumentType(row.documentType))}</small>
-          ${renderKycPreview(row.documentUrl, row.documentContentType, "Identity document")}
-          ${kycDownloadButton(row, "document", "Download ID")}
-        </div>
-        ${row.documentBackUrl ? `
-          <div>
-            <small>Document back</small>
-            ${renderKycPreview(row.documentBackUrl, row.documentBackContentType, "Identity document back")}
-            ${kycDownloadButton(row, "document_back", "Download back")}
-          </div>
-        ` : ""}
-        <div>
-          <small>Face scan</small>
-          ${renderKycPreview(row.selfieUrl, row.selfieContentType, "Face scan")}
-          ${kycDownloadButton(row, "selfie", "Download face scan")}
-        </div>
-      </div>
-      <div class="admin-kyc-actions">
-        ${kycRejectionReasonControls(row)}
-        <button type="button" class="btn" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="approved">Approve</button>
-        <button type="button" class="btn btn-ghost" data-kyc-review="${adminEscape(row.id)}" data-kyc-status="rejected">Reject</button>
-        ${kycDeleteButton(row)}
-        <small>${adminEscape(row.reviewReason ? kycReasonLabel(row.reviewReason) : row.reviewNote || row.reviewer || "Waiting for manual review")}</small>
-      </div>
-    </article>
-  `).join("");
-}
-
 function renderOverview(overview) {
   adminOverview = overview;
   populateDatalists(overview.supportedAssets || []);
@@ -457,42 +314,6 @@ async function loadAdminOverview() {
   const overview = await adminPost("/api/admin/deposits/overview", { limit: 50 });
   renderOverview(overview);
   return overview;
-}
-
-async function loadAdminKycOverview() {
-  const status = document.getElementById("admin-kyc-status")?.value || "all";
-  const overview = await adminPost("/api/admin/kyc/overview", { limit: 40, status });
-  renderKycSubmissions(overview.submissions || []);
-  return overview;
-}
-
-async function reviewKycSubmission(submissionId, status) {
-  const action = status === "approved" ? "approve" : "reject";
-  const reasonSelect = findKycControl("[data-kyc-reason]", submissionId);
-  const noteInput = findKycControl("[data-kyc-note]", submissionId);
-  const reviewReason = status === "rejected" ? reasonSelect?.value || "other" : "";
-  const reviewNote = status === "rejected"
-    ? noteInput?.value?.trim() || kycReasonLabel(reviewReason)
-    : "Identity review approved.";
-  const result = await adminPost("/api/admin/kyc/review", {
-    submissionId,
-    status,
-    reviewReason,
-    reviewNote
-  });
-  setAdminOutput(result);
-  setAdminNotice(`KYC submission ${action === "approve" ? "approved" : "rejected"}.`, "success");
-  await loadAdminKycOverview();
-}
-
-async function deleteKycSubmission(submissionId) {
-  if (!submissionId) return;
-  const confirmed = window.confirm("Delete this KYC submission and its private files? This cannot be undone.");
-  if (!confirmed) return;
-  const result = await adminPost("/api/admin/kyc/delete", { submissionId });
-  setAdminOutput(result);
-  setAdminNotice("KYC submission files deleted.", "success");
-  await loadAdminKycOverview();
 }
 
 async function runAdminAction(event, path) {
@@ -540,10 +361,9 @@ function wireAdminPortal() {
   document.getElementById("admin-connect")?.addEventListener("click", async () => {
     try {
       const overview = await loadAdminOverview();
-      await loadAdminKycOverview();
       setAdminOutput({
         success: true,
-        message: "Admin portal connected.",
+        message: "Deposit portal connected.",
         capabilities: overview.capabilities
       });
     } catch (err) {
@@ -555,29 +375,9 @@ function wireAdminPortal() {
   document.getElementById("admin-refresh")?.addEventListener("click", async () => {
     try {
       await loadAdminOverview();
-      await loadAdminKycOverview();
     } catch (err) {
       setAdminOutput(err.message || String(err));
       setAdminNotice(err.message || "Refresh failed.", "error");
-    }
-  });
-
-  document.getElementById("admin-kyc-refresh")?.addEventListener("click", async () => {
-    try {
-      await loadAdminKycOverview();
-      setAdminNotice("KYC submissions refreshed.", "success");
-    } catch (err) {
-      setAdminOutput(err.message || String(err));
-      setAdminNotice(err.message || "KYC refresh failed.", "error");
-    }
-  });
-
-  document.getElementById("admin-kyc-status")?.addEventListener("change", async () => {
-    try {
-      await loadAdminKycOverview();
-    } catch (err) {
-      setAdminOutput(err.message || String(err));
-      setAdminNotice(err.message || "KYC filter failed.", "error");
     }
   });
 
@@ -597,47 +397,6 @@ function wireAdminPortal() {
 
   document.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-copy]");
-    const kycButton = event.target.closest("[data-kyc-review]");
-    const kycDownload = event.target.closest("[data-kyc-download]");
-    const kycDelete = event.target.closest("[data-kyc-delete]");
-    if (kycDownload) {
-      const original = kycDownload.textContent;
-      try {
-        kycDownload.disabled = true;
-        kycDownload.textContent = "Downloading...";
-        const result = await adminDownload("/api/admin/kyc/download", {
-          submissionId: kycDownload.dataset.kycDownload,
-          kind: kycDownload.dataset.kycFileKind
-        }, kycDownload.dataset.kycFileName || "autody-kyc-file");
-        setAdminOutput(result);
-        setAdminNotice("KYC file downloaded.", "success");
-      } catch (err) {
-        setAdminOutput(err.message || String(err));
-        setAdminNotice(err.message || "KYC download failed.", "error");
-      } finally {
-        kycDownload.disabled = false;
-        kycDownload.textContent = original;
-      }
-      return;
-    }
-    if (kycDelete) {
-      try {
-        await deleteKycSubmission(kycDelete.dataset.kycDelete);
-      } catch (err) {
-        setAdminOutput(err.message || String(err));
-        setAdminNotice(err.message || "KYC delete failed.", "error");
-      }
-      return;
-    }
-    if (kycButton) {
-      try {
-        await reviewKycSubmission(kycButton.dataset.kycReview, kycButton.dataset.kycStatus);
-      } catch (err) {
-        setAdminOutput(err.message || String(err));
-        setAdminNotice(err.message || "KYC review failed.", "error");
-      }
-      return;
-    }
     if (!button) return;
     const value = button.getAttribute("data-copy") || "";
     try {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autody Admin | Deposits and KYC</title>
+  <title>Autody Admin | Deposits</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="account-body admin-body">
@@ -16,7 +16,7 @@
       <div>
         <p class="eyebrow">Admin control</p>
         <h1>Deposit portal</h1>
-        <p>Watch generated addresses, credited deposits, scan state, manual credits, KYC submissions, and sweep readiness.</p>
+        <p>Watch generated addresses, credited deposits, scan state, manual credits, and sweep readiness.</p>
       </div>
       <div class="admin-key-card ops-session-card">
         <span class="muted-label">Ops session</span>
@@ -29,7 +29,7 @@
       </div>
     </header>
 
-    <p class="admin-notice" id="admin-notice">Open an ops session to load deposit and identity data.</p>
+    <p class="admin-notice" id="admin-notice">Open an ops session to load deposit data.</p>
 
     <section class="admin-kpi-grid" id="admin-kpis">
       <div class="app-card mini-metric">
@@ -62,6 +62,7 @@
             <h2>Find deposits</h2>
           </div>
         </div>
+        <small class="admin-help-text">Rescan a chain when a payment was sent but the automatic watcher missed it. Use the receiving address, asset, network, and block range from the transaction.</small>
         <label>Address<input name="address" placeholder="Optional generated address" /></label>
         <div class="admin-form-row">
           <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" /></label>
@@ -102,15 +103,16 @@
             <h2>Manual credit</h2>
           </div>
         </div>
+        <small class="admin-help-text">Credit USD or any platform asset when a deposit, wire, ACH, card funding, or chain scan needs manual repair.</small>
         <div class="admin-form-row">
           <label>Email<input name="email" type="email" placeholder="user@example.com" /></label>
           <label>Profile ID<input name="profileId" placeholder="Optional uuid" /></label>
         </div>
         <div class="admin-form-row">
-          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" required /></label>
-          <label>Network<input name="network" list="admin-network-options" placeholder="Polygon PoS" required /></label>
+          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USD or USDT" required /></label>
+          <label>Network / note<input name="network" list="admin-network-options" placeholder="Optional ledger note" /></label>
         </div>
-        <label>Address<input name="address" placeholder="Deposit address or manual note" /></label>
+        <label>Reference<input name="address" placeholder="Deposit address, bank trace, or manual note" /></label>
         <label>Transaction hash<input name="txHash" placeholder="tx hash or blank for manual id" /></label>
         <div class="admin-form-row">
           <label>Amount<input name="amount" type="number" step="any" required /></label>
@@ -130,26 +132,6 @@
         <button type="button" class="btn btn-ghost" id="admin-clear-output">Clear</button>
       </div>
       <pre id="admin-output">No action run yet.</pre>
-    </section>
-
-    <section class="app-card admin-table-card admin-kyc-card">
-      <div class="card-heading">
-        <div>
-          <span class="muted-label">Identity review</span>
-          <h2>KYC submissions</h2>
-        </div>
-        <div class="admin-filter-actions">
-          <select id="admin-kyc-status" aria-label="KYC status filter">
-            <option value="all">All reviews</option>
-            <option value="in_review">In review</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <button type="button" class="btn btn-ghost" id="admin-kyc-refresh">Refresh KYC</button>
-          <span class="status-pill" data-count="kyc">0</span>
-        </div>
-      </div>
-      <div class="admin-table admin-kyc-table" id="admin-kyc-submissions"></div>
     </section>
 
     <section class="admin-data-grid">

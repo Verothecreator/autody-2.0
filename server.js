@@ -2529,6 +2529,22 @@ function normalizeDepositNetwork(assetSymbol, value) {
     return match;
 }
 
+function normalizeManualCreditAssetSymbol(value) {
+    const symbol = normalizeTradeSymbol(value);
+    if (!symbol) throw demoTradeError(400, "Enter an asset to credit.");
+    if (["USD", "USDFUNDS", "USD_FUNDS", "USD_CASH", "USDCASH", "FUNDS", "CASH"].includes(symbol)) {
+        return "USD";
+    }
+    return symbol;
+}
+
+function normalizeManualCreditNetwork(assetSymbol, value) {
+    const requested = normalizeText(value);
+    if (requested) return requested;
+    if (assetSymbol === "USD") return "Manual ledger";
+    return LIVE_DEPOSIT_ASSETS[assetSymbol]?.networks?.[0] || "Manual ledger";
+}
+
 function depositEnvKeyPart(value = "") {
     return String(value || "")
         .toUpperCase()
@@ -4614,12 +4630,14 @@ async function resolveDepositCreditAsset(symbol, priceHint = null) {
     const marketAsset = await findMarketAssetBySymbol(lookup).catch(() => null);
     const stableFallback = STABLE_DEPOSIT_ASSETS.has(lookup) ? 1 : null;
     const price = firstPositive(marketAsset?.price, priceHint, stableFallback) || 0;
+    const assetType = marketAsset?.assetType || marketAsset?.asset_type || marketAsset?.type
+        || (lookup === "AU" ? "currency" : LIVE_DEPOSIT_ASSETS[lookup] ? "crypto" : "asset");
 
     return {
         ...(marketAsset || {}),
         symbol: lookup,
         name: marketAsset?.name || LIVE_DEPOSIT_ASSETS[lookup]?.name || lookup,
-        assetType: lookup === "AU" ? "currency" : "crypto",
+        assetType,
         price
     };
 }
@@ -4629,6 +4647,25 @@ async function creditDatabaseDepositHolding(client, addressRow, detection) {
     if (amount <= 0) throw demoTradeError(400, "Deposit amount must be greater than zero.");
 
     const context = await getPracticeDbContext(client, addressRow.profile_id, "live");
+    const assetSymbol = normalizeTradeSymbol(addressRow.asset_symbol);
+    if (assetSymbol === "USD") {
+        const creditUsd = firstPositive(detection.amountUsd, amount) || amount;
+        const nextCash = await adjustDbCash(client, context.wallet_id, creditUsd);
+        await client.query(`
+            insert into orders (account_mode_id, symbol, asset_type, side, order_type, status, quantity, notional_usd, filled_price, filled_at)
+            values ($1, 'USD', 'cash', 'deposit', 'manual_credit', 'filled', $2, $2, 1, now())
+        `, [context.account_mode_id, creditUsd]);
+
+        return {
+            walletId: context.wallet_id,
+            accountModeId: context.account_mode_id,
+            amount: creditUsd,
+            price: 1,
+            notionalUsd: creditUsd,
+            nextQuantity: Number(nextCash) || 0
+        };
+    }
+
     const priceHint = amount > 0 && detection.amountUsd != null
         ? Number(detection.amountUsd) / amount
         : null;
@@ -5891,8 +5928,8 @@ async function manuallyCreditDatabaseDeposit(body = {}) {
 
     const email = normalizeEmail(body.email);
     const profileId = normalizeText(body.profileId);
-    const assetSymbol = normalizeDepositAssetSymbol(body.asset || body.symbol);
-    const network = normalizeDepositNetwork(assetSymbol, body.network);
+    const assetSymbol = normalizeManualCreditAssetSymbol(body.asset || body.symbol);
+    const network = normalizeManualCreditNetwork(assetSymbol, body.network);
     const amount = numberValue(body.amount, 0);
     const txHash = normalizeText(body.txHash || body.hash || `manual-${crypto.randomUUID()}`);
 
@@ -6041,14 +6078,49 @@ function adminDepositScanStateRow(row = {}) {
     };
 }
 
-function adminDepositSupportedAssets() {
-    return Object.entries(LIVE_DEPOSIT_ASSETS)
-        .map(([symbol, asset]) => ({
+function adminDepositSupportedAssets(extraAssets = []) {
+    const cachedMarketAssets = Array.isArray(liveMarketAssetCache.assets) ? liveMarketAssetCache.assets : [];
+    const rows = [
+        { symbol: "USD", name: "USD Funds", networks: ["Manual ledger"] },
+        ...Object.entries(LIVE_DEPOSIT_ASSETS).map(([symbol, asset]) => ({
             symbol,
             name: asset.name || symbol,
-            networks: [...(asset.networks || [])].sort((a, b) => a.localeCompare(b))
+            networks: [...(asset.networks || [])]
+        })),
+        ...cachedMarketAssets.map((asset) => ({
+            symbol: asset.symbol,
+            name: asset.name || asset.symbol,
+            networks: ["Manual ledger"]
+        })),
+        ...extraAssets.map((asset) => ({
+            symbol: asset.symbol,
+            name: asset.name || asset.assetName || asset.asset_name || asset.symbol,
+            networks: ["Manual ledger"]
         }))
-        .sort((a, b) => a.symbol.localeCompare(b.symbol));
+    ];
+
+    const bySymbol = new Map();
+    rows.forEach((asset) => {
+        const symbol = normalizeTradeSymbol(asset.symbol);
+        if (!symbol) return;
+        const current = bySymbol.get(symbol);
+        const networks = [...new Set([
+            ...(current?.networks || []),
+            ...(Array.isArray(asset.networks) ? asset.networks : [])
+        ].map((network) => normalizeText(network)).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b));
+        bySymbol.set(symbol, {
+            symbol,
+            name: current?.name || normalizeText(asset.name) || symbol,
+            networks: networks.length ? networks : ["Manual ledger"]
+        });
+    });
+
+    return [...bySymbol.values()].sort((a, b) => {
+        if (a.symbol === "USD") return -1;
+        if (b.symbol === "USD") return 1;
+        return a.symbol.localeCompare(b.symbol);
+    });
 }
 
 async function getAdminDepositOverview(body = {}) {
@@ -6119,6 +6191,24 @@ async function getAdminDepositOverview(body = {}) {
             limit $1
         `, [limit]);
 
+        let controlledAssets = [];
+        try {
+            await ensureAdminMarketTables();
+            const controlledResult = await client.query(`
+                select symbol, asset_name, asset_type, market
+                from admin_market_controls
+                order by case when symbol = 'AU' then 0 else 1 end, asset_type asc, symbol asc
+            `);
+            controlledAssets = controlledResult.rows.map((row) => ({
+                symbol: row.symbol,
+                name: row.asset_name,
+                assetType: row.asset_type,
+                market: row.market
+            }));
+        } catch (err) {
+            console.error("Admin deposit controlled asset list failed:", err.message || err);
+        }
+
         const totals = totalsResult.rows[0] || {};
         return {
             success: true,
@@ -6131,7 +6221,7 @@ async function getAdminDepositOverview(body = {}) {
                 manualCredit: true,
                 automaticMonitor: DEPOSIT_MONITOR_ENABLED
             },
-            supportedAssets: adminDepositSupportedAssets(),
+            supportedAssets: adminDepositSupportedAssets(controlledAssets),
             totals: {
                 activeAddresses: numberValue(totals.active_addresses, 0),
                 generatedAddresses: numberValue(totals.generated_addresses, 0),
