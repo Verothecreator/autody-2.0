@@ -9846,12 +9846,8 @@ async function createAdminMarketControl(body = {}) {
     const currentPrice = roundMarketPrice(adminPositiveValue(body.currentPrice, controlledMarketDefaultPrice(), 0.00000001));
     const minPrice = roundMarketPrice(adminPositiveValue(body.minPrice, Math.max(0.00000001, currentPrice * 0.5), 0.00000001));
     const maxPriceFallback = Math.max(currentPrice * 2, minPrice + 0.00000001);
-    const maxPrice = roundMarketPrice(adminPositiveValue(body.maxPrice, maxPriceFallback, 0.00000001));
-    if (maxPrice <= minPrice) {
-        const err = new Error("Max price must be higher than min price.");
-        err.status = 400;
-        throw err;
-    }
+    const submittedMaxPrice = roundMarketPrice(adminPositiveValue(body.maxPrice, maxPriceFallback, 0.00000001));
+    const maxPrice = submittedMaxPrice > minPrice ? submittedMaxPrice : roundMarketPrice(maxPriceFallback);
 
     const circulatingSupply = nullableNumber(body.circulatingSupply);
     const totalSupply = nullableNumber(body.totalSupply);
