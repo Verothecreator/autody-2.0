@@ -297,14 +297,13 @@ function isCryptoAsset(asset) {
 }
 
 function activityMetric(asset) {
-  const isAutody = String(asset?.symbol || "").toUpperCase() === "AU";
   const liquidity = Number(asset.liquidityUsd);
   const volume = Number(asset.totalVolume);
-  if (isCryptoAsset(asset) && !isAutody && Number.isFinite(liquidity) && liquidity > 0) {
-    return { label: "Liquidity", value: liquidity };
-  }
   if (isCryptoAsset(asset) && Number.isFinite(volume) && volume > 0) {
     return { label: "24h volume", value: volume };
+  }
+  if (isCryptoAsset(asset) && Number.isFinite(liquidity) && liquidity > 0) {
+    return { label: "24h volume", value: liquidity };
   }
   return null;
 }
@@ -323,9 +322,9 @@ function renderDetails(asset, chart) {
   const rows = [];
 
   if (cryptoAsset) {
-    rows.push(detailRow("Network", networks[0] || "Multiple networks"));
+    rows.push(detailRow("Network", networks[0] || assetVenue(asset) || "Multiple networks"));
   } else {
-    rows.push(detailRow("Exchange", asset.market || "Global market"));
+    rows.push(detailRow("Market / venue", asset.market || "Global market"));
   }
 
   if (networks.length > 1) {
