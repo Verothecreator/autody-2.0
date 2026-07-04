@@ -60,6 +60,36 @@ function defaultVenueForControl(type = "asset", symbol = "") {
   return "Crypto";
 }
 
+function isCryptoControlType(type = "asset") {
+  return String(type || "").trim().toLowerCase() === "crypto";
+}
+
+function updateNewControlTypeFields(form = document.getElementById("ops-new-control-form")) {
+  if (!form) return;
+  const type = String(form.elements.assetType?.value || "crypto").trim().toLowerCase();
+  const crypto = isCryptoControlType(type);
+  const field = document.getElementById("ops-new-market-field");
+  const label = field?.querySelector("span");
+  const input = field?.querySelector("input");
+  if (label) label.textContent = crypto ? "Network" : "Market / venue";
+  if (input) {
+    input.placeholder = crypto
+      ? "Autody, Ethereum, Solana"
+      : type === "commodity"
+        ? "NYSE Arca, CME, LME"
+        : "Nasdaq, NYSE, LSE";
+  }
+}
+
+function updateControlMarketField(control = activeControl()) {
+  const crypto = isCryptoControlType(control.assetType);
+  const field = document.getElementById("ops-control-market-field");
+  const label = field?.querySelector("span");
+  const input = field?.querySelector("input");
+  if (label) label.textContent = crypto ? "Network" : "Market / venue";
+  if (input) input.placeholder = crypto ? "Autody, Ethereum, Solana" : "Nasdaq, NYSE Arca, Autody";
+}
+
 function cleanControlVenue(control = {}) {
   const type = String(control.assetType || "asset").trim().toLowerCase();
   const market = String(control.market || "").trim();
@@ -173,6 +203,7 @@ function updateControlLabels() {
   if (!activeSymbol) {
     if (title) title.textContent = "Control center";
     if (description) description.textContent = "Choose a controlled asset, open its own workspace, and manage pricing, graph movement, supply, and live display data.";
+    updateControlMarketField({});
     if (save) save.textContent = "Save Control";
     if (deleteButton) deleteButton.hidden = true;
     return;
@@ -186,6 +217,7 @@ function updateControlLabels() {
   if (price) price.textContent = `${activeSymbol} price`;
   if (settings) settings.textContent = `${activeSymbol} settings`;
   if (chart) chart.textContent = `${activeSymbol} graph`;
+  updateControlMarketField(control);
   if (save) save.textContent = "Save Control";
   if (deleteButton) deleteButton.hidden = !canDeleteControl(control);
 }
@@ -437,18 +469,25 @@ function wireControlOps() {
     const form = document.getElementById("ops-new-control-form");
     if (!form) return;
     form.hidden = !form.hidden;
+    updateNewControlTypeFields(form);
+  });
+
+  document.getElementById("ops-new-control-form")?.elements.assetType?.addEventListener("change", (event) => {
+    updateNewControlTypeFields(event.currentTarget.form);
   });
 
   document.getElementById("ops-new-control-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const submit = event.currentTarget.querySelector('button[type="submit"]');
+    const form = event.currentTarget;
+    const submit = form.querySelector('button[type="submit"]');
     try {
       submit.disabled = true;
       submit.textContent = "Creating...";
-      const result = await opsPost("/api/admin/markets/create", newControlBody(event.currentTarget));
-      setActiveSymbol(result.symbol || result.control?.symbol || event.currentTarget.elements.symbol.value);
-      event.currentTarget.reset();
-      event.currentTarget.hidden = true;
+      const result = await opsPost("/api/admin/markets/create", newControlBody(form));
+      setActiveSymbol(result.symbol || result.control?.symbol || form.elements.symbol.value);
+      form.reset();
+      updateNewControlTypeFields(form);
+      form.hidden = true;
       await loadControlList();
       await loadControlOverview(false);
       controlNotice(`${activeSymbol} control created.`, "success");
@@ -521,6 +560,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     await opsRequireSession();
     wireControlOps();
+    updateNewControlTypeFields();
     await loadControlList();
     if (activeSymbol) {
       await loadControlOverview(false);

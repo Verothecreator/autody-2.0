@@ -66,7 +66,7 @@
                 <option value="commodity">Oil and metals</option>
               </select>
             </label>
-            <label>Market / venue<input name="market" maxlength="40" placeholder="Nasdaq" /></label>
+            <label id="ops-new-market-field"><span>Network</span><input name="market" maxlength="40" placeholder="Autody, Ethereum, Solana" /></label>
           </div>
           <div class="admin-form-row">
             <label>Starting price<input name="currentPrice" type="number" step="0.0000000001" min="0" placeholder="0.001" /></label>
@@ -125,7 +125,7 @@
             </div>
             <label class="admin-check ops-enable-check"><input name="enabled" type="checkbox" checked /> Enabled</label>
           </div>
-          <label>Market / venue<input name="market" maxlength="40" placeholder="Nasdaq, NYSE Arca, Autody" /></label>
+          <label id="ops-control-market-field"><span>Market / venue</span><input name="market" maxlength="40" placeholder="Nasdaq, NYSE Arca, Autody" /></label>
           <div class="admin-form-row">
             <label>Current price<input name="currentPrice" type="number" step="0.0000000001" min="0" /></label>
             <label>Min price<input name="minPrice" type="number" step="0.0000000001" min="0" /></label>
