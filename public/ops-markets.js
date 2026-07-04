@@ -60,7 +60,6 @@ function updateNewControlTypeFields(form = document.getElementById("ops-new-cont
   const marketField = document.getElementById("ops-new-market-field");
   const marketLabel = marketField?.querySelector("span");
   const marketInput = form.elements.market;
-  const cryptoFields = form.querySelector("[data-new-crypto-fields]");
 
   if (marketLabel) marketLabel.textContent = crypto ? "Network" : "Market / venue";
   if (marketInput) {
@@ -69,12 +68,6 @@ function updateNewControlTypeFields(form = document.getElementById("ops-new-cont
       : type === "commodity"
         ? "NYSE Arca, CME, LME"
         : "Nasdaq, NYSE, LSE";
-  }
-  if (cryptoFields) {
-    cryptoFields.hidden = !crypto;
-    cryptoFields.querySelectorAll("input").forEach((input) => {
-      if (!crypto) input.value = "";
-    });
   }
 }
 

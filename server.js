@@ -9855,15 +9855,6 @@ async function createAdminMarketControl(body = {}) {
 
     const circulatingSupply = nullableNumber(body.circulatingSupply);
     const totalSupply = nullableNumber(body.totalSupply);
-    const maxSupply = nullableNumber(body.maxSupply);
-    const reserveUsd = adminPositiveValue(body.reserveUsd ?? body.liquidityUsd, 0, 0);
-    const reserveAssetQuantity = adminPositiveValue(
-        body.reserveAssetQuantity,
-        reserveUsd && currentPrice ? reserveUsd / currentPrice : 0,
-        0
-    );
-    const liquidityUsd = reserveUsd || adminPositiveValue(body.liquidityUsd, 0, 0);
-    const totalVolume = adminPositiveValue(body.totalVolume, 0, 0);
     const derived = deriveAdminMarketMetrics({ currentPrice, circulatingSupply, totalSupply });
 
     await dbPool.query(`
@@ -9890,12 +9881,11 @@ async function createAdminMarketControl(body = {}) {
             total_volume_usd,
             circulating_supply,
             total_supply,
-            max_supply,
             status,
             updated_by,
             last_tick_at
         )
-        values ($1, $2, $3, $4, $5, true, $6, $7, $8, $8, 0, 30, 0.75, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'admin controlled', 'admin', now())
+        values ($1, $2, $3, $4, $5, true, $6, $7, $8, $8, 0, 30, 0.75, 0, 0, 0, 0, $9, $10, 0, $11, $12, 'admin controlled', 'admin', now())
     `, [
         symbol,
         name,
@@ -9905,15 +9895,10 @@ async function createAdminMarketControl(body = {}) {
         minPrice,
         maxPrice,
         currentPrice,
-        liquidityUsd,
-        reserveAssetQuantity,
-        reserveUsd,
         derived.marketCap,
         derived.fdv,
-        totalVolume,
         circulatingSupply,
-        totalSupply,
-        maxSupply
+        totalSupply
     ]);
 
     await dbPool.query(`
