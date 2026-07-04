@@ -1456,7 +1456,6 @@ function assetCatalogEntry(asset) {
         assetType: asset.assetType,
         providerSymbol: marketDataSymbol(asset),
         market: asset.market || "Global",
-        network: asset.network || null,
         region: asset.region || "Global",
         currency: asset.currency || "USD",
         tags: asset.tags || [],
@@ -9481,12 +9480,6 @@ function normalizeAdminMarketVenue(assetType = "crypto", symbol = "", market = "
     return raw;
 }
 
-function normalizeAdminMarketNetwork(assetType = "crypto", symbol = "", network = "") {
-    const normalized = normalizeAdminMarketAssetType(assetType);
-    if (normalized !== "crypto") return null;
-    return normalizeAdminMarketVenue("crypto", symbol, network);
-}
-
 function escapeSvgText(value = "") {
     return String(value)
         .replace(/&/g, "&amp;")
@@ -9513,9 +9506,8 @@ function ensureAdminControlledLogo(control = {}) {
 
     const name = normalizeText(control.name || control.assetName || symbol) || symbol;
     const assetType = normalizeAdminMarketAssetType(control.assetType || "asset");
-    const network = normalizeAdminMarketNetwork(assetType, symbol, control.network || control.market);
-    const market = assetType === "crypto" ? network : normalizeAdminMarketVenue(assetType, symbol, control.market);
-    const seed = hashAdminLogoSeed(`${symbol}:${name}:${assetType}:${market || ""}`);
+    const market = normalizeAdminMarketVenue(assetType, symbol, control.market);
+    const seed = hashAdminLogoSeed(`${symbol}:${name}:${assetType}:${market}`);
     const palettes = [
         ["#5b5fef", "#26d4a0", "#10162a"],
         ["#2488ff", "#73f2ff", "#07182a"],
@@ -9632,7 +9624,6 @@ async function ensureAdminMarketTables(client = dbPool) {
               asset_name text not null,
               asset_type text not null default 'crypto',
               market text,
-              network text,
               logo_url text,
               enabled boolean not null default true,
               min_price numeric(24, 10) not null default 0.0001000000,
@@ -9681,8 +9672,6 @@ async function ensureAdminMarketTables(client = dbPool) {
             alter table if exists admin_market_controls
               add column if not exists market text;
             alter table if exists admin_market_controls
-              add column if not exists network text;
-            alter table if exists admin_market_controls
               add column if not exists logo_url text;
             alter table if exists admin_market_controls
               add column if not exists volume_min_usd numeric(24, 2) not null default 0;
@@ -9713,14 +9702,12 @@ function normalizeAdminMarketControlRow(row = {}) {
     if (!row?.symbol) return null;
     const symbol = controlledMarketSymbol(row.symbol);
     const assetType = normalizeAdminMarketAssetType(row.asset_type);
-    const network = normalizeAdminMarketNetwork(assetType, symbol, row.network || row.market);
-    const market = assetType === "crypto" ? null : normalizeAdminMarketVenue(assetType, symbol, row.market);
+    const market = normalizeAdminMarketVenue(assetType, symbol, row.market);
     const control = {
         symbol,
         name: row.asset_name || (symbol === "AU" ? "Autody AU" : symbol),
         assetType,
         market,
-        network,
         logoUrl: normalizeText(row.logo_url || "") || null,
         enabled: row.enabled !== false,
         minPrice: nullableNumber(row.min_price) ?? 0.0001,
@@ -9770,7 +9757,6 @@ async function ensureAdminMarketControl(symbol = "AU") {
             asset_name,
             asset_type,
             market,
-            network,
             logo_url,
             enabled,
             min_price,
@@ -9784,7 +9770,7 @@ async function ensureAdminMarketControl(symbol = "AU") {
             status,
             last_tick_at
         )
-        values ($1, $2, 'crypto', null, $3, $4, true, $5, $6, $7, $7, 0, 30, 0.75, 0, 'admin controlled', now())
+        values ($1, $2, 'crypto', $3, $4, true, $5, $6, $7, $7, 0, 30, 0.75, 0, 'admin controlled', now())
         on conflict (symbol) do nothing
     `, [
         safeSymbol,
@@ -9855,9 +9841,8 @@ async function createAdminMarketControl(body = {}) {
 
     const assetType = normalizeAdminMarketAssetType(body.assetType || "crypto");
     const name = normalizeText(body.name || body.assetName || symbol).slice(0, 90) || symbol;
-    const network = normalizeAdminMarketNetwork(assetType, symbol, body.network || body.market || body.exchange);
-    const market = assetType === "crypto" ? null : normalizeAdminMarketVenue(assetType, symbol, body.market || body.exchange);
-    const logoUrl = ensureAdminControlledLogo({ symbol, name, assetType, market, network });
+    const market = normalizeAdminMarketVenue(assetType, symbol, body.market || body.exchange);
+    const logoUrl = ensureAdminControlledLogo({ symbol, name, assetType, market });
     const currentPrice = roundMarketPrice(adminPositiveValue(body.currentPrice, controlledMarketDefaultPrice(), 0.00000001));
     const minPrice = roundMarketPrice(adminPositiveValue(body.minPrice, Math.max(0.00000001, currentPrice * 0.5), 0.00000001));
     const maxPriceFallback = Math.max(currentPrice * 2, minPrice + 0.00000001);
@@ -9874,7 +9859,6 @@ async function createAdminMarketControl(body = {}) {
             asset_name,
             asset_type,
             market,
-            network,
             logo_url,
             enabled,
             min_price,
@@ -9897,13 +9881,12 @@ async function createAdminMarketControl(body = {}) {
             updated_by,
             last_tick_at
         )
-        values ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $9, 0, 30, 0.75, 0, 0, 0, 0, $10, $11, 0, $12, $13, 'admin controlled', 'admin', now())
+        values ($1, $2, $3, $4, $5, true, $6, $7, $8, $8, 0, 30, 0.75, 0, 0, 0, 0, $9, $10, 0, $11, $12, 'admin controlled', 'admin', now())
     `, [
         symbol,
         name,
         assetType,
         market,
-        network,
         logoUrl,
         minPrice,
         maxPrice,
@@ -9955,15 +9938,13 @@ function adminMarketAssetFromControl(control, stats = {}) {
     const symbol = controlledMarketSymbol(control?.symbol || "AU");
     const assetType = normalizeAdminMarketAssetType(control?.assetType || "crypto");
     const exposesTokenMetrics = assetType === "crypto" || symbol === "AU";
-    const network = normalizeAdminMarketNetwork(assetType, symbol, control?.network || control?.market);
-    const market = assetType === "crypto" ? network : normalizeAdminMarketVenue(assetType, symbol, control?.market);
+    const market = normalizeAdminMarketVenue(assetType, symbol, control?.market);
     const logoUrl = symbol === "AU"
         ? "Autody-Logo.png"
-        : ensureAdminControlledLogo({ ...control, symbol, assetType, market, network });
+        : ensureAdminControlledLogo({ ...control, symbol, assetType, market });
     const asset = symbol === "AU" ? {
         ...AUTODY_MARKET_ASSET,
         market,
-        network,
         logoUrl,
         customAsset: true
     } : {
@@ -9973,9 +9954,8 @@ function adminMarketAssetFromControl(control, stats = {}) {
         name: control?.name || symbol,
         assetType,
         market,
-        network,
         tags: ["Admin controlled"],
-        depositNetworks: network ? [network] : [],
+        depositNetworks: [],
         tradeable: true,
         customAsset: true,
         logoUrl,
@@ -10529,12 +10509,10 @@ async function updateAdminMarketControl(body = {}) {
         circulatingSupply,
         totalSupply
     });
-    const assetType = normalizeAdminMarketAssetType(current.assetType);
-    const network = normalizeAdminMarketNetwork(assetType, symbol, body.network || body.market || current.network || current.market);
-    const market = assetType === "crypto" ? null : normalizeAdminMarketVenue(assetType, symbol, body.market || current.market);
+    const market = normalizeAdminMarketVenue(current.assetType, symbol, body.market || current.market);
     const logoUrl = symbol === "AU"
         ? "Autody-Logo.png"
-        : ensureAdminControlledLogo({ ...current, symbol, market, network });
+        : ensureAdminControlledLogo({ ...current, symbol, market });
 
     const result = await dbPool.query(`
         update admin_market_controls
@@ -10564,8 +10542,7 @@ async function updateAdminMarketControl(body = {}) {
             last_tick_at = case when $25 then now() else last_tick_at end,
             volume_last_roll_at = case when $26 then now() else volume_last_roll_at end,
             market = $27,
-            network = $28,
-            logo_url = coalesce(nullif($29, ''), logo_url),
+            logo_url = coalesce(nullif($28, ''), logo_url),
             updated_at = now()
         where symbol = $1
         returning *
@@ -10597,7 +10574,6 @@ async function updateAdminMarketControl(body = {}) {
         priceChanged,
         manualVolumeChanged,
         market,
-        network,
         logoUrl
     ]);
 
