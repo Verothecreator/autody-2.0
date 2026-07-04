@@ -49,35 +49,6 @@ function defaultVenueForControl(type = "asset", symbol = "") {
   return "Crypto";
 }
 
-function isCryptoControlType(type = "asset") {
-  return String(type || "").trim().toLowerCase() === "crypto";
-}
-
-function updateNewControlTypeFields(form = document.getElementById("ops-new-control-form")) {
-  if (!form) return;
-  const type = String(form.elements.assetType?.value || "crypto").trim().toLowerCase();
-  const crypto = isCryptoControlType(type);
-  const marketField = document.getElementById("ops-new-market-field");
-  const marketLabel = marketField?.querySelector("span");
-  const marketInput = form.elements.market;
-  const cryptoFields = form.querySelector("[data-new-crypto-fields]");
-
-  if (marketLabel) marketLabel.textContent = crypto ? "Network" : "Market / venue";
-  if (marketInput) {
-    marketInput.placeholder = crypto
-      ? "Autody, Ethereum, Solana"
-      : type === "commodity"
-        ? "NYSE Arca, CME, LME"
-        : "Nasdaq, NYSE, LSE";
-  }
-  if (cryptoFields) {
-    cryptoFields.hidden = !crypto;
-    cryptoFields.querySelectorAll("input").forEach((input) => {
-      if (!crypto) input.value = "";
-    });
-  }
-}
-
 function cleanControlVenue(control = {}) {
   const type = String(control.assetType || "asset").trim().toLowerCase();
   const market = String(control.market || "").trim();
@@ -451,11 +422,6 @@ function wireControlOps() {
     const form = document.getElementById("ops-new-control-form");
     if (!form) return;
     form.hidden = !form.hidden;
-    updateNewControlTypeFields(form);
-  });
-
-  document.getElementById("ops-new-control-form")?.elements.assetType?.addEventListener("change", (event) => {
-    updateNewControlTypeFields(event.currentTarget.form);
   });
 
   document.getElementById("ops-new-control-form")?.addEventListener("submit", async (event) => {
@@ -467,7 +433,6 @@ function wireControlOps() {
       const result = await opsPost("/api/admin/markets/create", newControlBody(event.currentTarget));
       setActiveSymbol(result.symbol || result.control?.symbol || event.currentTarget.elements.symbol.value);
       event.currentTarget.reset();
-      updateNewControlTypeFields(event.currentTarget);
       event.currentTarget.hidden = true;
       await loadControlList();
       await loadControlOverview(false);
@@ -541,7 +506,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     await opsRequireSession();
     wireControlOps();
-    updateNewControlTypeFields();
     await loadControlList();
     if (activeSymbol) {
       await loadControlOverview(false);
