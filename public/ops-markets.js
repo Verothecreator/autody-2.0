@@ -31,6 +31,17 @@ function controlNumberInput(form, name, value) {
   if (input) input.value = value ?? "";
 }
 
+function normalizeControlSymbol(value = "") {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/^\$+/, "")
+    .replace(/[\\/]+/g, "-")
+    .replace(/_/g, "-")
+    .replace(/\s+/g, "")
+    .replace(/[^A-Z0-9.:-]/g, "");
+}
+
 function activeControl() {
   return controlOverview?.control || controlList.find((item) => item.symbol === activeSymbol) || {};
 }
@@ -349,6 +360,10 @@ function newControlBody(form) {
   for (const [key, rawValue] of new FormData(form).entries()) {
     const value = String(rawValue || "").trim();
     if (!value) continue;
+    if (key === "symbol") {
+      body.symbol = normalizeControlSymbol(value);
+      continue;
+    }
     body[key] = ["symbol", "name", "assetType", "market"].includes(key) ? value : Number(value);
   }
   body.range = document.getElementById("ops-chart-range")?.value || "1d";

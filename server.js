@@ -9418,6 +9418,17 @@ function controlledMarketSymbol(symbol = "AU") {
     return String(symbol || "AU").trim().toUpperCase() || "AU";
 }
 
+function normalizeControlledMarketCreateSymbol(value = "") {
+    return String(value || "")
+        .trim()
+        .toUpperCase()
+        .replace(/^\$+/, "")
+        .replace(/[\\/]+/g, "-")
+        .replace(/_/g, "-")
+        .replace(/\s+/g, "")
+        .replace(/[^A-Z0-9.:-]/g, "");
+}
+
 function controlledMarketDefaultPrice() {
     return Math.max(0.00000001, Number(process.env.AUTODY_AU_START_PRICE || 0.001));
 }
@@ -9825,9 +9836,9 @@ async function createAdminMarketControl(body = {}) {
         throw err;
     }
     await ensureAdminMarketTables();
-    const rawSymbol = String(body.symbol || "").trim().toUpperCase();
-    const symbol = controlledMarketSymbol(rawSymbol);
-    if (!rawSymbol || !/^[A-Z0-9.:-]{1,20}$/.test(symbol)) {
+    const rawSymbol = String(body.symbol || body.assetSymbol || body.ticker || body.code || "").trim();
+    const symbol = normalizeControlledMarketCreateSymbol(rawSymbol);
+    if (!symbol || !/^[A-Z0-9.:-]{1,20}$/.test(symbol)) {
         const err = new Error("Enter a valid asset symbol.");
         err.status = 400;
         throw err;
