@@ -323,9 +323,10 @@ function renderDetails(asset, chart) {
   const rows = [];
 
   if (cryptoAsset) {
-    rows.push(detailRow("Network", networks[0] || "Multiple networks"));
+    const network = networks[0] || assetVenue(asset) || "Multiple networks";
+    rows.push(detailRow("Network", network));
   } else {
-    rows.push(detailRow("Exchange", asset.market || "Global market"));
+    rows.push(detailRow("Market / venue", asset.market || "Global market"));
   }
 
   if (networks.length > 1) {
