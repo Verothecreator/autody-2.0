@@ -59,10 +59,11 @@ function updateNewControlTypeFields(form = document.getElementById("ops-new-cont
   const crypto = isCryptoControlType(type);
   const marketField = document.getElementById("ops-new-market-field");
   const marketLabel = marketField?.querySelector("span");
-  const marketInput = form.elements.market;
+  const marketInput = marketField?.querySelector("input");
 
   if (marketLabel) marketLabel.textContent = crypto ? "Network" : "Market / venue";
   if (marketInput) {
+    marketInput.name = crypto ? "network" : "market";
     marketInput.placeholder = crypto
       ? "Autody, Ethereum, Solana"
       : type === "commodity"
@@ -73,7 +74,7 @@ function updateNewControlTypeFields(form = document.getElementById("ops-new-cont
 
 function cleanControlVenue(control = {}) {
   const type = String(control.assetType || "asset").trim().toLowerCase();
-  const market = String(control.market || "").trim();
+  const market = String(type === "crypto" ? control.network || control.market || "" : control.market || "").trim();
   const generic = {
     crypto: ["crypto", "digital assets", "global"],
     stock: ["stock", "stocks", "equities"],
@@ -163,6 +164,7 @@ function fillControlForm(control = {}) {
   controlNumberInput(form, "circulatingSupply", control.circulatingSupply);
   controlNumberInput(form, "totalSupply", control.totalSupply);
   if (form.elements.market) form.elements.market.value = cleanControlVenue(control);
+  if (form.elements.network) form.elements.network.value = cleanControlVenue(control);
   if (form.elements.status) form.elements.status.value = control.status || "admin controlled";
   renderDerivedMetrics();
 }
@@ -170,6 +172,7 @@ function fillControlForm(control = {}) {
 function updateControlLabels() {
   const control = activeControl();
   const name = controlDisplayName(control);
+  const crypto = isCryptoControlType(control.assetType || "crypto");
   const title = document.getElementById("ops-control-title");
   const description = document.getElementById("ops-control-description");
   const activeKind = document.getElementById("ops-active-kind");
@@ -180,6 +183,9 @@ function updateControlLabels() {
   const chart = document.getElementById("ops-chart-label");
   const save = document.getElementById("ops-save-label");
   const deleteButton = document.getElementById("ops-delete-control");
+  const marketField = document.getElementById("ops-control-market-field");
+  const marketLabel = marketField?.querySelector("span");
+  const marketInput = marketField?.querySelector("input");
 
   if (!activeSymbol) {
     if (title) title.textContent = "Control center";
@@ -197,6 +203,8 @@ function updateControlLabels() {
   if (price) price.textContent = `${activeSymbol} price`;
   if (settings) settings.textContent = `${activeSymbol} settings`;
   if (chart) chart.textContent = `${activeSymbol} graph`;
+  if (marketLabel) marketLabel.textContent = crypto ? "Network" : "Market / venue";
+  if (marketInput) marketInput.placeholder = crypto ? "Autody, Ethereum, Solana" : "Nasdaq, NYSE Arca, Autody";
   if (save) save.textContent = "Save Control";
   if (deleteButton) deleteButton.hidden = !canDeleteControl(control);
 }
@@ -360,7 +368,7 @@ function formControlBody(form) {
     const value = String(rawValue || "").trim();
     if (!value) continue;
     if (["marketCap", "fdv"].includes(key)) continue;
-    body[key] = ["status", "market"].includes(key) ? value : Number(value);
+    body[key] = ["status", "market", "network"].includes(key) ? value : Number(value);
   }
   if (!new FormData(form).has("enabled")) body.enabled = false;
   return body;
@@ -371,7 +379,7 @@ function newControlBody(form) {
   for (const [key, rawValue] of new FormData(form).entries()) {
     const value = String(rawValue || "").trim();
     if (!value) continue;
-    body[key] = ["symbol", "name", "assetType", "market"].includes(key) ? value : Number(value);
+    body[key] = ["symbol", "name", "assetType", "market", "network"].includes(key) ? value : Number(value);
   }
   body.range = document.getElementById("ops-chart-range")?.value || "1d";
   return body;

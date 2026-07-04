@@ -74,7 +74,7 @@ function normalizedAssetType(asset = {}) {
 
 function assetVenue(asset = {}) {
   const type = normalizedAssetType(asset);
-  const market = String(asset.market || "").trim();
+  const market = String(type === "crypto" ? asset.network || asset.market || "" : asset.market || "").trim();
   const generic = {
     crypto: ["crypto", "global"],
     stock: ["stock", "stocks", "equities"],
@@ -323,7 +323,7 @@ function renderDetails(asset, chart) {
   const rows = [];
 
   if (cryptoAsset) {
-    const network = networks[0] || assetVenue(asset) || "Multiple networks";
+    const network = asset.network || networks[0] || assetVenue(asset) || "Multiple networks";
     rows.push(detailRow("Network", network));
   } else {
     rows.push(detailRow("Market / venue", asset.market || "Global market"));
