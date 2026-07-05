@@ -1,0 +1,115 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Admin | Withdrawals</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell">
+    <header class="admin-hero">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div>
+        <p class="eyebrow">Admin control</p>
+        <h1>Withdrawal portal</h1>
+        <p>Review external withdrawals, track internal user-to-user sends, and keep release decisions separate from deposit operations.</p>
+      </div>
+      <div class="admin-key-card ops-session-card">
+        <span class="muted-label">Ops session</span>
+        <strong>Protected access</strong>
+        <small id="withdrawal-session-status">Checking session...</small>
+        <div class="admin-key-actions">
+          <a class="btn" href="ops-console.html">Console</a>
+          <button type="button" class="btn btn-ghost" id="withdrawal-refresh">Refresh</button>
+        </div>
+      </div>
+    </header>
+
+    <p class="admin-notice" id="withdrawal-notice">Open an ops session to load withdrawal data.</p>
+
+    <section class="admin-kpi-grid">
+      <div class="app-card mini-metric">
+        <span class="muted-label">Pending review</span>
+        <strong data-withdrawal-kpi="pending">0</strong>
+        <small>External wallet requests</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">External</span>
+        <strong data-withdrawal-kpi="external">0</strong>
+        <small>Manual release queue</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Internal</span>
+        <strong data-withdrawal-kpi="internal">0</strong>
+        <small>User-to-user sends</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Reviewed</span>
+        <strong data-withdrawal-kpi="reviewed">0</strong>
+        <small>Approved or rejected</small>
+      </div>
+    </section>
+
+    <section class="admin-grid">
+      <form class="app-card admin-action-card" id="withdrawal-decision-form">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">External withdrawals</span>
+            <h2>Approve or reject</h2>
+          </div>
+        </div>
+        <small class="admin-help-text">Approve only after the external wallet transfer has been handled manually. Reject requests that should not be released.</small>
+        <label>Request ID<input name="id" placeholder="Withdrawal request ID" required /></label>
+        <div class="admin-form-row">
+          <label>Action<select name="action" required><option value="approve">Approve</option><option value="reject">Reject</option></select></label>
+          <label>Tx hash<input name="txHash" placeholder="Optional release transaction" /></label>
+        </div>
+        <label>Reviewer<input name="reviewer" placeholder="Autody admin" /></label>
+        <label>Note<input name="note" placeholder="Optional approval or rejection note" /></label>
+        <button type="submit" class="btn">Save Review</button>
+      </form>
+
+      <section class="app-card admin-output-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Action output</span>
+            <h2>Latest result</h2>
+          </div>
+          <button type="button" class="btn btn-ghost" id="withdrawal-clear-output">Clear</button>
+        </div>
+        <pre id="withdrawal-output">No action run yet.</pre>
+      </section>
+    </section>
+
+    <section class="admin-data-grid">
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Withdrawals</span>
+            <h2>External requests</h2>
+          </div>
+          <span class="status-pill" data-withdrawal-count="external">0</span>
+        </div>
+        <div class="admin-table" id="withdrawal-external-table"></div>
+      </article>
+
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Internal sends</span>
+            <h2>User-to-user transfers</h2>
+          </div>
+          <span class="status-pill" data-withdrawal-count="internal">0</span>
+        </div>
+        <div class="admin-table" id="withdrawal-internal-table"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="ops-auth.js"></script>
+  <script src="admin-withdrawals.js"></script>
+</body>
+</html>

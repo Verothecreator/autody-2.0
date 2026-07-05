@@ -123,23 +123,6 @@
         <button type="submit" class="btn">Credit Account</button>
       </form>
 
-      <form class="app-card admin-action-card" id="admin-withdrawal-decision-form">
-        <div class="card-heading">
-          <div>
-            <span class="muted-label">Withdrawal portal</span>
-            <h2>Review withdrawal</h2>
-          </div>
-        </div>
-        <small class="admin-help-text">Approve external withdrawals after manual release, or reject requests that should not be sent. Internal user-to-user transfers are shown below as completed ledger moves.</small>
-        <label>Request ID<input name="id" placeholder="Withdrawal request ID" required /></label>
-        <div class="admin-form-row">
-          <label>Action<select name="action" required><option value="approve">Approve</option><option value="reject">Reject</option></select></label>
-          <label>Tx hash<input name="txHash" placeholder="Optional release transaction" /></label>
-        </div>
-        <label>Reviewer<input name="reviewer" placeholder="Autody admin" /></label>
-        <label>Note<input name="note" placeholder="Optional approval or rejection note" /></label>
-        <button type="submit" class="btn">Save Review</button>
-      </form>
     </section>
 
     <section class="app-card admin-output-card">
@@ -189,19 +172,6 @@
         <div class="admin-table" id="admin-events"></div>
       </article>
 
-      <article class="app-card admin-table-card">
-        <div class="card-heading">
-          <div>
-            <span class="muted-label">Withdrawals</span>
-            <h2>Requests and internal sends</h2>
-          </div>
-          <span class="status-pill" data-count="withdrawals">0</span>
-        </div>
-        <div class="admin-table" id="admin-withdrawals"></div>
-      </article>
-    </section>
-
-    <section class="admin-data-grid">
       <article class="app-card admin-table-card">
         <div class="card-heading">
           <div>

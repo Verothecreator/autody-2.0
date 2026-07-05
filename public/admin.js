@@ -273,49 +273,6 @@ function renderEvents(rows = []) {
   `).join("");
 }
 
-function renderWithdrawals(rows = []) {
-  const target = document.getElementById("admin-withdrawals");
-  const count = document.querySelector('[data-count="withdrawals"]');
-  if (count) count.textContent = rows.length;
-  if (!target) return;
-  if (!rows.length) return renderEmpty(target, "No withdrawal requests or internal sends yet.");
-  target.innerHTML = rows.map((row) => {
-    const isInternal = row.type === "internal";
-    const destinationLabel = isInternal ? "Recipient" : "Destination";
-    const destinationValue = isInternal ? row.recipientEmail : row.destination;
-    return `
-      <article class="admin-record">
-        <div>
-          <strong>${adminEscape(row.asset)} / ${adminEscape(row.network || "-")}</strong>
-          <span>${adminEscape(row.profileName)} - ${adminEscape(row.email)}</span>
-        </div>
-        <div>
-          <span>${adminEscape(isInternal ? "Internal send" : "External withdrawal")}</span>
-          <small>${adminEscape(row.id)}</small>
-          ${copyButton(row.id, "ID")}
-        </div>
-        <div>
-          <span class="admin-status ${statusClass(row.status)}">${adminEscape(row.status)}</span>
-          <small>${formatAdminDate(row.reviewedAt || row.updatedAt || row.createdAt)}</small>
-        </div>
-        <div>
-          <span>${formatAdminAmount(row.amount)} ${adminEscape(row.asset)}</span>
-          <small>${row.amountUsd == null ? "-" : formatAdminMoney(row.amountUsd)}</small>
-        </div>
-        <div>
-          <span>${adminEscape(destinationLabel)}</span>
-          <small class="admin-mono">${adminEscape(truncateMiddle(destinationValue, 14, 10))}</small>
-          ${copyButton(destinationValue, destinationLabel)}
-        </div>
-        <div>
-          <span class="admin-mono">${adminEscape(row.txHash ? truncateMiddle(row.txHash, 12, 8) : "No tx")}</span>
-          <small>${adminEscape(row.note || row.reviewedBy || "No note")}</small>
-        </div>
-      </article>
-    `;
-  }).join("");
-}
-
 function renderScanStates(rows = []) {
   const target = document.getElementById("admin-scan-states");
   const count = document.querySelector('[data-count="scanStates"]');
@@ -348,22 +305,13 @@ function renderOverview(overview) {
   renderRequests(overview.requests || []);
   renderEvents(overview.events || []);
   renderScanStates(overview.scanStates || []);
-  renderWithdrawals(overview.withdrawals || []);
   const generated = overview.generatedAt ? formatAdminDate(overview.generatedAt) : "now";
   setAdminNotice(`Deposit admin data loaded. Last refresh ${generated}.`, "success");
 }
 
 async function loadAdminOverview() {
   setAdminNotice("Loading deposit admin data...", "neutral");
-  const [depositOverview, withdrawalOverview] = await Promise.all([
-    adminPost("/api/admin/deposits/overview", { limit: 50 }),
-    adminPost("/api/admin/withdrawals/overview", { limit: 50 })
-  ]);
-  const overview = {
-    ...depositOverview,
-    withdrawals: withdrawalOverview.withdrawals || [],
-    withdrawalTotals: withdrawalOverview.totals || {}
-  };
+  const overview = await adminPost("/api/admin/deposits/overview", { limit: 50 });
   renderOverview(overview);
   return overview;
 }
@@ -445,9 +393,6 @@ function wireAdminPortal() {
   });
   document.getElementById("admin-credit-form")?.addEventListener("submit", (event) => {
     runAdminAction(event, "/api/admin/deposits/credit");
-  });
-  document.getElementById("admin-withdrawal-decision-form")?.addEventListener("submit", (event) => {
-    runAdminAction(event, "/api/admin/withdrawals/decision");
   });
 
   document.addEventListener("click", async (event) => {
