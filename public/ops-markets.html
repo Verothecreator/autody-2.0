@@ -9,9 +9,9 @@
 <body class="account-body admin-body">
   <main class="admin-shell ops-shell">
     <header class="admin-hero ops-hero">
-      <a href="ops-console.html" class="brand app-brand" aria-label="Back to ops console">
+      <a href="ops-console.html" class="brand app-brand admin-console-brand" aria-label="Back to console">
         <img src="Autody-Logo.png" alt="" class="brand-mark" />
-        <span>Ops Console</span>
+        <span>Console</span>
       </a>
       <div>
         <p class="eyebrow">Control</p>
@@ -19,7 +19,9 @@
         <p id="ops-control-description">Choose a controlled asset, open its own workspace, and manage pricing, graph movement, supply, and live display data.</p>
       </div>
       <div class="admin-key-card ops-session-card">
-        <span class="muted-label">Controls</span>
+        <span class="muted-label">Session</span>
+        <strong>Protected access</strong>
+        <small>Market controls are available while this session is active.</small>
         <button type="button" class="btn btn-ghost" onclick="opsSignOut()">End Session</button>
       </div>
     </header>
@@ -55,6 +57,13 @@
         </div>
         <div class="ops-control-list" id="ops-control-list"></div>
         <form class="ops-new-control-form" id="ops-new-control-form" hidden>
+          <div class="ops-new-control-form-heading">
+            <div>
+              <span class="muted-label">New asset</span>
+              <strong>Create control</strong>
+            </div>
+            <button type="button" class="asset-more-button" id="ops-new-control-close" aria-label="Close create asset form">x</button>
+          </div>
           <div class="admin-form-row">
             <label>Symbol<input name="symbol" maxlength="20" placeholder="AUX" required /></label>
             <label>Asset name<input name="name" maxlength="90" placeholder="Autody Example" required /></label>

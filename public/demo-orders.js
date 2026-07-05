@@ -462,7 +462,7 @@ function renderWalletSummary() {
   document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.cashBalance, true)} USD`;
   document.getElementById("orders-buying-power").textContent = `${formatOrderMoney(orderWallet.cashBalance)} USD`;
   document.getElementById("orders-cash").textContent = formatOrderMoney(orderWallet.cashBalance, true);
-  document.getElementById("orders-total").textContent = formatOrderMoney(orderWallet.totalValue, true);
+  document.getElementById("orders-total").textContent = formatOrderMoney(orderWallet.totalValue, !IS_LIVE_ORDER_PAGE);
   document.getElementById("orders-positions").textContent = String(orderWallet.positionsCount || 0);
   document.getElementById("order-buy-from-usd").value = usdBalanceLabel;
   document.getElementById("order-to-usd").value = usdBalanceLabel;

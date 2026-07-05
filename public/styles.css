@@ -3598,21 +3598,27 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
 .order-amount-row,
 .live-amount-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 76px;
-  gap: 8px;
-  align-items: center;
+  position: relative;
+  display: block;
 }
 
 .order-amount-row input,
 .live-amount-row input {
   min-width: 0;
+  width: 100%;
+  padding-right: 88px;
 }
 
 .order-max-button,
 .live-send-max {
-  min-height: 44px;
-  padding: 0 12px;
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 7px;
+  transform: translateY(-50%);
 }
 
 .order-side-toggle {
@@ -5568,6 +5574,15 @@ body.account-body.theme-light .profile-kyc-modal-card {
   padding: 0;
 }
 
+.admin-console-brand {
+  width: fit-content;
+  min-height: 54px;
+  padding: 8px 12px;
+  border: 1px solid rgba(91, 95, 239, 0.24);
+  border-radius: 8px;
+  background: rgba(15, 19, 27, 0.52);
+}
+
 .admin-hero h1 {
   margin: 8px 0 10px;
   font-size: clamp(3rem, 7vw, 6.4rem);
@@ -6070,10 +6085,18 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
 .ops-session-card {
   align-content: start;
+  background:
+    linear-gradient(145deg, rgba(21, 26, 37, 0.96), rgba(12, 16, 24, 0.96)),
+    rgba(15, 19, 27, 0.92);
 }
 
 .ops-session-card strong {
   font-size: 1.1rem;
+}
+
+.ops-session-card small {
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .ops-console-grid {
@@ -6332,6 +6355,22 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
 .ops-new-control-form[hidden] {
   display: none;
+}
+
+.ops-new-control-form-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ops-new-control-form-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.ops-new-control-form-heading strong {
+  font-size: 1.05rem;
 }
 
 .ops-new-control-form label {

@@ -33,7 +33,7 @@ function adminOpsSession() {
 
 function adminAuthHeaders() {
   const session = adminOpsSession();
-  if (!session?.token) throw new Error("Open an ops session first.");
+  if (!session?.token) throw new Error("Open a session first.");
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${session.token}`
@@ -274,11 +274,11 @@ function wireAdminIdentityPortal() {
   if (sessionStatus) {
     sessionStatus.textContent = session?.expiresAt
       ? `Active until ${formatAdminDate(session.expiresAt)}`
-      : "No active ops session";
+      : "No active session";
   }
 
   if (!session) {
-    setAdminNotice("Ops session required. Redirecting to the gateway.", "error");
+    setAdminNotice("Session required. Redirecting to the gateway.", "error");
     setTimeout(() => {
       window.location.href = "ops-gateway.html";
     }, 700);

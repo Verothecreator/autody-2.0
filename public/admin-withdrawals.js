@@ -202,7 +202,7 @@ async function wireWithdrawalPortal() {
   if (status) {
     status.textContent = session?.expiresAt
       ? `Active until ${withdrawalFormatDate(session.expiresAt)}`
-      : "No active ops session";
+      : "No active session";
   }
   if (!session) return;
 

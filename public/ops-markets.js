@@ -472,6 +472,11 @@ function wireControlOps() {
     updateNewControlTypeFields(form);
   });
 
+  document.getElementById("ops-new-control-close")?.addEventListener("click", () => {
+    const form = document.getElementById("ops-new-control-form");
+    if (form) form.hidden = true;
+  });
+
   document.getElementById("ops-new-control-form")?.elements.assetType?.addEventListener("change", (event) => {
     updateNewControlTypeFields(event.currentTarget.form);
   });
