@@ -5,6 +5,7 @@ const resetRequestMessage = document.getElementById("password-reset-request-mess
 const resetConfirmMessage = document.getElementById("password-reset-confirm-message");
 const resetRequestButton = document.getElementById("password-reset-request-button");
 const resetConfirmButton = document.getElementById("password-reset-confirm-button");
+const resetNavActions = document.querySelector("[data-reset-nav-actions]");
 const resetParams = new URLSearchParams(location.search);
 const resetToken = resetParams.get("token") || "";
 const resetEmail = resetParams.get("email") || "";
@@ -107,6 +108,8 @@ if (resetToken && resetEmail) {
   }
   if (resetRequestForm) resetRequestForm.hidden = true;
   if (resetConfirmForm) resetConfirmForm.hidden = false;
+  if (resetNavActions) resetNavActions.hidden = true;
 } else if (resetConfirmForm) {
   resetConfirmForm.hidden = true;
+  if (resetNavActions) resetNavActions.hidden = false;
 }
