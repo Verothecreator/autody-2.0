@@ -15536,10 +15536,7 @@ app.post("/api/auth/password-reset/request", async (req, res) => {
         });
     const codeRecord = databaseCode || jsonCode;
     if (!codeRecord?.code) {
-      return res.json({
-        success: true,
-        delivery: "If that email belongs to an Autody account, a password reset link will be sent."
-      });
+      return res.status(404).json({ success: false, error: "That email is not linked to an Autody account." });
     }
 
     const delivery = await sendPasswordResetEmail(email, codeRecord.code, req).catch((err) => {
@@ -15548,7 +15545,7 @@ app.post("/api/auth/password-reset/request", async (req, res) => {
     });
     return res.json({
       success: true,
-      delivery: delivery.delivered ? "Password reset link sent." : "Password reset link created. Email delivery provider is not fully connected yet."
+      delivery: delivery.delivered ? "Password reset link sent. Check your email to continue." : "Password reset link created. Email delivery is not fully connected yet."
     });
   } catch (err) {
     console.error("Password reset request error:", err);

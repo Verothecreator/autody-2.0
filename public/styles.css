@@ -5043,6 +5043,21 @@ body.account-body.theme-light .profile-kyc-modal-card {
   max-width: 520px;
 }
 
+.password-reset-panel .auth-copy,
+.password-reset-panel .auth-form {
+  max-width: 620px;
+}
+
+.password-reset-panel .auth-form form:not([hidden]) {
+  display: grid;
+  gap: 18px;
+}
+
+.password-reset-panel .auth-form .btn-large {
+  justify-self: start;
+  margin-top: 8px;
+}
+
 .auth-method-toggle {
   display: inline-flex;
   gap: 6px;

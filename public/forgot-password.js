@@ -45,12 +45,12 @@ resetRequestForm?.addEventListener("submit", async (event) => {
 
   if (resetRequestButton) {
     resetRequestButton.disabled = true;
-    resetRequestButton.textContent = "Sending Link";
+    resetRequestButton.textContent = "Sending...";
   }
 
   try {
     const data = await postResetJson("/api/auth/password-reset/request", { email });
-    setResetMessage(resetRequestMessage, data.delivery || "Password reset link sent.", "success");
+    setResetMessage(resetRequestMessage, data.delivery || "Password reset link sent. Check your email to continue.", "success");
   } catch (err) {
     setResetMessage(resetRequestMessage, err.message || "Could not send password reset link.");
   } finally {
@@ -77,17 +77,23 @@ resetConfirmForm?.addEventListener("submit", async (event) => {
 
   if (resetConfirmButton) {
     resetConfirmButton.disabled = true;
-    resetConfirmButton.textContent = "Resetting";
+    resetConfirmButton.textContent = "Resetting...";
   }
 
+  let redirecting = false;
   try {
     await postResetJson("/api/auth/password-reset/confirm", { email, code: resetToken, newPassword });
-    setResetMessage(resetConfirmMessage, "Password reset complete. You can sign in with your new password.", "success");
+    redirecting = true;
+    setResetMessage(resetConfirmMessage, "Password reset complete. Redirecting to sign in.", "success");
     resetConfirmForm.reset();
+    if (resetConfirmButton) resetConfirmButton.textContent = "Redirecting...";
+    window.setTimeout(() => {
+      window.location.href = "sign-in.html";
+    }, 900);
   } catch (err) {
     setResetMessage(resetConfirmMessage, err.message || "Could not reset password.");
   } finally {
-    if (resetConfirmButton) {
+    if (resetConfirmButton && !redirecting) {
       resetConfirmButton.disabled = false;
       resetConfirmButton.textContent = "Reset Password";
     }
