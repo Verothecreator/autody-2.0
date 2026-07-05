@@ -3596,6 +3596,25 @@ body.account-body.theme-light .profile-kyc-modal-card {
   cursor: default;
 }
 
+.order-amount-row,
+.live-amount-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 8px;
+  align-items: center;
+}
+
+.order-amount-row input,
+.live-amount-row input {
+  min-width: 0;
+}
+
+.order-max-button,
+.live-send-max {
+  min-height: 44px;
+  padding: 0 12px;
+}
+
 .order-side-toggle {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

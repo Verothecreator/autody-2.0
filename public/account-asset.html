@@ -175,7 +175,7 @@
             </div>
             <div class="live-transfer-brief send-brief">
               <strong>Send crypto from Autody</strong>
-              <span>Choose an internal Autody transfer or an external wallet withdrawal.</span>
+              <span>Move assets to another Autody account or request a transfer to an external wallet.</span>
             </div>
             <label>
               <span>Withdrawal type</span>
@@ -205,13 +205,16 @@
             </label>
             <label>
               <span>Amount</span>
-              <input id="send-amount" type="number" min="0" placeholder="0.00" />
+              <div class="live-amount-row">
+                <input id="send-amount" type="number" min="0" placeholder="0.00" />
+                <button class="btn btn-ghost live-send-max" type="button" id="send-max">Max</button>
+              </div>
             </label>
             <div class="live-transfer-footnote">
-              <span>Review required</span>
-              <strong id="send-review-copy">Internal transfers move balances between Autody customers. External wallet withdrawals are reviewed by Autody before release.</strong>
+              <span>Transfer review</span>
+              <strong id="send-review-copy">Internal transfers are processed inside Autody. External wallet withdrawals are reviewed before release for account protection.</strong>
             </div>
-            <button class="btn btn-full" type="button" id="review-send">Submit Withdrawal</button>
+            <button class="btn btn-full" type="button" id="review-send">Continue</button>
           </div>
 
           <p class="live-notice" id="live-notice" hidden></p>

@@ -107,7 +107,10 @@
 
             <label>
               <span id="order-amount-label">Demo amount (USD)</span>
-              <input id="order-amount" type="number" min="0.01" step="0.01" placeholder="Enter amount" inputmode="decimal" />
+              <div class="order-amount-row">
+                <input id="order-amount" type="number" min="0.01" step="0.01" placeholder="Enter amount" inputmode="decimal" />
+                <button class="btn btn-ghost order-max-button" type="button" id="order-max">Max</button>
+              </div>
             </label>
 
             <div class="order-preview flat" id="order-preview">

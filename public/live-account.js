@@ -62,6 +62,7 @@ const liveCryptoAssets = {
 const liveNotice = document.getElementById("live-notice");
 let liveNoticeTimer = null;
 const receiveRouteCache = new Map();
+let liveSendWalletCache = null;
 
 function liveCryptoOptionMarkup() {
   return Object.entries(liveCryptoAssets)
@@ -113,6 +114,35 @@ async function postLiveAccountJson(url, body) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
   return data;
+}
+
+async function getLiveAccountJson(url) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: window.AutodyAuth?.headers?.() || {}
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || `${url} returned ${response.status}`);
+  return data;
+}
+
+function formatLiveSendAmount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "";
+  return number.toFixed(8).replace(/\.?0+$/, "");
+}
+
+async function liveSendWallet() {
+  const data = await getLiveAccountJson("/api/account/wallet");
+  liveSendWalletCache = data.wallet || null;
+  return liveSendWalletCache;
+}
+
+function liveSendBalanceForSymbol(wallet = {}, symbol = "") {
+  const lookup = String(symbol || "").trim().toUpperCase();
+  if (lookup === "USD") return Number(wallet.cashBalance || 0);
+  const holding = (wallet.holdings || []).find((item) => String(item.symbol || "").toUpperCase() === lookup);
+  return Number(holding?.balance || 0);
 }
 
 function setFundingTab(tabName) {
@@ -201,8 +231,12 @@ function updateWithdrawalTypeFields() {
   const reviewCopy = document.getElementById("send-review-copy");
   if (reviewCopy) {
     reviewCopy.textContent = type === "external"
-      ? "External wallet withdrawals are submitted to Autody for admin review before release."
-      : "Internal transfers move balances between Autody customers.";
+      ? "External wallet withdrawals are reviewed before release for account protection."
+      : "Internal transfers are processed inside Autody.";
+  }
+  const reviewButton = document.getElementById("review-send");
+  if (reviewButton) {
+    reviewButton.textContent = type === "external" ? "Submit Request" : "Send Now";
   }
 }
 
@@ -238,7 +272,7 @@ function setAutodyLiveTransferMode(mode = "receive") {
   if (title) title.textContent = normalized === "send" ? "Send crypto" : "Receive crypto";
   if (intro) {
     intro.textContent = normalized === "send"
-      ? "Submit an internal transfer or external wallet withdrawal request."
+      ? "Choose an internal transfer or external wallet withdrawal."
       : "If this address is not accepted by your sending platform, generate a new address and try again.";
   }
   if (normalized === "send") updateWithdrawalTypeFields();
@@ -446,6 +480,33 @@ async function reviewLiveSend() {
   }
 }
 
+async function setMaxLiveSendAmount() {
+  const button = document.getElementById("send-max");
+  const amountInput = document.getElementById("send-amount");
+  const asset = document.getElementById("send-asset")?.value || defaultLiveCryptoSymbol();
+  if (!amountInput) return;
+
+  const originalText = button?.textContent || "Max";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "...";
+  }
+
+  try {
+    const wallet = await liveSendWallet();
+    const balance = liveSendBalanceForSymbol(wallet, asset);
+    amountInput.value = formatLiveSendAmount(balance);
+    if (!balance) showLiveNotice(`No ${asset} balance is available to send.`, "warning");
+  } catch (err) {
+    showLiveNotice(err.message || "Could not load the available balance.", "warning");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
 document.addEventListener("click", (event) => {
   const fundingTab = event.target.closest("[data-funding-tab]");
   if (fundingTab) {
@@ -520,11 +581,15 @@ document.getElementById("receive-network")?.addEventListener("change", () => {
   requestReceiveAddress({ fresh: false, showNotice: false });
 });
 
-document.getElementById("send-asset")?.addEventListener("change", updateSendNetworks);
+document.getElementById("send-asset")?.addEventListener("change", () => {
+  updateSendNetworks();
+  liveSendWalletCache = null;
+});
 document.getElementById("send-type")?.addEventListener("change", updateWithdrawalTypeFields);
 document.getElementById("generate-receive-address")?.addEventListener("click", generateReceiveAddress);
 document.getElementById("copy-receive-address")?.addEventListener("click", copyReceiveAddress);
 document.getElementById("review-send")?.addEventListener("click", reviewLiveSend);
+document.getElementById("send-max")?.addEventListener("click", setMaxLiveSendAmount);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;

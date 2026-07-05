@@ -37,7 +37,7 @@
         <div>
           <p class="eyebrow">Live orders</p>
           <h1>Orders</h1>
-          <p class="app-subtitle">Review buys, sells, and crypto swaps before live execution is connected.</p>
+          <p class="app-subtitle">Buy with USD funds, sell held assets, or swap between supported crypto assets.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Buying power</span>
@@ -64,7 +64,7 @@
         <div class="app-card mini-metric">
           <span class="muted-label">Order type</span>
           <strong>Market</strong>
-          <small>Execution rails pending</small>
+          <small>Filled from available balances</small>
         </div>
       </section>
 
@@ -73,9 +73,9 @@
           <div class="card-heading">
             <div>
               <span class="muted-label">Trade ticket</span>
-              <h2>Live order review</h2>
+              <h2>Live order</h2>
             </div>
-            <span class="status-pill">Funding required</span>
+            <span class="status-pill">Market order</span>
           </div>
 
           <form class="ticket-form order-ticket-form" id="order-form">
@@ -107,7 +107,10 @@
 
             <label>
               <span id="order-amount-label">Live amount (USD)</span>
-              <input id="order-amount" type="number" min="0.01" step="0.01" placeholder="Enter amount" inputmode="decimal" />
+              <div class="order-amount-row">
+                <input id="order-amount" type="number" min="0.01" step="0.01" placeholder="Enter amount" inputmode="decimal" />
+                <button class="btn btn-ghost order-max-button" type="button" id="order-max">Max</button>
+              </div>
             </label>
 
             <div class="order-preview flat" id="order-preview">
@@ -115,7 +118,7 @@
               <strong>Enter an amount to preview</strong>
             </div>
 
-            <button class="btn order-submit" type="submit" id="order-submit">Review Live Buy</button>
+            <button class="btn order-submit" type="submit" id="order-submit">Place Live Buy</button>
             <p class="order-status" id="order-status" role="status"></p>
           </form>
         </article>

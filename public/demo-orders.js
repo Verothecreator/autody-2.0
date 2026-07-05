@@ -20,6 +20,7 @@ let orderAssets = [];
 let orderWallet = null;
 let orderHistory = [];
 let orderStatusTimer = null;
+let orderTradingFee = { bps: 0, rate: 0, percent: 0 };
 const ORDER_REFRESH_MS = 10000;
 const ORDER_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
@@ -196,6 +197,46 @@ function selectedAmount() {
   return Number(document.getElementById("order-amount")?.value || 0);
 }
 
+function tradingFeeRate() {
+  const rate = Number(orderTradingFee?.rate || 0);
+  return IS_LIVE_ORDER_PAGE && Number.isFinite(rate) && rate > 0 ? rate : 0;
+}
+
+function tradingFeeAmount(amount) {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.round(value * tradingFeeRate() * 100) / 100;
+}
+
+function tradingFeeLabel() {
+  const percent = Number(orderTradingFee?.percent || 0);
+  return `${Number.isFinite(percent) ? percent.toFixed(2) : "0.00"}%`;
+}
+
+function maxOrderAmount() {
+  if (orderSide === "buy") {
+    const cash = Number(orderWallet?.cashBalance || 0);
+    const divisor = 1 + tradingFeeRate();
+    return divisor > 0 ? Math.max(0, cash / divisor) : Math.max(0, cash);
+  }
+
+  if (orderSide === "sell") {
+    const asset = selectedAsset();
+    return Math.max(0, holdingValueUsd(holdingForSymbol(asset?.symbol)));
+  }
+
+  const fromSymbol = document.getElementById("order-from")?.value || "";
+  return Math.max(0, holdingValueUsd(holdingForSymbol(fromSymbol)));
+}
+
+function setMaxOrderAmount() {
+  const amountInput = document.getElementById("order-amount");
+  if (!amountInput) return;
+  const max = maxOrderAmount();
+  amountInput.value = max > 0 ? max.toFixed(2) : "";
+  renderPreview();
+}
+
 function setStatus(message, tone = "", options = {}) {
   const node = document.getElementById("order-status");
   if (!node) return;
@@ -280,8 +321,8 @@ function renderSideState() {
   document.getElementById("order-amount-label").textContent = orderSide === "sell" ? "Sell amount (USD)" : orderSide === "swap" ? "Swap amount (USD)" : "Buy amount (USD)";
   const submit = document.getElementById("order-submit");
   submit.textContent = orderSide === "swap"
-    ? IS_LIVE_ORDER_PAGE ? "Review Live Swap" : "Place Demo Swap"
-    : `${IS_LIVE_ORDER_PAGE ? "Review Live" : "Place Demo"} ${orderSide.charAt(0).toUpperCase()}${orderSide.slice(1)}`;
+    ? IS_LIVE_ORDER_PAGE ? "Place Live Swap" : "Place Demo Swap"
+    : `${IS_LIVE_ORDER_PAGE ? "Place Live" : "Place Demo"} ${orderSide.charAt(0).toUpperCase()}${orderSide.slice(1)}`;
   renderAssetSelect();
   renderPreview();
 }
@@ -292,10 +333,14 @@ function tradeValidation(asset, amount) {
 
   if (orderSide === "buy") {
     const availableUsd = Number(orderWallet?.cashBalance || 0);
+    const feeUsd = tradingFeeAmount(amount);
+    const totalRequired = amount + feeUsd;
     return {
-      blocked: amount > availableUsd + 0.005,
-      message: amount > availableUsd + 0.005
-        ? IS_LIVE_ORDER_PAGE ? "Deposit USD funds before placing this buy." : "Not enough USD funds for this buy."
+      blocked: totalRequired > availableUsd + 0.005,
+      message: totalRequired > availableUsd + 0.005
+        ? IS_LIVE_ORDER_PAGE
+          ? `Available USD is ${formatOrderMoney(availableUsd)} including the platform fee.`
+          : "Not enough USD funds for this buy."
         : "",
       availableUsd,
       availableLabel: "Available funds"
@@ -370,7 +415,10 @@ function renderPreview() {
   }
 
   const price = Number(asset.price);
-  const quantity = Number.isFinite(price) && price > 0 && amount > 0 ? amount / price : 0;
+  const feeUsd = tradingFeeAmount(amount);
+  const netAmount = Math.max(0, amount - feeUsd);
+  const receivedUsd = orderSide === "swap" ? netAmount : amount;
+  const quantity = Number.isFinite(price) && price > 0 && amount > 0 ? receivedUsd / price : 0;
   const fromSymbol = document.getElementById("order-from")?.value || "";
   const validation = tradeValidation(asset, amount);
   let swapSourceQuantity = 0;
@@ -391,12 +439,19 @@ function renderPreview() {
   const detail = validation.availableLabel
     ? `${validation.availableLabel}: ${formatOrderMoney(validation.availableUsd)}`
     : IS_LIVE_ORDER_PAGE ? "Live market order preview" : "Live demo market order";
+  const feeDetail = IS_LIVE_ORDER_PAGE && feeUsd > 0
+    ? orderSide === "buy"
+      ? `Platform fee ${formatOrderMoney(feeUsd)} (${tradingFeeLabel()}). Total due ${formatOrderMoney(amount + feeUsd)}.`
+      : orderSide === "sell"
+        ? `Platform fee ${formatOrderMoney(feeUsd)} (${tradingFeeLabel()}). Estimated USD credited ${formatOrderMoney(netAmount)}.`
+        : `Platform fee ${formatOrderMoney(feeUsd)} (${tradingFeeLabel()}). Estimated received value ${formatOrderMoney(netAmount)}.`
+    : detail;
 
   preview.className = `order-preview ${validation.blocked ? "loss" : "gain"}`;
   preview.innerHTML = `
     <span>${escapeOrderHtml(actionText)}</span>
     <strong>${escapeOrderHtml(formatAssetPrice(price, asset.currency || "USD"))} ${IS_LIVE_ORDER_PAGE ? "live market price" : "live demo price"}</strong>
-    <small>${escapeOrderHtml(validation.message || detail)}</small>
+    <small>${escapeOrderHtml(validation.message || feeDetail)}</small>
   `;
   if (submit) submit.disabled = validation.blocked;
 }
@@ -483,6 +538,7 @@ async function loadOrdersPage(options = {}) {
       .filter((asset) => asset.price != null)
       .sort((a, b) => (a.rank || 9999) - (b.rank || 9999));
     orderWallet = wallet.wallet;
+    orderTradingFee = IS_LIVE_ORDER_PAGE ? (orders.tradingFee || orderTradingFee) : { bps: 0, rate: 0, percent: 0 };
     orderHistory = orders.orders?.length
       ? orders.orders
       : (wallet.wallet?.records || []).filter((record) => String(record.type || "").toLowerCase() !== "setup");
@@ -512,12 +568,6 @@ async function submitOrder(event) {
     return;
   }
 
-  if (IS_LIVE_ORDER_PAGE) {
-    setStatus("Live execution is locked until funding, custody, and brokerage rails are connected.", "flat");
-    renderPreview();
-    return;
-  }
-
   const payload = {
     side: orderSide,
     symbol: asset.symbol,
@@ -530,15 +580,16 @@ async function submitOrder(event) {
 
   const submit = document.getElementById("order-submit");
   submit.disabled = true;
-  setStatus("Placing demo order...", "", { sticky: true });
+  setStatus(IS_LIVE_ORDER_PAGE ? "Placing live order..." : "Placing demo order...", "", { sticky: true });
 
   try {
-    const data = await postOrderJson("/api/demo/orders", payload);
+    const data = await postOrderJson(IS_LIVE_ORDER_PAGE ? "/api/account/orders" : "/api/demo/orders", payload);
     orderWallet = data.wallet;
+    if (IS_LIVE_ORDER_PAGE && data.tradingFee) orderTradingFee = data.tradingFee;
     setStatus(`${orderSide.toUpperCase()} filled for ${asset.symbol}. Wallet updated.`, "gain");
     await loadOrdersPage({ silent: true });
   } catch (err) {
-    setStatus(err.message || "Demo order failed.", "loss");
+    setStatus(err.message || `${IS_LIVE_ORDER_PAGE ? "Live" : "Demo"} order failed.`, "loss");
   } finally {
     renderPreview();
   }
@@ -579,6 +630,7 @@ function refreshOrdersWhenVisible() {
 }
 
 document.getElementById("order-form").addEventListener("submit", submitOrder);
+document.getElementById("order-max")?.addEventListener("click", setMaxOrderAmount);
 loadOrdersPage();
 setInterval(refreshOrdersWhenVisible, ORDER_REFRESH_MS);
 window.addEventListener("focus", refreshOrdersWhenVisible);

@@ -102,7 +102,10 @@ function portfolioChart(wallet, orders = []) {
   const fallbackStarting = IS_LIVE_OVERVIEW_PAGE ? 0 : 50000;
   const starting = Number(wallet.startingBalance ?? fallbackStarting);
   const total = Number(wallet.totalValue ?? starting);
-  const movePct = starting > 0 ? ((total - starting) / starting) * 100 : 0;
+  const liveMovePct = Number(wallet.profitLossPct);
+  const movePct = IS_LIVE_OVERVIEW_PAGE && Number.isFinite(liveMovePct)
+    ? liveMovePct
+    : starting > 0 ? ((total - starting) / starting) * 100 : 0;
   const orderCount = orders.length;
   const bars = Array.from({ length: 12 }, (_, index) => {
     const progress = index / 11;
@@ -166,8 +169,12 @@ function renderOverview({ wallet, orders, watchlist }) {
   const fallbackStarting = IS_LIVE_OVERVIEW_PAGE ? 0 : 50000;
   const starting = Number(wallet.startingBalance ?? fallbackStarting);
   const totalValue = Number(wallet.totalValue ?? starting);
-  const profitLoss = totalValue - starting;
-  const profitLossPct = starting > 0 ? (profitLoss / starting) * 100 : 0;
+  const liveProfitLoss = Number(wallet.profitLoss);
+  const liveProfitLossPct = Number(wallet.profitLossPct);
+  const profitLoss = IS_LIVE_OVERVIEW_PAGE && Number.isFinite(liveProfitLoss) ? liveProfitLoss : totalValue - starting;
+  const profitLossPct = IS_LIVE_OVERVIEW_PAGE && Number.isFinite(liveProfitLossPct)
+    ? liveProfitLossPct
+    : starting > 0 ? (profitLoss / starting) * 100 : 0;
   const tone = overviewMoveClass(profitLoss);
   const watchCount = flattenWatchlist(watchlist).length;
   const orderCount = orders.length;

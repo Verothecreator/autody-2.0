@@ -106,6 +106,7 @@ const FIAT_PAYMENT_PROCESSOR = String(process.env.FIAT_PAYMENT_PROCESSOR || proc
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || process.env.PAYMENT_PROCESSOR_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || process.env.PAYMENT_PROCESSOR_WEBHOOK_SECRET || "";
 const STRIPE_API_BASE = process.env.STRIPE_API_BASE || "https://api.stripe.com/v1";
+const PLATFORM_TRADING_FEE_BPS = Math.max(0, Number(process.env.PLATFORM_TRADING_FEE_BPS || 25));
 const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || "";
 const ADMIN_ACCOUNT_EMAIL = normalizeEmail(process.env.AUTODY_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "");
 const ADMIN_ACCOUNT_PASSWORD = process.env.AUTODY_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "";
@@ -1025,25 +1026,29 @@ async function sendPasswordChangeCodeEmail(email, code) {
     return { delivered: true, provider: "resend" };
 }
 
-async function sendPasswordResetCodeEmail(email, code) {
+function passwordResetUrl(req, email, token) {
+    const params = new URLSearchParams({ email, token });
+    return `${appBaseUrl(req)}/forgot-password.html?${params.toString()}`;
+}
+
+async function sendPasswordResetEmail(email, token, req) {
+    const resetUrl = passwordResetUrl(req, email, token);
     const subject = "Reset your Autody password";
-    const text = `Your Autody password reset code is ${code}.\n\nThis code expires in 5 minutes. If you did not request a password reset, you can ignore this email.`;
+    const text = `Reset your Autody password with this secure link:\n${resetUrl}\n\nThis link expires in 5 minutes. If you did not request a password reset, you can ignore this email.`;
     const html = `
         <div style="margin:0;padding:24px;background:#ffffff;font-family:Arial,sans-serif;color:#111827">
           <div style="max-width:560px;margin:0 auto">
             <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody account security</div>
             <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2;color:#111827">Reset your password</h1>
-            <p style="margin:0 0 20px;color:#374151;font-size:16px;line-height:1.55">Use this one-time code to set a new Autody password.</p>
-            <div style="margin:20px 0;padding:20px;border-radius:12px;background:#f4f6ff;text-align:center;border:1px solid #d7ddf3">
-              <div style="font-size:40px;line-height:1;letter-spacing:8px;font-weight:900;color:#111827">${code}</div>
-            </div>
-            <p style="margin:0;color:#374151;font-size:14px;line-height:1.55">This code expires in <strong style="color:#111827">5 minutes</strong>. If this was not you, no password change will happen unless the code is entered.</p>
+            <p style="margin:0 0 20px;color:#374151;font-size:16px;line-height:1.55">Use the secure link below to set a new Autody password.</p>
+            <p style="margin:20px 0"><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">Reset password</a></p>
+            <p style="margin:0;color:#374151;font-size:14px;line-height:1.55">This link expires in <strong style="color:#111827">5 minutes</strong>. If this was not you, no password change will happen.</p>
           </div>
         </div>
     `;
 
     if (!RESEND_API_KEY) {
-        console.log("Autody password reset code for", email, code);
+        console.log("Autody password reset link for", email, resetUrl);
         return { delivered: false, provider: "console" };
     }
 
@@ -2270,6 +2275,17 @@ async function buildLiveWalletSnapshot(account) {
     const auValue = numberValue(au.valueUsd, 0);
     const totalValue = cash.valueUsd + auValue + cryptoValue + stockValue + etfValue + commodityValue;
     const investedValue = auValue + cryptoValue + stockValue + etfValue + commodityValue;
+    const profitHoldingsBySymbol = new Map();
+    [au, ...positions].forEach((holding) => {
+        if (!holding?.symbol) return;
+        profitHoldingsBySymbol.set(String(holding.symbol).toUpperCase(), holding);
+    });
+    const profitHoldings = [...profitHoldingsBySymbol.values()].filter((holding) => numberValue(holding.balance, 0) > 0);
+    const costBasis = profitHoldings.reduce((sum, holding) => sum + numberValue(holding.costBasis, 0), 0);
+    const unrealizedProfitLoss = profitHoldings.reduce((sum, holding) => sum + numberValue(holding.unrealizedProfitLoss, 0), 0);
+    const realizedProfitLoss = numberValue(account.performance?.realizedProfitLoss, 0);
+    const profitLoss = realizedProfitLoss + unrealizedProfitLoss;
+    const profitLossPct = costBasis > 0 ? (profitLoss / costBasis) * 100 : 0;
     const groupHolding = (symbol, name, category, balance, valueUsd, detail) => ({
         ...walletDefaultHolding(symbol, name, category),
         assetType: category,
@@ -2287,6 +2303,11 @@ async function buildLiveWalletSnapshot(account) {
         reservedCash: account.user?.reservedCash || 0,
         totalValue,
         investedValue,
+        costBasis,
+        profitLoss,
+        profitLossPct,
+        unrealizedProfitLoss,
+        realizedProfitLoss,
         positionsCount: positions.length + (au.balance > 0 ? 1 : 0),
         pendingTransfers: (account.withdrawals || []).filter((request) => (request.status || "") === "pending_review").length,
         groups: {
@@ -4645,6 +4666,122 @@ async function getAdminWithdrawalOverview(options = {}) {
     };
 }
 
+function platformFeeProfileName(row = {}) {
+    const first = normalizeText(row.first_name);
+    const last = normalizeText(row.last_name);
+    const legal = [first, last].filter(Boolean).join(" ");
+    return legal || normalizeText(row.display_name) || normalizeText(row.email) || "Autody customer";
+}
+
+function mapPlatformFeeEventRow(row = {}) {
+    return {
+        id: row.id || "",
+        userId: row.profile_id || row.userId || "",
+        accountModeId: row.account_mode_id || "",
+        orderId: row.order_id || row.orderId || "",
+        profileName: platformFeeProfileName(row),
+        email: row.email || "",
+        sourceType: row.source_type || row.sourceType || "trade",
+        asset: String(row.asset_symbol || row.asset || "").toUpperCase(),
+        side: String(row.side || "").toLowerCase(),
+        notionalUsd: numberValue(row.notional_usd ?? row.notionalUsd, 0),
+        feeUsd: numberValue(row.fee_usd ?? row.feeUsd, 0),
+        rateBps: numberValue(row.rate_bps ?? row.rateBps, 0),
+        status: row.status || "collected",
+        metadata: normalizeDepositMetadata(row.metadata),
+        createdAt: row.created_at || row.createdAt || ""
+    };
+}
+
+function platformFeeTotals(events = []) {
+    const totals = {
+        collectedUsd: 0,
+        count: events.length,
+        buyUsd: 0,
+        sellUsd: 0,
+        swapUsd: 0
+    };
+    events.forEach((event) => {
+        const amount = numberValue(event.feeUsd, 0);
+        totals.collectedUsd += amount;
+        if (event.side === "buy") totals.buyUsd += amount;
+        if (event.side === "sell") totals.sellUsd += amount;
+        if (event.side === "swap") totals.swapUsd += amount;
+    });
+    return totals;
+}
+
+function getJsonAdminFeeOverview(options = {}) {
+    const limit = Math.min(200, Math.max(1, Number(options.limit || 100)));
+    const db = loadDemoDb();
+    const usersById = new Map((db.users || []).map((user) => [user.id, user]));
+    const events = Object.entries(db.platformFeeEvents || {})
+        .flatMap(([userId, rows]) => (rows || []).map((event) => {
+            const user = usersById.get(userId) || {};
+            return mapPlatformFeeEventRow({
+                ...event,
+                profile_id: userId,
+                email: user.email || "",
+                display_name: user.name || user.displayName || ""
+            });
+        }))
+        .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+    return {
+        success: true,
+        configured: false,
+        tradingFee: publicTradingFeeConfig(),
+        fees: events.slice(0, limit),
+        totals: platformFeeTotals(events),
+        generatedAt: new Date().toISOString()
+    };
+}
+
+async function getAdminFeeOverview(options = {}) {
+    if (!databaseConfigured()) return getJsonAdminFeeOverview(options);
+    const limit = Math.min(200, Math.max(1, Number(options.limit || 100)));
+    await ensurePlatformFeeTables();
+    const [rowsResult, totalsResult] = await Promise.all([
+        dbPool.query(`
+            select
+              pfe.*,
+              p.email,
+              p.display_name,
+              pv.first_name,
+              pv.last_name
+            from platform_fee_events pfe
+            left join profiles p on p.id = pfe.profile_id
+            left join profile_verifications pv on pv.profile_id = p.id
+            order by pfe.created_at desc
+            limit $1
+        `, [limit]),
+        dbPool.query(`
+            select
+              coalesce(sum(fee_usd), 0) as collected_usd,
+              count(*)::int as event_count,
+              coalesce(sum(fee_usd) filter (where side = 'buy'), 0) as buy_usd,
+              coalesce(sum(fee_usd) filter (where side = 'sell'), 0) as sell_usd,
+              coalesce(sum(fee_usd) filter (where side = 'swap'), 0) as swap_usd
+            from platform_fee_events
+        `)
+    ]);
+    const fees = rowsResult.rows.map(mapPlatformFeeEventRow);
+    const totalsRow = totalsResult.rows[0] || {};
+    return {
+        success: true,
+        configured: true,
+        tradingFee: publicTradingFeeConfig(),
+        fees,
+        totals: {
+            collectedUsd: numberValue(totalsRow.collected_usd, 0),
+            count: numberValue(totalsRow.event_count, fees.length),
+            buyUsd: numberValue(totalsRow.buy_usd, 0),
+            sellUsd: numberValue(totalsRow.sell_usd, 0),
+            swapUsd: numberValue(totalsRow.swap_usd, 0)
+        },
+        generatedAt: new Date().toISOString()
+    };
+}
+
 async function decideDatabaseWithdrawalRequest(body = {}) {
     if (!databaseConfigured()) return { success: false, configured: false, error: "Database is not configured." };
     const id = normalizeText(body.id || body.requestId || body.withdrawalId);
@@ -6869,7 +7006,7 @@ function calculateTradeSize(body, price) {
         };
     }
 
-    throw demoTradeError(400, "Enter a demo amount greater than zero.");
+    throw demoTradeError(400, "Enter an order amount greater than zero.");
 }
 
 async function resolveTradeAsset(symbol) {
@@ -6880,7 +7017,7 @@ async function resolveTradeAsset(symbol) {
     if (!asset) throw demoTradeError(404, "That asset is not available in Markets yet.");
 
     const price = tradeAssetPrice(asset);
-    if (!price) throw demoTradeError(409, `${asset.symbol} does not have a live demo price yet.`);
+    if (!price) throw demoTradeError(409, `${asset.symbol} does not have a live price yet.`);
 
     return {
         ...asset,
@@ -7025,7 +7162,7 @@ async function adjustDbCash(client, walletId, deltaUsd) {
     const nextCash = currentCash + deltaUsd;
 
     if (nextCash < -0.005) {
-        throw demoTradeError(400, "Not enough demo buying power for this order.");
+        throw demoTradeError(400, "Not enough USD available for this order.");
     }
 
     await client.query(`
@@ -7103,7 +7240,7 @@ async function applyDbSell(client, walletId, asset, quantity) {
     const currentQuantity = numberValue(existing?.quantity, 0);
 
     if (currentQuantity + 1e-10 < quantity) {
-        throw demoTradeError(400, `Not enough ${asset.symbol} in this demo wallet.`);
+        throw demoTradeError(400, `Not enough ${asset.symbol} available for this order.`);
     }
 
     const averageCost = firstPositive(existing?.average_cost, existing?.last_price, asset.price) || asset.price;
@@ -7332,7 +7469,7 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
     const adjustCash = (delta) => {
         const currentCash = numberValue(wallet.cash?.balance ?? user.cashBalance, 50000);
         const nextCash = currentCash + delta;
-        if (nextCash < -0.005) throw demoTradeError(400, "Not enough demo buying power for this order.");
+        if (nextCash < -0.005) throw demoTradeError(400, "Not enough USD available for this order.");
         user.cashBalance = nextCash;
         wallet.cash = {
             ...(wallet.cash || {}),
@@ -7453,6 +7590,333 @@ async function placeDemoOrder(body, auth = {}) {
         "Supabase demo order",
         () => placeDatabaseDemoOrder(body, auth),
         () => placeJsonDemoOrder(body, auth.userId || PRACTICE_USER_ID)
+    );
+}
+
+function tradingFeeBps() {
+    return Math.max(0, Number(PLATFORM_TRADING_FEE_BPS || 0));
+}
+
+function tradingFeeUsd(notionalUsd) {
+    const amount = numberValue(notionalUsd, 0);
+    return Math.round((amount * tradingFeeBps() / 10000) * 100) / 100;
+}
+
+function publicTradingFeeConfig() {
+    const bps = tradingFeeBps();
+    return {
+        bps,
+        rate: bps / 10000,
+        percent: bps / 100
+    };
+}
+
+async function ensurePlatformFeeTables(client = dbPool) {
+    if (!databaseConfigured()) return;
+    await ensureSignUpTables(client);
+    await client.query(`
+        create table if not exists platform_fee_events (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid references profiles(id) on delete set null,
+          account_mode_id uuid references account_modes(id) on delete set null,
+          order_id uuid,
+          source_type text not null default 'trade',
+          asset_symbol text not null default '',
+          side text not null default '',
+          notional_usd numeric(18, 2) not null default 0,
+          fee_usd numeric(18, 2) not null default 0,
+          rate_bps numeric(12, 4) not null default 0,
+          status text not null default 'collected',
+          metadata jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now()
+        );
+
+        create index if not exists platform_fee_events_profile_created_idx
+          on platform_fee_events (profile_id, created_at desc);
+
+        create index if not exists platform_fee_events_created_idx
+          on platform_fee_events (created_at desc);
+    `);
+}
+
+async function recordDatabasePlatformFee(client, context, order = {}, fee = {}) {
+    const feeUsd = numberValue(fee.feeUsd, 0);
+    if (feeUsd <= 0) return null;
+    await ensurePlatformFeeTables(client);
+    const result = await client.query(`
+        insert into platform_fee_events (
+          profile_id, account_mode_id, order_id, source_type, asset_symbol, side,
+          notional_usd, fee_usd, rate_bps, metadata
+        )
+        values ($1, $2, $3, 'trade', $4, $5, $6, $7, $8, $9::jsonb)
+        returning *
+    `, [
+        context.profile_id,
+        context.account_mode_id,
+        order.id || null,
+        order.symbol || fee.symbol || "",
+        order.side || fee.side || "",
+        numberValue(fee.notionalUsd, 0),
+        feeUsd,
+        tradingFeeBps(),
+        JSON.stringify(fee.metadata || {})
+    ]);
+    return result.rows[0] || null;
+}
+
+function recordJsonPlatformFee(db, userId, order = {}, fee = {}) {
+    const feeUsd = numberValue(fee.feeUsd, 0);
+    if (feeUsd <= 0) return null;
+    const event = {
+        id: crypto.randomUUID(),
+        userId,
+        orderId: order.id || "",
+        sourceType: "trade",
+        asset: order.symbol || fee.symbol || "",
+        side: order.side || fee.side || "",
+        notionalUsd: numberValue(fee.notionalUsd, 0),
+        feeUsd,
+        rateBps: tradingFeeBps(),
+        status: "collected",
+        metadata: fee.metadata || {},
+        createdAt: new Date().toISOString()
+    };
+    db.platformFeeEvents = db.platformFeeEvents || {};
+    db.platformFeeEvents[userId] = [event, ...(db.platformFeeEvents[userId] || [])].slice(0, 100);
+    return event;
+}
+
+function attachFeeToOrder(order = {}, fee = {}) {
+    return {
+        ...order,
+        feeUsd: numberValue(fee.feeUsd, 0),
+        feeBps: tradingFeeBps(),
+        netNotionalUsd: fee.netNotionalUsd == null ? null : numberValue(fee.netNotionalUsd, 0)
+    };
+}
+
+async function placeDatabaseLiveOrder(body, auth = {}) {
+    if (!databaseConfigured()) return null;
+    const side = String(body.side || "buy").trim().toLowerCase();
+    const client = await dbPool.connect();
+
+    try {
+        await client.query("begin");
+        const context = await getPracticeDbContext(client, auth.profileId, "live");
+        let order;
+        let realizedDelta = 0;
+        let fee = null;
+        const marketImpacts = [];
+
+        if (side === "buy") {
+            const asset = await resolveTradeAsset(body.symbol);
+            const trade = calculateTradeSize(body, asset.price);
+            const feeUsd = tradingFeeUsd(trade.notionalUsd);
+            await adjustDbCash(client, context.wallet_id, -(trade.notionalUsd + feeUsd));
+            await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
+            marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "live-buy" });
+            order = await insertDbOrder(client, context, {
+                symbol: asset.symbol,
+                assetType: tradeAssetType(asset),
+                side,
+                quantity: trade.quantity,
+                notionalUsd: trade.notionalUsd,
+                filledPrice: asset.price
+            });
+            fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd, metadata: { mode: "live", feeSide: "cash" } };
+        } else if (side === "sell") {
+            const asset = await resolveTradeAsset(body.symbol);
+            const trade = calculateTradeSize(body, asset.price);
+            const feeUsd = tradingFeeUsd(trade.notionalUsd);
+            const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity);
+            realizedDelta += result.realizedProfitLoss - feeUsd;
+            await adjustDbCash(client, context.wallet_id, trade.notionalUsd - feeUsd);
+            marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "live-sell" });
+            order = await insertDbOrder(client, context, {
+                symbol: asset.symbol,
+                assetType: tradeAssetType(asset),
+                side,
+                quantity: trade.quantity,
+                notionalUsd: trade.notionalUsd,
+                filledPrice: asset.price
+            });
+            fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd - feeUsd, metadata: { mode: "live", feeSide: "proceeds" } };
+        } else if (side === "swap") {
+            const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol);
+            const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
+            const tradeInput = calculateTradeSize(body, 1);
+            const notionalUsd = tradeInput.notionalUsd;
+            const feeUsd = tradingFeeUsd(notionalUsd);
+            const netNotionalUsd = Math.max(0, notionalUsd - feeUsd);
+            assertSwapEligibleAsset(toAsset, toAsset.symbol);
+            if (!fromSymbol || fromSymbol === "USD") throw demoTradeError(400, "Use Buy when spending USD funds. Swap is crypto-to-crypto only.");
+            if (fromSymbol === toAsset.symbol) throw demoTradeError(400, "Choose a different asset to receive.");
+
+            const fromAsset = await resolveTradeAsset(fromSymbol);
+            assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
+            const fromQuantity = notionalUsd / fromAsset.price;
+            const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
+            realizedDelta += sellResult.realizedProfitLoss - feeUsd;
+            marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "live-swap-out" });
+
+            const toQuantity = netNotionalUsd / toAsset.price;
+            await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, netNotionalUsd);
+            marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd, source: "live-swap-in" });
+            order = await insertDbOrder(client, context, {
+                symbol: toAsset.symbol,
+                assetType: tradeAssetType(toAsset),
+                side,
+                quantity: toQuantity,
+                notionalUsd,
+                filledPrice: toAsset.price
+            });
+            fee = { feeUsd, notionalUsd, netNotionalUsd, metadata: { mode: "live", fromSymbol, toSymbol: toAsset.symbol, feeSide: "received_amount" } };
+        } else {
+            throw demoTradeError(400, "Choose buy, sell, or swap.");
+        }
+
+        await recordDatabasePlatformFee(client, context, order, { ...fee, side, symbol: order.symbol });
+        await refreshDbPerformance(client, context, realizedDelta);
+        await client.query("commit");
+
+        for (const impact of marketImpacts) {
+            await applyAdminControlledTradeImpact(impact.symbol, impact.side, impact.notionalUsd, impact.source).catch((err) => {
+                console.error("Admin controlled live trade impact failed:", err.message || err);
+            });
+        }
+        const account = await getDatabaseAccountByProfileId(auth.profileId, "live");
+        return {
+            order: attachFeeToOrder(order, fee),
+            account,
+            source: "supabase"
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+async function placeJsonLiveOrder(body, auth = {}) {
+    const db = loadDemoDb();
+    const userId = auth.userId || PRACTICE_USER_ID;
+    const user = db.users.find((item) => item.id === userId);
+    const wallet = db.wallets?.[userId];
+    const side = String(body.side || "buy").trim().toLowerCase();
+    if (!user || !wallet) throw demoTradeError(503, "Live wallet is not ready.");
+
+    wallet.liveCash = wallet.liveCash || { symbol: "USD", name: "USD Funds", balance: 0, valueUsd: 0, status: "Awaiting deposit" };
+    const adjustCash = (delta) => {
+        const currentCash = numberValue(wallet.liveCash.balance, 0);
+        const nextCash = currentCash + delta;
+        if (nextCash < -0.005) throw demoTradeError(400, "Not enough USD available for this order.");
+        wallet.liveCash.balance = nextCash;
+        wallet.liveCash.valueUsd = nextCash;
+        wallet.liveCash.status = nextCash > 0 ? "Available" : "Awaiting deposit";
+        return nextCash;
+    };
+    const findHolding = (symbol) => (wallet.holdings || []).find((holding) => normalizeTradeSymbol(holding.symbol) === symbol);
+    const buyHolding = (asset, quantity, notionalUsd) => {
+        const existing = findHolding(asset.symbol);
+        const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
+        const currentAverage = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const nextQuantity = currentQuantity + quantity;
+        const nextAverage = nextQuantity > 0 ? ((currentQuantity * currentAverage) + notionalUsd) / nextQuantity : asset.price;
+        return upsertJsonHolding(wallet, asset, nextQuantity, nextAverage, asset.price);
+    };
+    const sellHolding = (asset, quantity) => {
+        const existing = findHolding(asset.symbol);
+        const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
+        if (currentQuantity + 1e-10 < quantity) throw demoTradeError(400, `Not enough ${asset.symbol} available for this order.`);
+        const averageCost = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const nextQuantity = Math.max(0, currentQuantity - quantity);
+        upsertJsonHolding(wallet, asset, nextQuantity, nextQuantity > 0 ? averageCost : null, asset.price);
+        return (asset.price - averageCost) * quantity;
+    };
+
+    let order;
+    let realizedDelta = 0;
+    let fee = null;
+    const marketImpacts = [];
+
+    if (side === "buy") {
+        const asset = await resolveTradeAsset(body.symbol);
+        const trade = calculateTradeSize(body, asset.price);
+        const feeUsd = tradingFeeUsd(trade.notionalUsd);
+        adjustCash(-(trade.notionalUsd + feeUsd));
+        buyHolding(asset, trade.quantity, trade.notionalUsd);
+        marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "live-json-buy" });
+        order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
+        fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd };
+    } else if (side === "sell") {
+        const asset = await resolveTradeAsset(body.symbol);
+        const trade = calculateTradeSize(body, asset.price);
+        const feeUsd = tradingFeeUsd(trade.notionalUsd);
+        realizedDelta += sellHolding(asset, trade.quantity) - feeUsd;
+        adjustCash(trade.notionalUsd - feeUsd);
+        marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "live-json-sell" });
+        order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
+        fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd - feeUsd };
+    } else if (side === "swap") {
+        const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol);
+        const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
+        const tradeInput = calculateTradeSize(body, 1);
+        const notionalUsd = tradeInput.notionalUsd;
+        const feeUsd = tradingFeeUsd(notionalUsd);
+        const netNotionalUsd = Math.max(0, notionalUsd - feeUsd);
+        assertSwapEligibleAsset(toAsset, toAsset.symbol);
+        if (!fromSymbol || fromSymbol === "USD") throw demoTradeError(400, "Use Buy when spending USD funds. Swap is crypto-to-crypto only.");
+        if (fromSymbol === toAsset.symbol) throw demoTradeError(400, "Choose a different asset to receive.");
+        const fromAsset = await resolveTradeAsset(fromSymbol);
+        assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
+        realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price) - feeUsd;
+        marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "live-json-swap-out" });
+        const toQuantity = netNotionalUsd / toAsset.price;
+        buyHolding(toAsset, toQuantity, netNotionalUsd);
+        marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd, source: "live-json-swap-in" });
+        order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };
+        fee = { feeUsd, notionalUsd, netNotionalUsd };
+    } else {
+        throw demoTradeError(400, "Choose buy, sell, or swap.");
+    }
+
+    order = {
+        id: crypto.randomUUID(),
+        ...attachFeeToOrder(order, fee),
+        createdAt: new Date().toISOString(),
+        filledAt: new Date().toISOString()
+    };
+    db.orders = db.orders || {};
+    db.orders[userId] = [order, ...(db.orders[userId] || [])].slice(0, 50);
+    recordJsonPlatformFee(db, userId, order, { ...fee, side, symbol: order.symbol });
+
+    db.performance = db.performance || {};
+    const existingPerformance = db.performance[userId] || {};
+    db.performance[userId] = {
+        ...existingPerformance,
+        realizedProfitLoss: numberValue(existingPerformance.realizedProfitLoss, 0) + realizedDelta,
+        tradesPlaced: numberValue(existingPerformance.tradesPlaced, 0) + 1
+    };
+    saveDemoDb(db);
+
+    for (const impact of marketImpacts) {
+        await applyAdminControlledTradeImpact(impact.symbol, impact.side, impact.notionalUsd, impact.source).catch((err) => {
+            console.error("Admin controlled live JSON trade impact failed:", err.message || err);
+        });
+    }
+    return {
+        order,
+        account: { ...(getJsonAccountByUserId(userId, "live") || getPracticeAccount()), source: "json" },
+        source: "json"
+    };
+}
+
+async function placeLiveOrder(body, auth = {}) {
+    return withDemoWriteFallback(
+        "Supabase live order",
+        () => placeDatabaseLiveOrder(body, auth),
+        () => placeJsonLiveOrder(body, auth)
     );
 }
 
@@ -14110,6 +14574,25 @@ app.post("/api/admin/withdrawals/overview", async (req, res) => {
   }
 });
 
+app.post("/api/admin/fees/overview", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin fee overview is not authorized." });
+    }
+    const result = await getAdminFeeOverview(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin fee overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Fee overview failed." });
+  }
+});
+
 app.post("/api/admin/withdrawals/decision", async (req, res) => {
   try {
     let body = {};
@@ -14692,28 +15175,29 @@ app.post("/api/auth/password-reset/request", async (req, res) => {
 
     const databaseCode = databaseConfigured()
       ? await createDatabaseVerificationCode(email, "email", "password_reset", {
-          codeMode: "numeric",
           ttlMs: LOGIN_EMAIL_CODE_TTL_MS
         }).catch(() => null)
       : null;
     const jsonCode = databaseCode
       ? null
       : createJsonVerificationCode(email, "email", "password_reset", {
-          codeMode: "numeric",
           ttlMs: LOGIN_EMAIL_CODE_TTL_MS
         });
     const codeRecord = databaseCode || jsonCode;
     if (!codeRecord?.code) {
-      return res.status(404).json({ success: false, error: "No Autody account was found for that email." });
+      return res.json({
+        success: true,
+        delivery: "If that email belongs to an Autody account, a password reset link will be sent."
+      });
     }
 
-    const delivery = await sendPasswordResetCodeEmail(email, codeRecord.code).catch((err) => {
-      console.error("Password reset code delivery failed:", err.message || err);
-      throw signUpError(502, "Could not send the password reset code. Try again.");
+    const delivery = await sendPasswordResetEmail(email, codeRecord.code, req).catch((err) => {
+      console.error("Password reset email delivery failed:", err.message || err);
+      throw signUpError(502, "Could not send the password reset link. Try again.");
     });
     return res.json({
       success: true,
-      delivery: delivery.delivered ? "Password reset code sent." : "Password reset code created. Email delivery provider is not fully connected yet."
+      delivery: delivery.delivered ? "Password reset link sent." : "Password reset link created. Email delivery provider is not fully connected yet."
     });
   } catch (err) {
     console.error("Password reset request error:", err);
@@ -14728,8 +15212,8 @@ app.post("/api/auth/password-reset/confirm", async (req, res) => {
     const code = normalizeText(body.code).replace(/\s+/g, "");
     const newPassword = String(body.newPassword || "");
     const passwordMessage = passwordValidationMessage(newPassword);
-    if (!email || !/^\d{6}$/.test(code)) {
-      return res.status(400).json({ success: false, error: "Enter your email and the 6-digit reset code." });
+    if (!email || !code) {
+      return res.status(400).json({ success: false, error: "Password reset link is invalid or expired." });
     }
     if (passwordMessage) return res.status(400).json({ success: false, error: passwordMessage });
 
@@ -15007,11 +15491,32 @@ app.get("/api/account/orders", async (req, res) => {
       success: true,
       user: publicUser(account.user),
       orders: account.orders || [],
+      tradingFee: publicTradingFeeConfig(),
       source: account.source
     });
   } catch (err) {
     console.error("Live orders API error:", err);
     return sendDemoError(res, err, "Live orders unavailable");
+  }
+});
+
+app.post("/api/account/orders", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const result = await placeLiveOrder(body, auth);
+    const wallet = await buildLiveWalletSnapshot(result.account);
+
+    return res.json({
+      success: true,
+      order: result.order,
+      wallet,
+      tradingFee: publicTradingFeeConfig(),
+      source: result.source
+    });
+  } catch (err) {
+    console.error("Live order placement error:", err);
+    return sendDemoError(res, err, "Live order could not be placed");
   }
 });
 

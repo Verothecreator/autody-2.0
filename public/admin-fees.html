@@ -1,0 +1,83 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Admin | Fees</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell">
+    <header class="admin-hero">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div>
+        <p class="eyebrow">Admin control</p>
+        <h1>Fee portal</h1>
+        <p>Track platform fees collected from live buys, sells, and swaps.</p>
+      </div>
+      <div class="admin-key-card ops-session-card">
+        <span class="muted-label">Ops session</span>
+        <strong>Protected access</strong>
+        <small id="fee-session-status">Checking session...</small>
+        <div class="admin-key-actions">
+          <a class="btn" href="ops-console.html">Console</a>
+          <button type="button" class="btn btn-ghost" id="fee-refresh">Refresh</button>
+        </div>
+      </div>
+    </header>
+
+    <p class="admin-notice" id="fee-notice">Open an ops session to load fee data.</p>
+
+    <section class="admin-kpi-grid">
+      <div class="app-card mini-metric">
+        <span class="muted-label">Collected fees</span>
+        <strong data-fee-kpi="collected">$0.00</strong>
+        <small data-fee-kpi="count">0 events</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Buy fees</span>
+        <strong data-fee-kpi="buy">$0.00</strong>
+        <small>Live buy orders</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Sell fees</span>
+        <strong data-fee-kpi="sell">$0.00</strong>
+        <small>Live sell orders</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Swap fees</span>
+        <strong data-fee-kpi="swap">$0.00</strong>
+        <small data-fee-kpi="rate">0.00% rate</small>
+      </div>
+    </section>
+
+    <section class="admin-data-grid">
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Fee ledger</span>
+            <h2>Recent fee events</h2>
+          </div>
+          <span class="status-pill" data-fee-count>0</span>
+        </div>
+        <div class="admin-table" id="fee-table"></div>
+      </article>
+
+      <article class="app-card admin-output-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Summary</span>
+            <h2>Current settings</h2>
+          </div>
+        </div>
+        <pre id="fee-output">No fee data loaded yet.</pre>
+      </article>
+    </section>
+  </main>
+
+  <script src="ops-auth.js"></script>
+  <script src="admin-fees.js"></script>
+</body>
+</html>

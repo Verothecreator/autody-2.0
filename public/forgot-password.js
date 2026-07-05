@@ -5,6 +5,9 @@ const resetRequestMessage = document.getElementById("password-reset-request-mess
 const resetConfirmMessage = document.getElementById("password-reset-confirm-message");
 const resetRequestButton = document.getElementById("password-reset-request-button");
 const resetConfirmButton = document.getElementById("password-reset-confirm-button");
+const resetParams = new URLSearchParams(location.search);
+const resetToken = resetParams.get("token") || "";
+const resetEmail = resetParams.get("email") || "";
 
 function setResetMessage(node, message, state = "error") {
   if (!node) return;
@@ -42,19 +45,18 @@ resetRequestForm?.addEventListener("submit", async (event) => {
 
   if (resetRequestButton) {
     resetRequestButton.disabled = true;
-    resetRequestButton.textContent = "Sending Code";
+    resetRequestButton.textContent = "Sending Link";
   }
 
   try {
     const data = await postResetJson("/api/auth/password-reset/request", { email });
-    resetConfirmForm.hidden = false;
-    setResetMessage(resetRequestMessage, data.delivery || "Password reset code sent.", "success");
+    setResetMessage(resetRequestMessage, data.delivery || "Password reset link sent.", "success");
   } catch (err) {
-    setResetMessage(resetRequestMessage, err.message || "Could not send password reset code.");
+    setResetMessage(resetRequestMessage, err.message || "Could not send password reset link.");
   } finally {
     if (resetRequestButton) {
       resetRequestButton.disabled = false;
-      resetRequestButton.textContent = "Send Reset Code";
+      resetRequestButton.textContent = "Send Reset Link";
     }
   }
 });
@@ -67,7 +69,6 @@ resetConfirmForm?.addEventListener("submit", async (event) => {
   const email = String(resetEmailInput?.value || "").trim();
   const newPassword = String(form.get("newPassword") || "");
   const confirmPassword = String(form.get("confirmPassword") || "");
-  const code = String(form.get("code") || "").replace(/\s+/g, "");
 
   if (newPassword !== confirmPassword) {
     setResetMessage(resetConfirmMessage, "Passwords do not match.");
@@ -80,7 +81,7 @@ resetConfirmForm?.addEventListener("submit", async (event) => {
   }
 
   try {
-    await postResetJson("/api/auth/password-reset/confirm", { email, code, newPassword });
+    await postResetJson("/api/auth/password-reset/confirm", { email, code: resetToken, newPassword });
     setResetMessage(resetConfirmMessage, "Password reset complete. You can sign in with your new password.", "success");
     resetConfirmForm.reset();
   } catch (err) {
@@ -92,3 +93,14 @@ resetConfirmForm?.addEventListener("submit", async (event) => {
     }
   }
 });
+
+if (resetToken && resetEmail) {
+  if (resetEmailInput) {
+    resetEmailInput.value = resetEmail;
+    resetEmailInput.readOnly = true;
+  }
+  if (resetRequestForm) resetRequestForm.hidden = true;
+  if (resetConfirmForm) resetConfirmForm.hidden = false;
+} else if (resetConfirmForm) {
+  resetConfirmForm.hidden = true;
+}
