@@ -15,7 +15,6 @@ const numericFields = new Set([
   "fromBlock",
   "toBlock",
   "limit",
-  "amount",
   "amountUsd",
   "confirmations",
   "logIndex",

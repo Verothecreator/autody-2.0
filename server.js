@@ -28,6 +28,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const bip32 = BIP32Factory(ecc);
 const TronWeb = TronWebModule.TronWeb || TronWebModule.default || TronWebModule;
+bitcoin.initEccLib?.(ecc);
 
 const RPC = process.env.POLYGON_RPC;
 
@@ -4507,6 +4508,32 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
     }
 }
 
+async function fetchDepositText(url, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DEPOSIT_REST_TIMEOUT_MS);
+    timeout.unref?.();
+
+    try {
+        const response = await fetch(url, {
+            method: options.method || "GET",
+            headers: {
+                Accept: "text/plain",
+                "User-Agent": "Autody/1.0 deposit monitor",
+                ...(options.headers || {})
+            },
+            body: options.body,
+            signal: controller.signal
+        });
+        const text = await response.text();
+        if (!response.ok) {
+            throw new Error(text || `Deposit API returned ${response.status}`);
+        }
+        return text;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 function jsonHoldingForWithdrawal(wallet, symbol) {
     wallet.holdings = wallet.holdings || [];
     return wallet.holdings.find((holding) => normalizeTradeSymbol(holding.symbol) === symbol) || null;
@@ -5516,6 +5543,327 @@ async function estimateEvmSweepGas(contract, destination, amountRaw) {
     }
 }
 
+function parseDecimalUnits(value, decimals, label = "amount") {
+    const text = String(value ?? "").trim();
+    if (!text) return null;
+    if (!/^\d+(?:\.\d+)?$/.test(text)) throw demoTradeError(400, `Enter a valid ${label}.`);
+    const [whole, fraction = ""] = text.split(".");
+    if (fraction.length > decimals) throw demoTradeError(400, `${label} has too many decimal places.`);
+    const base = 10n ** BigInt(decimals);
+    const wholeUnits = BigInt(whole || "0") * base;
+    const fractionText = fraction.padEnd(decimals, "0") || "0";
+    return wholeUnits + BigInt(fractionText);
+}
+
+function formatDecimalUnits(value, decimals) {
+    const units = BigInt(value || 0);
+    const base = 10n ** BigInt(decimals);
+    const whole = units / base;
+    const fraction = (units % base).toString().padStart(decimals, "0").replace(/0+$/g, "");
+    return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function getUtxoSweepConfig(assetSymbol, network) {
+    const family = selfCustodyNetworkFamily(network);
+    if (family !== "bitcoin") return null;
+    const scannerConfig = ACCOUNT_DEPOSIT_SCANNER_CONFIGS[family];
+    if (!scannerConfig || normalizeTradeSymbol(scannerConfig.asset) !== assetSymbol) return null;
+    return {
+        family,
+        scannerConfig,
+        bitcoinNetwork: bitcoin.networks.bitcoin,
+        decimals: scannerConfig.decimals || 8,
+        dustSats: 546n,
+        derivationPath: (index) => `m/84'/0'/0'/0/${index}`
+    };
+}
+
+function deriveBip32Node(pathValue, network) {
+    const seed = getDepositSeed();
+    if (!seed) return null;
+    return bip32.fromSeed(seed, network).derivePath(pathValue);
+}
+
+function bip32Signer(node) {
+    return {
+        publicKey: Buffer.from(node.publicKey),
+        sign: (hash) => Buffer.from(node.sign(hash))
+    };
+}
+
+function bitcoinPaymentForNode(node, network) {
+    return bitcoin.payments.p2wpkh({
+        pubkey: Buffer.from(node.publicKey),
+        network
+    });
+}
+
+function sweepDestinationEnvCandidates(assetSymbol, network, family) {
+    const assetKey = depositEnvKeyPart(assetSymbol);
+    const networkKey = depositEnvKeyPart(network);
+    const familyKey = depositEnvKeyPart(family);
+    return [
+        `AUTODY_SWEEP_TREASURY_${assetKey}_${networkKey}_ADDRESS`,
+        `AUTODY_TREASURY_${assetKey}_${networkKey}_ADDRESS`,
+        `AUTODY_SWEEP_TREASURY_${assetKey}_ADDRESS`,
+        `AUTODY_TREASURY_${assetKey}_ADDRESS`,
+        `AUTODY_SWEEP_TREASURY_${networkKey}_ADDRESS`,
+        `AUTODY_TREASURY_${networkKey}_ADDRESS`,
+        `AUTODY_SWEEP_TREASURY_${familyKey}_ADDRESS`,
+        `AUTODY_TREASURY_${familyKey}_ADDRESS`,
+        "AUTODY_SWEEP_TREASURY_ADDRESS",
+        "AUTODY_TREASURY_ADDRESS"
+    ];
+}
+
+function resolveUtxoSweepDestination(assetSymbol, network, family, bitcoinNetwork, body = {}) {
+    const requested = normalizeText(
+        body.destinationAddress ||
+        body.destination ||
+        body.treasuryAddress ||
+        body.toAddress ||
+        ""
+    );
+    if (requested) {
+        bitcoin.address.toOutputScript(requested, bitcoinNetwork);
+        return {
+            address: requested,
+            source: body.destination
+                ? "request.destination"
+                : body.destinationAddress
+                    ? "request.destinationAddress"
+                    : body.treasuryAddress
+                        ? "request.treasuryAddress"
+                        : "request.toAddress"
+        };
+    }
+
+    for (const envName of sweepDestinationEnvCandidates(assetSymbol, network, family)) {
+        const value = normalizeText(process.env[envName] || "");
+        if (!value) continue;
+        bitcoin.address.toOutputScript(value, bitcoinNetwork);
+        return { address: value, source: envName };
+    }
+
+    return { address: "", source: "", acceptedFallbacks: sweepDestinationEnvCandidates(assetSymbol, network, family) };
+}
+
+async function fetchRecommendedUtxoFeeRate(baseUrl, body = {}) {
+    const requested = Number(body.feeRateSatsPerVbyte || body.feeRate || body.satsPerVbyte);
+    if (Number.isFinite(requested) && requested > 0) return Math.ceil(requested);
+    const envRate = Number(process.env.AUTODY_BTC_SWEEP_FEE_RATE || process.env.BTC_SWEEP_FEE_RATE || "");
+    if (Number.isFinite(envRate) && envRate > 0) return Math.ceil(envRate);
+
+    try {
+        const fees = await fetchDepositJson(`${baseUrl}/v1/fees/recommended`);
+        const recommended = Number(fees.halfHourFee || fees.fastestFee || fees.hourFee || fees.minimumFee);
+        if (Number.isFinite(recommended) && recommended > 0) return Math.ceil(recommended);
+    } catch (err) {
+        console.error("BTC fee estimate failed:", err.message || err);
+    }
+    return 12;
+}
+
+function estimateP2wpkhVbytes(inputCount, outputCount) {
+    return 10 + (inputCount * 68) + (outputCount * 31);
+}
+
+async function fetchMempoolUtxos(baseUrl, address) {
+    const utxos = await fetchDepositJson(`${baseUrl}/address/${encodeURIComponent(address)}/utxo`);
+    if (!Array.isArray(utxos)) throw new Error("UTXO endpoint did not return a list.");
+    return utxos
+        .map((utxo) => ({
+            txid: normalizeText(utxo.txid || utxo.hash),
+            vout: Number(utxo.vout ?? utxo.output_n),
+            value: BigInt(Math.max(0, Number(utxo.value || 0))),
+            confirmed: Boolean(utxo.status?.confirmed),
+            blockHeight: utxo.status?.block_height == null ? null : Number(utxo.status.block_height)
+        }))
+        .filter((utxo) => utxo.txid && Number.isInteger(utxo.vout) && utxo.vout >= 0 && utxo.value > 0n);
+}
+
+function selectUtxosForSweep(utxos, amountSats, feeRate, dustSats) {
+    if (!amountSats) {
+        const selectedTotal = utxos.reduce((sum, utxo) => sum + utxo.value, 0n);
+        const feeSats = BigInt(Math.ceil(estimateP2wpkhVbytes(utxos.length, 1) * feeRate));
+        const sweepSats = selectedTotal - feeSats;
+        return { selected: utxos, selectedTotal, feeSats, sweepSats, changeSats: 0n, outputCount: 1 };
+    }
+
+    const selected = [];
+    let selectedTotal = 0n;
+    const sorted = [...utxos].sort((a, b) => Number(b.value - a.value));
+    for (const utxo of sorted) {
+        selected.push(utxo);
+        selectedTotal += utxo.value;
+
+        const feeWithChange = BigInt(Math.ceil(estimateP2wpkhVbytes(selected.length, 2) * feeRate));
+        const changeWithChange = selectedTotal - amountSats - feeWithChange;
+        if (changeWithChange > dustSats) {
+            return { selected, selectedTotal, feeSats: feeWithChange, sweepSats: amountSats, changeSats: changeWithChange, outputCount: 2 };
+        }
+
+        const feeNoChange = BigInt(Math.ceil(estimateP2wpkhVbytes(selected.length, 1) * feeRate));
+        const remainderNoChange = selectedTotal - amountSats - feeNoChange;
+        if (remainderNoChange >= 0n) {
+            return { selected, selectedTotal, feeSats: selectedTotal - amountSats, sweepSats: amountSats, changeSats: 0n, outputCount: 1 };
+        }
+    }
+
+    return { selected, selectedTotal, feeSats: 0n, sweepSats: 0n, changeSats: 0n, outputCount: 1 };
+}
+
+function buildSignedUtxoSweepTransaction({ selected, payment, signer, destination, depositAddress, sweepSats, changeSats, bitcoinNetwork }) {
+    const psbt = new bitcoin.Psbt({ network: bitcoinNetwork });
+    for (const utxo of selected) {
+        psbt.addInput({
+            hash: utxo.txid,
+            index: utxo.vout,
+            witnessUtxo: {
+                script: payment.output,
+                value: utxo.value
+            }
+        });
+    }
+    psbt.addOutput({ address: destination, value: sweepSats });
+    if (changeSats > 0n) {
+        psbt.addOutput({ address: depositAddress, value: changeSats });
+    }
+    selected.forEach((_, index) => psbt.signInput(index, signer));
+    psbt.finalizeAllInputs();
+    const tx = psbt.extractTransaction();
+    return {
+        tx,
+        txHex: tx.toHex(),
+        txHash: tx.getId()
+    };
+}
+
+async function sweepUtxoDepositAddress(row, assetSymbol, network, body, sweepConfig) {
+    if (row.route_type !== "self_custody_hd") throw demoTradeError(400, "Only generated self-custody deposit addresses can be swept.");
+    const metadata = normalizeDepositMetadata(row.metadata);
+    const derivationIndex = Number(metadata.derivationIndex);
+    if (!Number.isInteger(derivationIndex) || derivationIndex < 0) {
+        throw demoTradeError(400, "This deposit address does not have a derivation index.");
+    }
+
+    const derivationPath = metadata.derivationPath || sweepConfig.derivationPath(derivationIndex);
+    const node = deriveBip32Node(derivationPath, sweepConfig.bitcoinNetwork);
+    if (!node?.privateKey) throw demoTradeError(500, "Could not derive the deposit signer from the configured seed phrase.");
+    const payment = bitcoinPaymentForNode(node, sweepConfig.bitcoinNetwork);
+    if (!payment.address || !payment.output || !chainAddressMatches(payment.address, row.address)) {
+        throw demoTradeError(409, "Configured seed phrase does not match this deposit address.");
+    }
+
+    const destination = resolveUtxoSweepDestination(assetSymbol, network, sweepConfig.family, sweepConfig.bitcoinNetwork, body);
+    if (!destination.address) {
+        return {
+            success: false,
+            configured: false,
+            sweepRequired: true,
+            executable: false,
+            error: "Treasury sweep address is not configured.",
+            setEnv: destination.acceptedFallbacks?.[0],
+            acceptedFallbacks: destination.acceptedFallbacks || []
+        };
+    }
+
+    const baseUrl = getDepositRestBaseUrl(sweepConfig.scannerConfig);
+    if (!baseUrl) throw demoTradeError(503, `${network} sweep endpoint is not configured.`);
+    const utxos = await fetchMempoolUtxos(baseUrl, row.address);
+    const confirmedUtxos = utxos.filter((utxo) => utxo.confirmed);
+    const totalSats = confirmedUtxos.reduce((sum, utxo) => sum + utxo.value, 0n);
+    if (!confirmedUtxos.length || totalSats <= 0n) {
+        return {
+            success: false,
+            configured: true,
+            sweepRequired: true,
+            executable: false,
+            asset: assetSymbol,
+            network,
+            address: row.address,
+            treasuryAddress: destination.address,
+            error: `No confirmed ${assetSymbol} balance is available to sweep from this address.`,
+            balance: formatDecimalUnits(totalSats, sweepConfig.decimals),
+            utxoCount: utxos.length,
+            confirmedUtxoCount: confirmedUtxos.length
+        };
+    }
+
+    const feeRate = await fetchRecommendedUtxoFeeRate(baseUrl, body);
+    const requestedSats = parseDecimalUnits(body.amount, sweepConfig.decimals, "sweep amount");
+    const selection = selectUtxosForSweep(confirmedUtxos, requestedSats, feeRate, sweepConfig.dustSats);
+    if (!selection.selected.length || selection.sweepSats <= sweepConfig.dustSats) {
+        return {
+            success: false,
+            configured: true,
+            sweepRequired: true,
+            executable: false,
+            asset: assetSymbol,
+            network,
+            address: row.address,
+            treasuryAddress: destination.address,
+            error: `Not enough ${assetSymbol} balance to sweep after network fee.`,
+            balance: formatDecimalUnits(totalSats, sweepConfig.decimals),
+            feeRateSatsPerVbyte: feeRate
+        };
+    }
+
+    const base = {
+        success: true,
+        configured: true,
+        sweepRequired: true,
+        executable: true,
+        asset: assetSymbol,
+        network,
+        address: row.address,
+        treasuryAddress: destination.address,
+        treasurySource: destination.source,
+        derivationIndex,
+        derivationPath,
+        balance: formatDecimalUnits(totalSats, sweepConfig.decimals),
+        sweepAmount: formatDecimalUnits(selection.sweepSats, sweepConfig.decimals),
+        changeAmount: formatDecimalUnits(selection.changeSats, sweepConfig.decimals),
+        estimatedNetworkFee: formatDecimalUnits(selection.feeSats, sweepConfig.decimals),
+        feeRateSatsPerVbyte: feeRate,
+        estimatedVbytes: estimateP2wpkhVbytes(selection.selected.length, selection.outputCount),
+        utxoCount: utxos.length,
+        confirmedUtxoCount: confirmedUtxos.length,
+        selectedUtxoCount: selection.selected.length
+    };
+
+    const execute = body.execute === true || body.dryRun === false;
+    if (!execute) {
+        return {
+            ...base,
+            dryRun: true,
+            message: `${assetSymbol} sweep is ready. Tick Execute sweep and submit again to broadcast.`
+        };
+    }
+
+    const signed = buildSignedUtxoSweepTransaction({
+        selected: selection.selected,
+        payment,
+        signer: bip32Signer(node),
+        destination: destination.address,
+        depositAddress: row.address,
+        sweepSats: selection.sweepSats,
+        changeSats: selection.changeSats,
+        bitcoinNetwork: sweepConfig.bitcoinNetwork
+    });
+    const broadcastResult = await fetchDepositText(`${baseUrl}/tx`, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: signed.txHex
+    });
+    return {
+        ...base,
+        dryRun: false,
+        txHash: normalizeText(broadcastResult) || signed.txHash,
+        status: "submitted"
+    };
+}
+
 async function sweepDatabaseDepositAddress(body = {}) {
     if (!databaseConfigured()) {
         return { success: false, configured: false, error: "Database is not configured." };
@@ -5559,18 +5907,21 @@ async function sweepDatabaseDepositAddress(body = {}) {
 
         const networkConfig = getEvmNetworkConfig(network);
         if (!networkConfig) {
+            const utxoSweepConfig = getUtxoSweepConfig(assetSymbol, network);
+            if (utxoSweepConfig) {
+                return await sweepUtxoDepositAddress(row, assetSymbol, network, body, utxoSweepConfig);
+            }
             return {
-                success: true,
-                configured: true,
+                success: false,
+                configured: false,
                 sweepRequired: true,
                 executable: false,
-                manualReviewRequired: true,
                 asset: assetSymbol,
                 network,
                 address: row.address,
                 routeType: row.route_type,
                 provider: row.provider,
-                message: `${assetSymbol} on ${network} is a supported deposit route, but automated treasury sweeping is not connected for this network. Confirm the on-chain deposit, use Manual credit when needed, then move the funds from the network wallet or custody account manually.`
+                error: `${assetSymbol} sweep on ${network} is not connected yet.`
             };
         }
 
@@ -5675,7 +6026,7 @@ async function sweepDatabaseDepositAddress(body = {}) {
                     ...base,
                     success: true,
                     dryRun: true,
-                    message: "Sweep is ready. Send the same request with execute=true to submit the transfer."
+                    message: "Sweep is ready. Tick Execute sweep and submit again to broadcast."
                 };
             }
 
@@ -5734,7 +6085,7 @@ async function sweepDatabaseDepositAddress(body = {}) {
             return {
                 ...base,
                 dryRun: true,
-                message: "Native sweep is ready. Send the same request with execute=true to submit the transfer."
+                message: "Native sweep is ready. Tick Execute sweep and submit again to broadcast."
             };
         }
 

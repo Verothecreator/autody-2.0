@@ -16,7 +16,7 @@
       <div>
         <p class="eyebrow">Admin control</p>
         <h1>Deposit portal</h1>
-        <p>Watch generated addresses, credited deposits, scan state, manual credits, and sweep readiness.</p>
+        <p>Watch generated addresses, credited deposits, scan state, ledger credits, and sweep readiness.</p>
       </div>
       <div class="admin-key-card ops-session-card">
         <span class="muted-label">Ops session</span>
@@ -79,12 +79,12 @@
       <form class="app-card admin-action-card" id="admin-sweep-form">
         <div class="card-heading">
           <div>
-            <span class="muted-label">Treasury move</span>
-            <h2>Sweep / manual move</h2>
+            <span class="muted-label">Treasury sweep</span>
+            <h2>Sweep</h2>
           </div>
         </div>
-        <small class="admin-help-text">EVM deposit routes can be checked or swept automatically. Bitcoin, Solana, XRP, Stellar, Tron, Dogecoin, Litecoin, Bitcoin Cash, and other non-EVM routes are reviewed here and moved manually.</small>
-        <label>Generated address<input name="address" placeholder="0x..." required /></label>
+        <small class="admin-help-text">Sweep generated self-custody deposit addresses into the treasury. Leave amount blank to sweep the available balance after network fees.</small>
+        <label>Generated address<input name="address" placeholder="Generated deposit address" required /></label>
         <div class="admin-form-row">
           <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" required /></label>
           <label>Network<input name="network" list="admin-network-options" placeholder="Polygon PoS" required /></label>
@@ -92,9 +92,9 @@
         <label>Destination<input name="destination" placeholder="Optional treasury destination" /></label>
         <div class="admin-form-row admin-form-row-tight">
           <label>Amount<input name="amount" type="number" step="any" placeholder="Blank = full balance" /></label>
-          <label class="admin-check"><input name="execute" type="checkbox" /> Execute transfer</label>
+          <label class="admin-check"><input name="execute" type="checkbox" /> Execute sweep</label>
         </div>
-        <button type="submit" class="btn">Check Move</button>
+        <button type="submit" class="btn">Sweep</button>
       </form>
 
       <form class="app-card admin-action-card" id="admin-credit-form">
