@@ -130,7 +130,7 @@
             <div>
               <span class="muted-label">Funding</span>
               <h2>Add funds</h2>
-              <p class="card-intro">These flows prepare fiat funding for a live account. Crypto deposits stay in the separate receive flow.</p>
+              <p class="card-intro">Card, ACH, and wire funding are coming soon. Crypto deposits are available from Receive.</p>
             </div>
             <button class="asset-more-button" type="button" data-live-funding-close aria-label="Close funding panel">x</button>
           </div>
@@ -142,61 +142,25 @@
           </div>
 
           <div class="live-method-panel" data-funding-panel="card">
-            <div class="live-form-grid">
-              <label>
-                <span>Deposit amount</span>
-                <input type="number" min="10" placeholder="Enter USD amount" data-funding-amount="card" />
-              </label>
-              <label>
-                <span>Funding source</span>
-                <select data-funding-source="card">
-                  <option>Debit card</option>
-                  <option>Credit card</option>
-                </select>
-              </label>
-            </div>
             <div class="live-method-summary">
-              <strong>Card checkout</strong>
-              <span>Debit and credit card funding is coming soon. When connected, secure checkout and fees will show before confirmation.</span>
+              <strong>Debit card funding is coming soon.</strong>
+              <span>This funding method is not available yet.</span>
             </div>
             <button class="btn btn-full" type="button" data-funding-request="card">Card Coming Soon</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="ach" hidden>
-            <div class="live-form-grid">
-              <label>
-                <span>Deposit amount</span>
-                <input type="number" min="25" placeholder="Enter USD amount" data-funding-amount="ach" />
-              </label>
-              <label>
-                <span>Transfer speed</span>
-                <select data-funding-source="ach">
-                  <option>Standard ACH</option>
-                  <option>Same-day ACH</option>
-                </select>
-              </label>
-            </div>
             <div class="live-method-summary">
-              <strong>ACH checkout</strong>
-              <span>ACH funding is coming soon. Bank transfers will become available only after settlement and return-risk checks pass.</span>
+              <strong>ACH funding is coming soon.</strong>
+              <span>This funding method is not available yet.</span>
             </div>
             <button class="btn btn-full" type="button" data-funding-request="ach">ACH Coming Soon</button>
           </div>
 
           <div class="live-method-panel" data-funding-panel="wire" hidden>
-            <div class="live-form-grid">
-              <label>
-                <span>Expected amount</span>
-                <input type="number" min="0" placeholder="Optional USD amount" data-funding-amount="wire" />
-              </label>
-            </div>
-            <div class="live-wire-box">
-              <span>Beneficiary</span>
-              <strong>Autody treasury account pending</strong>
-              <span>Reference</span>
-              <strong>AUTODY-USER-0001</strong>
-              <span>Status</span>
-              <strong>Bank rail not connected</strong>
+            <div class="live-method-summary">
+              <strong>Wire funding is coming soon.</strong>
+              <span>This funding method is not available yet.</span>
             </div>
             <button class="btn btn-full" type="button" data-funding-request="wire">Wire Coming Soon</button>
           </div>
@@ -257,8 +221,15 @@
             </div>
             <div class="live-transfer-brief send-brief">
               <strong>Send crypto from Autody</strong>
-              <span>Enter the destination and amount. The live version will require balance checks, email security, approval rules, and network fee review before release.</span>
+              <span>Choose an internal Autody transfer or an external wallet withdrawal.</span>
             </div>
+            <label>
+              <span>Withdrawal type</span>
+              <select id="send-type">
+                <option value="internal">Internal transfer</option>
+                <option value="external">External wallet</option>
+              </select>
+            </label>
             <label>
               <span>Asset</span>
               <select id="send-asset">
@@ -266,7 +237,15 @@
                 <option value="ETH">ETH / Ethereum</option>
               </select>
             </label>
-            <label>
+            <label data-send-network-field hidden>
+              <span>Network</span>
+              <select id="send-network"></select>
+            </label>
+            <label data-send-recipient-field>
+              <span>Recipient Autody email</span>
+              <input id="send-recipient-email" type="email" placeholder="customer@example.com" />
+            </label>
+            <label data-send-destination-field hidden>
               <span>Destination address</span>
               <input id="send-address" type="text" placeholder="Paste wallet address" />
             </label>
@@ -275,10 +254,10 @@
               <input id="send-amount" type="number" min="0" placeholder="0.00" />
             </label>
             <div class="live-transfer-footnote">
-              <span>Protection required</span>
-              <strong>Production sends will stay locked until custody, withdrawal approvals, and account security are connected.</strong>
+              <span>Review required</span>
+              <strong id="send-review-copy">Internal transfers move balances between Autody customers. External wallet withdrawals are reviewed by Autody before release.</strong>
             </div>
-            <button class="btn btn-full" type="button" id="review-send">Review Send</button>
+            <button class="btn btn-full" type="button" id="review-send">Submit Withdrawal</button>
           </div>
         </div>
       </div>

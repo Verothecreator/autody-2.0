@@ -1025,6 +1025,47 @@ async function sendPasswordChangeCodeEmail(email, code) {
     return { delivered: true, provider: "resend" };
 }
 
+async function sendPasswordResetCodeEmail(email, code) {
+    const subject = "Reset your Autody password";
+    const text = `Your Autody password reset code is ${code}.\n\nThis code expires in 5 minutes. If you did not request a password reset, you can ignore this email.`;
+    const html = `
+        <div style="margin:0;padding:24px;background:#ffffff;font-family:Arial,sans-serif;color:#111827">
+          <div style="max-width:560px;margin:0 auto">
+            <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody account security</div>
+            <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2;color:#111827">Reset your password</h1>
+            <p style="margin:0 0 20px;color:#374151;font-size:16px;line-height:1.55">Use this one-time code to set a new Autody password.</p>
+            <div style="margin:20px 0;padding:20px;border-radius:12px;background:#f4f6ff;text-align:center;border:1px solid #d7ddf3">
+              <div style="font-size:40px;line-height:1;letter-spacing:8px;font-weight:900;color:#111827">${code}</div>
+            </div>
+            <p style="margin:0;color:#374151;font-size:14px;line-height:1.55">This code expires in <strong style="color:#111827">5 minutes</strong>. If this was not you, no password change will happen unless the code is entered.</p>
+          </div>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody password reset code for", email, code);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: EMAIL_FROM,
+            to: email,
+            subject,
+            html,
+            text
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Password reset delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
 function kycRejectionReasonLabel(value = "") {
     const labels = {
         invalid_document: "Invalid document",
@@ -1734,7 +1775,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     const row = accountResult.rows[0];
     if (!row) return null;
 
-    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult] = await Promise.all([
+    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult, withdrawalResult] = await Promise.all([
         dbPool.query(`
             select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at
             from holdings
@@ -1781,6 +1822,20 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             where profile_id = $1
             order by created_at desc
             limit 1
+        `, [row.profile_id]).catch(() => ({ rows: [] })),
+        dbPool.query(`
+            select
+              wr.*,
+              p.email,
+              p.display_name,
+              pv.first_name,
+              pv.last_name
+            from withdrawal_requests wr
+            join profiles p on p.id = wr.profile_id
+            left join profile_verifications pv on pv.profile_id = p.id
+            where wr.profile_id = $1
+            order by wr.created_at desc
+            limit 20
         `, [row.profile_id]).catch(() => ({ rows: [] }))
     ]);
 
@@ -1839,6 +1894,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
         },
         wallet: { cash, holdings: nonCashHoldings },
         orders: ordersResult.rows,
+        withdrawals: withdrawalResult.rows.map(mapWithdrawalRequestRow),
         watchlist: reduceWatchlistRows(watchlistResult.rows),
         researchPreferences: researchResult.rows.map((item) => item.topic),
         performance: {
@@ -1894,6 +1950,7 @@ function getJsonAccountByUserId(userId, mode = "live") {
             holdings: wallet.holdings || []
         },
         orders: db.orders?.[userId] || [],
+        withdrawals: db.withdrawalRequests?.[userId] || [],
         watchlist: jsonWatchlistForMode(db, accountMode, userId),
         researchPreferences: db.researchPreferences?.[userId] || [],
         performance: db.performance?.[userId] || {},
@@ -2102,6 +2159,21 @@ const LIVE_WALLET_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETF
 
 function buildLiveWalletRecords(account) {
     const orderRecords = (account.orders || []).map(walletRecordFromOrder);
+    const withdrawalRecords = (account.withdrawals || []).map((request) => {
+        const type = request.type || request.request_type || "external";
+        const symbol = String(request.asset || request.asset_symbol || "").toUpperCase();
+        const status = request.status || "pending_review";
+        const valueUsd = numberValue(request.amountUsd ?? request.amount_usd, 0);
+        return {
+            type: type === "internal" ? "internal_transfer" : "withdrawal",
+            title: type === "internal" ? `Internal send ${symbol}` : `Withdrawal ${symbol}`,
+            symbol,
+            assetType: "crypto",
+            valueUsd,
+            status,
+            createdAt: request.createdAt || request.created_at || null
+        };
+    });
     const createdAt = account?.user?.createdAt || null;
     const setupRecord = {
         type: "setup",
@@ -2113,7 +2185,7 @@ function buildLiveWalletRecords(account) {
         createdAt
     };
 
-    return [setupRecord, ...orderRecords]
+    return [setupRecord, ...withdrawalRecords, ...orderRecords]
         .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
         .slice(0, 10);
 }
@@ -2216,7 +2288,7 @@ async function buildLiveWalletSnapshot(account) {
         totalValue,
         investedValue,
         positionsCount: positions.length + (au.balance > 0 ? 1 : 0),
-        pendingTransfers: 0,
+        pendingTransfers: (account.withdrawals || []).filter((request) => (request.status || "") === "pending_review").length,
         groups: {
             cashValue: cash.valueUsd,
             auValue,
@@ -4144,6 +4216,500 @@ async function createLiveFiatFundingRequest(auth, body = {}) {
     return createJsonFiatFundingRequest(auth, body);
 }
 
+function normalizeWithdrawalType(value) {
+    const normalized = String(value || "external").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (["internal", "internal_transfer", "user", "user_to_user"].includes(normalized)) return "internal";
+    if (["external", "external_wallet", "wallet", "onchain", "on_chain"].includes(normalized)) return "external";
+    throw demoTradeError(400, "Choose internal transfer or external wallet withdrawal.");
+}
+
+function normalizeWithdrawalAssetSymbol(value) {
+    const symbol = normalizeManualCreditAssetSymbol(value);
+    if (symbol !== "USD" && !LIVE_DEPOSIT_ASSETS[symbol]) {
+        throw demoTradeError(400, "Choose a supported withdrawal asset.");
+    }
+    return symbol;
+}
+
+function normalizeWithdrawalAmount(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw demoTradeError(400, "Enter a withdrawal amount greater than zero.");
+    }
+    return Math.round(amount * 1e10) / 1e10;
+}
+
+function normalizeWithdrawalNetwork(assetSymbol, type, value) {
+    if (type === "internal") return normalizeText(value) || "Autody internal";
+    if (assetSymbol === "USD") return "Manual ledger";
+    return normalizeDepositNetwork(assetSymbol, value);
+}
+
+function normalizeWithdrawalStatus(status = "") {
+    const value = String(status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (["approve", "approved", "release", "released", "complete", "completed"].includes(value)) return "approved";
+    if (["reject", "rejected", "declined", "deny", "denied"].includes(value)) return "rejected";
+    return "pending_review";
+}
+
+function withdrawalProfileName(row = {}) {
+    const firstLast = [row.first_name, row.last_name]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(" ");
+    return firstLast || row.display_name || row.email || "Unknown account";
+}
+
+function mapWithdrawalRequestRow(row = {}) {
+    return {
+        id: row.id,
+        type: row.request_type,
+        profileId: row.profile_id,
+        email: row.email || "",
+        profileName: withdrawalProfileName(row),
+        asset: row.asset_symbol,
+        network: row.network || "",
+        amount: numberValue(row.amount, 0),
+        amountUsd: row.amount_usd == null ? null : numberValue(row.amount_usd, 0),
+        feeUsd: numberValue(row.fee_usd, 0),
+        destination: row.destination || "",
+        recipientProfileId: row.recipient_profile_id || "",
+        recipientEmail: row.recipient_email || "",
+        status: row.status || "pending_review",
+        note: row.note || "",
+        txHash: row.tx_hash || "",
+        reviewedBy: row.reviewed_by || "",
+        createdAt: row.created_at || "",
+        updatedAt: row.updated_at || "",
+        reviewedAt: row.reviewed_at || "",
+        metadata: row.metadata || {}
+    };
+}
+
+async function ensureWithdrawalTables(client = dbPool) {
+    if (!databaseConfigured()) return;
+    await ensureSignUpTables(client);
+    await client.query(`
+        create table if not exists withdrawal_requests (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null references profiles(id) on delete cascade,
+          account_mode_id uuid references account_modes(id) on delete set null,
+          request_type text not null check (request_type in ('internal', 'external')),
+          asset_symbol text not null,
+          network text not null default '',
+          amount numeric(28, 10) not null,
+          amount_usd numeric(18, 2),
+          fee_usd numeric(18, 2) not null default 0,
+          destination text not null default '',
+          recipient_profile_id uuid references profiles(id) on delete set null,
+          recipient_email text not null default '',
+          status text not null default 'pending_review',
+          note text not null default '',
+          tx_hash text not null default '',
+          reviewed_by text not null default '',
+          metadata jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          reviewed_at timestamptz
+        );
+
+        create index if not exists withdrawal_requests_profile_created_idx
+          on withdrawal_requests (profile_id, created_at desc);
+
+        create index if not exists withdrawal_requests_status_created_idx
+          on withdrawal_requests (status, created_at desc);
+    `);
+}
+
+async function profileByEmailForUpdate(client, email) {
+    const result = await client.query(`
+        select id, email
+        from profiles
+        where lower(email) = lower($1)
+        limit 1
+    `, [email]);
+    return result.rows[0] || null;
+}
+
+async function walletAssetInfo(symbol, existing = null) {
+    const marketAsset = symbol === "USD" ? null : await findMarketAssetBySymbol(symbol).catch(() => null);
+    const quantity = numberValue(existing?.quantity, 0);
+    const valueUsd = numberValue(existing?.value_usd, 0);
+    const price = symbol === "USD"
+        ? 1
+        : firstPositive(existing?.last_price, quantity > 0 ? valueUsd / quantity : null, marketAsset?.price) || 0;
+    return {
+        symbol,
+        name: existing?.asset_name || marketAsset?.name || LIVE_DEPOSIT_ASSETS[symbol]?.name || symbol,
+        assetType: existing?.asset_type || marketAsset?.assetType || (symbol === "USD" ? "cash" : "crypto"),
+        price
+    };
+}
+
+async function assertDbWalletAssetBalance(client, walletId, symbol, amount) {
+    if (symbol === "USD") {
+        const result = await client.query(`
+            select cash_balance
+            from wallets
+            where id = $1
+            for update
+        `, [walletId]);
+        const balance = numberValue(result.rows[0]?.cash_balance, 0);
+        if (balance + 1e-10 < amount) throw demoTradeError(400, "Not enough USD available for this withdrawal.");
+        return { balance, ...(await walletAssetInfo(symbol)) };
+    }
+
+    const existing = await readDbHoldingForUpdate(client, walletId, symbol);
+    const balance = numberValue(existing?.quantity, 0);
+    if (balance + 1e-10 < amount) throw demoTradeError(400, `Not enough ${symbol} available for this withdrawal.`);
+    return { balance, ...(await walletAssetInfo(symbol, existing)) };
+}
+
+async function debitDbWalletAsset(client, walletId, symbol, amount) {
+    const info = await assertDbWalletAssetBalance(client, walletId, symbol, amount);
+    if (symbol === "USD") {
+        await adjustDbCash(client, walletId, -amount);
+        return { ...info, amountUsd: amount };
+    }
+
+    const existing = await readDbHoldingForUpdate(client, walletId, symbol);
+    const currentQuantity = numberValue(existing?.quantity, 0);
+    const nextQuantity = Math.max(0, currentQuantity - amount);
+    await saveDbHolding(client, walletId, info, nextQuantity, existing?.average_cost || null, info.price);
+    return { ...info, amountUsd: info.price ? amount * info.price : null };
+}
+
+async function creditDbWalletAsset(client, walletId, symbol, amount, sourceInfo = {}) {
+    if (symbol === "USD") {
+        await adjustDbCash(client, walletId, amount);
+        return { symbol, name: "USD Funds", assetType: "cash", price: 1, amountUsd: amount };
+    }
+
+    const existing = await readDbHoldingForUpdate(client, walletId, symbol);
+    const info = {
+        ...(await walletAssetInfo(symbol, existing)),
+        ...sourceInfo,
+        symbol
+    };
+    const currentQuantity = numberValue(existing?.quantity, 0);
+    const nextQuantity = currentQuantity + amount;
+    const averageCost = firstPositive(existing?.average_cost, info.price) || null;
+    await saveDbHolding(client, walletId, info, nextQuantity, averageCost, info.price || firstPositive(existing?.last_price) || 0);
+    return { ...info, amountUsd: info.price ? amount * info.price : null };
+}
+
+async function createDatabaseWithdrawalRequest(auth, body = {}) {
+    if (!databaseConfigured()) return null;
+    const type = normalizeWithdrawalType(body.type || body.withdrawalType || body.mode);
+    const assetSymbol = normalizeWithdrawalAssetSymbol(body.asset || body.symbol);
+    const amount = normalizeWithdrawalAmount(body.amount);
+    const network = normalizeWithdrawalNetwork(assetSymbol, type, body.network);
+    const note = normalizeText(body.note);
+    const destination = normalizeText(body.destination || body.address || body.walletAddress);
+    const recipientEmail = normalizeEmail(body.recipientEmail || body.email || body.toEmail);
+
+    if (type === "external" && !destination) {
+        throw demoTradeError(400, "Enter the external wallet address.");
+    }
+    if (type === "internal" && !recipientEmail) {
+        throw demoTradeError(400, "Enter the recipient's Autody email.");
+    }
+    if (recipientEmail && recipientEmail === normalizeEmail(auth.user?.email)) {
+        throw demoTradeError(400, "Choose another Autody account as the recipient.");
+    }
+
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        await ensureWithdrawalTables(client);
+        const context = await getPracticeDbContext(client, auth.profileId, "live");
+        let recipient = null;
+        let recipientContext = null;
+        let movementInfo = null;
+        let status = type === "internal" ? "completed" : "pending_review";
+        let finalDestination = destination;
+
+        if (type === "internal") {
+            recipient = await profileByEmailForUpdate(client, recipientEmail);
+            if (!recipient) throw demoTradeError(404, "Recipient Autody account was not found.");
+            recipientContext = await getPracticeDbContext(client, recipient.id, "live");
+            movementInfo = await debitDbWalletAsset(client, context.wallet_id, assetSymbol, amount);
+            await creditDbWalletAsset(client, recipientContext.wallet_id, assetSymbol, amount, movementInfo);
+            finalDestination = recipient.email;
+        } else {
+            movementInfo = await assertDbWalletAssetBalance(client, context.wallet_id, assetSymbol, amount);
+        }
+
+        const amountUsd = movementInfo?.amountUsd == null && movementInfo?.price
+            ? amount * movementInfo.price
+            : movementInfo?.amountUsd ?? null;
+        const result = await client.query(`
+            insert into withdrawal_requests (
+              profile_id, account_mode_id, request_type, asset_symbol, network, amount, amount_usd,
+              fee_usd, destination, recipient_profile_id, recipient_email, status, note, metadata,
+              reviewed_at
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13::jsonb,
+                    case when $11 = 'completed' then now() else null end)
+            returning *
+        `, [
+            auth.profileId,
+            context.account_mode_id,
+            type,
+            assetSymbol,
+            network,
+            amount,
+            amountUsd == null ? null : Math.round(amountUsd * 100) / 100,
+            finalDestination,
+            recipient?.id || null,
+            recipient?.email || "",
+            status,
+            note,
+            JSON.stringify({
+                createdBy: "account",
+                price: movementInfo?.price || null
+            })
+        ]);
+
+        await client.query("commit");
+        return mapWithdrawalRequestRow({
+            ...result.rows[0],
+            email: auth.user?.email,
+            display_name: auth.user?.name,
+            recipient_email: recipient?.email || result.rows[0].recipient_email
+        });
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+function jsonHoldingForWithdrawal(wallet, symbol) {
+    wallet.holdings = wallet.holdings || [];
+    return wallet.holdings.find((holding) => normalizeTradeSymbol(holding.symbol) === symbol) || null;
+}
+
+function jsonDebitWalletAsset(db, userId, symbol, amount) {
+    const wallet = db.wallets?.[userId];
+    if (!wallet) throw demoTradeError(503, "Wallet is not ready.");
+    if (symbol === "USD") {
+        wallet.liveCash = wallet.liveCash || { symbol: "USD", name: "USD Funds", balance: 0, valueUsd: 0, status: "Awaiting deposit" };
+        const balance = numberValue(wallet.liveCash.balance, 0);
+        if (balance + 1e-10 < amount) throw demoTradeError(400, "Not enough USD available for this withdrawal.");
+        wallet.liveCash.balance = balance - amount;
+        wallet.liveCash.valueUsd = wallet.liveCash.balance;
+        return { symbol, name: "USD Funds", assetType: "cash", price: 1, amountUsd: amount };
+    }
+
+    const holding = jsonHoldingForWithdrawal(wallet, symbol);
+    const balance = numberValue(holding?.balance ?? holding?.quantity, 0);
+    if (balance + 1e-10 < amount) throw demoTradeError(400, `Not enough ${symbol} available for this withdrawal.`);
+    const price = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+    holding.balance = Math.max(0, balance - amount);
+    holding.valueUsd = price ? holding.balance * price : numberValue(holding.valueUsd, 0);
+    holding.updatedAt = new Date().toISOString();
+    return { symbol, name: holding.name || LIVE_DEPOSIT_ASSETS[symbol]?.name || symbol, assetType: holding.category || "crypto", price, amountUsd: price ? amount * price : null };
+}
+
+function jsonCreditWalletAsset(db, userId, symbol, amount, sourceInfo = {}) {
+    const wallet = db.wallets?.[userId];
+    if (!wallet) throw demoTradeError(503, "Recipient wallet is not ready.");
+    if (symbol === "USD") {
+        wallet.liveCash = wallet.liveCash || { symbol: "USD", name: "USD Funds", balance: 0, valueUsd: 0, status: "Awaiting deposit" };
+        wallet.liveCash.balance = numberValue(wallet.liveCash.balance, 0) + amount;
+        wallet.liveCash.valueUsd = wallet.liveCash.balance;
+        wallet.liveCash.status = wallet.liveCash.balance > 0 ? "Available" : "Awaiting deposit";
+        return;
+    }
+
+    wallet.holdings = wallet.holdings || [];
+    let holding = jsonHoldingForWithdrawal(wallet, symbol);
+    if (!holding) {
+        holding = {
+            symbol,
+            name: sourceInfo.name || LIVE_DEPOSIT_ASSETS[symbol]?.name || symbol,
+            category: sourceInfo.assetType || "crypto",
+            balance: 0,
+            valueUsd: 0,
+            status: "Ready"
+        };
+        wallet.holdings.push(holding);
+    }
+    const price = firstPositive(sourceInfo.price, holding.lastPrice) || 0;
+    holding.balance = numberValue(holding.balance ?? holding.quantity, 0) + amount;
+    holding.lastPrice = price || holding.lastPrice || null;
+    holding.valueUsd = price ? holding.balance * price : numberValue(holding.valueUsd, 0);
+    holding.status = holding.balance > 0 ? "Held" : "Ready";
+    holding.updatedAt = new Date().toISOString();
+}
+
+function createJsonWithdrawalRequest(auth, body = {}) {
+    const type = normalizeWithdrawalType(body.type || body.withdrawalType || body.mode);
+    const assetSymbol = normalizeWithdrawalAssetSymbol(body.asset || body.symbol);
+    const amount = normalizeWithdrawalAmount(body.amount);
+    const network = normalizeWithdrawalNetwork(assetSymbol, type, body.network);
+    const destination = normalizeText(body.destination || body.address || body.walletAddress);
+    const recipientEmail = normalizeEmail(body.recipientEmail || body.email || body.toEmail);
+    if (type === "external" && !destination) throw demoTradeError(400, "Enter the external wallet address.");
+    if (type === "internal" && !recipientEmail) throw demoTradeError(400, "Enter the recipient's Autody email.");
+    if (recipientEmail && recipientEmail === normalizeEmail(auth.user?.email)) throw demoTradeError(400, "Choose another Autody account as the recipient.");
+
+    const db = loadDemoDb();
+    const recipient = type === "internal" ? jsonUserByEmail(db, recipientEmail) : null;
+    if (type === "internal" && !recipient) throw demoTradeError(404, "Recipient Autody account was not found.");
+
+    let movementInfo = null;
+    let finalDestination = destination;
+    if (type === "internal") {
+        movementInfo = jsonDebitWalletAsset(db, auth.userId, assetSymbol, amount);
+        jsonCreditWalletAsset(db, recipient.id, assetSymbol, amount, movementInfo);
+        finalDestination = recipient.email;
+    } else {
+        const wallet = db.wallets?.[auth.userId];
+        const balanceInfo = assetSymbol === "USD"
+            ? { balance: numberValue(wallet?.liveCash?.balance, 0), price: 1, amountUsd: amount }
+            : (() => {
+                const holding = jsonHoldingForWithdrawal(wallet || {}, assetSymbol);
+                const balance = numberValue(holding?.balance ?? holding?.quantity, 0);
+                const price = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+                return { balance, price, amountUsd: price ? amount * price : null };
+            })();
+        if (balanceInfo.balance + 1e-10 < amount) throw demoTradeError(400, `Not enough ${assetSymbol} available for this withdrawal.`);
+        movementInfo = balanceInfo;
+    }
+
+    const now = new Date().toISOString();
+    const request = {
+        id: crypto.randomUUID(),
+        userId: auth.userId,
+        email: auth.user?.email || "",
+        type,
+        asset: assetSymbol,
+        network,
+        amount,
+        amountUsd: movementInfo?.amountUsd == null ? null : Math.round(movementInfo.amountUsd * 100) / 100,
+        feeUsd: 0,
+        destination: finalDestination,
+        recipientUserId: recipient?.id || "",
+        recipientEmail: recipient?.email || "",
+        status: type === "internal" ? "completed" : "pending_review",
+        note: normalizeText(body.note),
+        txHash: "",
+        createdAt: now,
+        updatedAt: now,
+        reviewedAt: type === "internal" ? now : ""
+    };
+    db.withdrawalRequests = db.withdrawalRequests || {};
+    db.withdrawalRequests[auth.userId] = [request, ...(db.withdrawalRequests[auth.userId] || [])].slice(0, 50);
+    saveDemoDb(db);
+    return request;
+}
+
+async function createLiveWithdrawalRequest(auth, body = {}) {
+    if (auth.source === "supabase") return createDatabaseWithdrawalRequest(auth, body);
+    return createJsonWithdrawalRequest(auth, body);
+}
+
+async function getAdminWithdrawalOverview(options = {}) {
+    if (!databaseConfigured()) {
+        return { success: true, configured: false, withdrawals: [], totals: {}, error: "Database is not configured." };
+    }
+    const limit = Math.min(100, Math.max(1, Number(options.limit || 50)));
+    await ensureWithdrawalTables();
+    const result = await dbPool.query(`
+        select
+          wr.*,
+          p.email,
+          p.display_name,
+          pv.first_name,
+          pv.last_name
+        from withdrawal_requests wr
+        join profiles p on p.id = wr.profile_id
+        left join profile_verifications pv on pv.profile_id = p.id
+        order by wr.created_at desc
+        limit $1
+    `, [limit]);
+    const withdrawals = result.rows.map(mapWithdrawalRequestRow);
+    return {
+        success: true,
+        configured: true,
+        withdrawals,
+        totals: {
+            pending: withdrawals.filter((item) => item.status === "pending_review").length,
+            internal: withdrawals.filter((item) => item.type === "internal").length,
+            external: withdrawals.filter((item) => item.type === "external").length
+        },
+        generatedAt: new Date().toISOString()
+    };
+}
+
+async function decideDatabaseWithdrawalRequest(body = {}) {
+    if (!databaseConfigured()) return { success: false, configured: false, error: "Database is not configured." };
+    const id = normalizeText(body.id || body.requestId || body.withdrawalId);
+    const action = normalizeWithdrawalStatus(body.action || body.status);
+    const note = normalizeText(body.note || body.reason);
+    const txHash = normalizeText(body.txHash || body.hash);
+    const reviewer = normalizeText(body.reviewer || body.admin || "Autody admin");
+    if (!id) throw demoTradeError(400, "Enter a withdrawal request ID.");
+    if (action === "pending_review") throw demoTradeError(400, "Choose approve or reject.");
+
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        await ensureWithdrawalTables(client);
+        const result = await client.query(`
+            select wr.*, p.email, p.display_name
+            from withdrawal_requests wr
+            join profiles p on p.id = wr.profile_id
+            where wr.id = $1
+            for update
+        `, [id]);
+        const row = result.rows[0];
+        if (!row) throw demoTradeError(404, "Withdrawal request was not found.");
+        if (row.request_type === "internal") {
+            throw demoTradeError(400, "Internal transfers are completed when submitted and cannot be approved here.");
+        }
+        if (["approved", "rejected"].includes(row.status)) {
+            await client.query("commit");
+            return { success: true, request: mapWithdrawalRequestRow(row), message: "Withdrawal request was already reviewed." };
+        }
+
+        if (action === "approved") {
+            const context = await getPracticeDbContext(client, row.profile_id, "live");
+            await debitDbWalletAsset(client, context.wallet_id, row.asset_symbol, numberValue(row.amount, 0));
+        }
+
+        const update = await client.query(`
+            update withdrawal_requests
+            set status = $2,
+                note = $3,
+                tx_hash = $4,
+                reviewed_by = $5,
+                reviewed_at = now(),
+                updated_at = now()
+            where id = $1
+            returning *
+        `, [id, action, note, txHash, reviewer]);
+        await client.query("commit");
+        return {
+            success: true,
+            request: mapWithdrawalRequestRow({
+                ...update.rows[0],
+                email: row.email,
+                display_name: row.display_name
+            }),
+            message: action === "approved" ? "Withdrawal approved and balance debited." : "Withdrawal rejected."
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
 function appAbsoluteUrl(pathname, params = {}) {
     const base = String(APP_BASE_URL || "").trim().replace(/\/+$/, "");
     if (!base) return "";
@@ -4856,7 +5422,19 @@ async function sweepDatabaseDepositAddress(body = {}) {
 
         const networkConfig = getEvmNetworkConfig(network);
         if (!networkConfig) {
-            throw demoTradeError(400, "Automated sweeping is currently available for EVM deposit networks only.");
+            return {
+                success: true,
+                configured: true,
+                sweepRequired: true,
+                executable: false,
+                manualReviewRequired: true,
+                asset: assetSymbol,
+                network,
+                address: row.address,
+                routeType: row.route_type,
+                provider: row.provider,
+                message: `${assetSymbol} on ${network} is a supported deposit route, but automated treasury sweeping is not connected for this network. Confirm the on-chain deposit, use Manual credit when needed, then move the funds from the network wallet or custody account manually.`
+            };
         }
 
         const token = getEvmTokenDepositContract(assetSymbol, network);
@@ -7179,6 +7757,36 @@ async function updateAccountPassword(auth, password) {
         ...(user.auth || {}),
         passwordSalt: salt,
         passwordHash
+    };
+    saveDemoDb(db);
+    return true;
+}
+
+async function updateDatabaseAccountPasswordByEmail(email, password) {
+    if (!databaseConfigured()) return false;
+    const profile = await databaseProfileVerification(email);
+    if (!profile?.id) return false;
+    const salt = crypto.randomBytes(16).toString("hex");
+    const passwordHash = hashPassword(password, salt);
+    const result = await dbPool.query(`
+        update profile_credentials
+        set password_salt = $2,
+            password_hash = $3
+        where profile_id = $1
+    `, [profile.id, salt, passwordHash]);
+    return result.rowCount > 0;
+}
+
+function updateJsonAccountPasswordByEmail(email, password) {
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    if (!user) return false;
+    const salt = crypto.randomBytes(16).toString("hex");
+    user.auth = {
+        ...(user.auth || {}),
+        passwordSalt: salt,
+        passwordHash: hashPassword(password, salt),
+        passwordUpdatedAt: new Date().toISOString()
     };
     saveDemoDb(db);
     return true;
@@ -13483,6 +14091,44 @@ app.post("/api/admin/deposits/credit", async (req, res) => {
   }
 });
 
+app.post("/api/admin/withdrawals/overview", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin withdrawal overview is not authorized." });
+    }
+    const result = await getAdminWithdrawalOverview(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin withdrawal overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Withdrawal overview failed." });
+  }
+});
+
+app.post("/api/admin/withdrawals/decision", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin withdrawal review is not authorized." });
+    }
+    const result = await decideDatabaseWithdrawalRequest(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin withdrawal decision failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Withdrawal review failed." });
+  }
+});
+
 app.post("/api/admin/kyc/overview", async (req, res) => {
   try {
     let body = {};
@@ -14038,6 +14684,77 @@ app.post("/api/auth/verify-login", async (req, res) => {
   }
 });
 
+app.post("/api/auth/password-reset/request", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    if (!email) return res.status(400).json({ success: false, error: "Enter the email address on your Autody account." });
+
+    const databaseCode = databaseConfigured()
+      ? await createDatabaseVerificationCode(email, "email", "password_reset", {
+          codeMode: "numeric",
+          ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+        }).catch(() => null)
+      : null;
+    const jsonCode = databaseCode
+      ? null
+      : createJsonVerificationCode(email, "email", "password_reset", {
+          codeMode: "numeric",
+          ttlMs: LOGIN_EMAIL_CODE_TTL_MS
+        });
+    const codeRecord = databaseCode || jsonCode;
+    if (!codeRecord?.code) {
+      return res.status(404).json({ success: false, error: "No Autody account was found for that email." });
+    }
+
+    const delivery = await sendPasswordResetCodeEmail(email, codeRecord.code).catch((err) => {
+      console.error("Password reset code delivery failed:", err.message || err);
+      throw signUpError(502, "Could not send the password reset code. Try again.");
+    });
+    return res.json({
+      success: true,
+      delivery: delivery.delivered ? "Password reset code sent." : "Password reset code created. Email delivery provider is not fully connected yet."
+    });
+  } catch (err) {
+    console.error("Password reset request error:", err);
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not start password reset." });
+  }
+});
+
+app.post("/api/auth/password-reset/confirm", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const email = normalizeEmail(body.email);
+    const code = normalizeText(body.code).replace(/\s+/g, "");
+    const newPassword = String(body.newPassword || "");
+    const passwordMessage = passwordValidationMessage(newPassword);
+    if (!email || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ success: false, error: "Enter your email and the 6-digit reset code." });
+    }
+    if (passwordMessage) return res.status(400).json({ success: false, error: passwordMessage });
+
+    const databaseResult = databaseConfigured()
+      ? await verifyDatabaseCode(email, "email", code, "password_reset", { markProfileVerified: false }).catch(() => null)
+      : null;
+    if (databaseResult?.success) {
+      const updated = await updateDatabaseAccountPasswordByEmail(email, newPassword);
+      if (!updated) return res.status(404).json({ success: false, error: "Autody account was not found." });
+      return res.json({ success: true });
+    }
+
+    const jsonResult = verifyJsonCode(email, "email", code, "password_reset", { markProfileVerified: false });
+    if (!jsonResult?.success) {
+      return res.status(400).json({ success: false, error: databaseResult?.error || jsonResult?.error || "Password reset code is invalid." });
+    }
+    const updated = updateJsonAccountPasswordByEmail(email, newPassword);
+    if (!updated) return res.status(404).json({ success: false, error: "Autody account was not found." });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Password reset confirm error:", err);
+    return res.status(err.statusCode || 500).json({ success: false, error: err.statusCode ? err.message : "Could not reset password." });
+  }
+});
+
 app.get("/api/demo/practice-user", async (req, res) => {
   try {
     const account = await getPracticeAccountAny();
@@ -14238,6 +14955,24 @@ app.post("/api/account/funding/request", async (req, res) => {
   } catch (err) {
     console.error("Live fiat funding request error:", err);
     return sendDemoError(res, err, "Funding request could not be created");
+  }
+});
+
+app.post("/api/account/withdrawals/request", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const auth = await authenticatedAccountContext(req);
+    const request = await createLiveWithdrawalRequest(auth, body);
+    return res.json({
+      success: true,
+      request,
+      nextStep: request.type === "internal"
+        ? "Internal transfer completed."
+        : "External withdrawal request submitted for admin review."
+    });
+  } catch (err) {
+    console.error("Live withdrawal request error:", err);
+    return sendDemoError(res, err, "Withdrawal request could not be created");
   }
 });
 

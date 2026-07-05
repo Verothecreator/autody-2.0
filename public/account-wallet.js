@@ -767,9 +767,10 @@ function setLiveTransferTab(mode = "receive") {
   setLiveWalletText(
     "live-transfer-intro",
     normalized === "send"
-      ? "Prepare a withdrawal preview for the selected crypto asset. Production sends will require security approval."
+      ? "Submit an internal transfer or external wallet withdrawal request."
       : "If this address is not accepted by your sending platform, generate a new address and try again."
   );
+  if (normalized === "send" && typeof updateWithdrawalTypeFields === "function") updateWithdrawalTypeFields();
 }
 
 function openLiveTransferModal(mode = "receive", symbol = selectedLiveWalletSymbol) {
@@ -782,7 +783,10 @@ function openLiveTransferModal(mode = "receive", symbol = selectedLiveWalletSymb
     receiveSelect.value = assetSymbol;
     if (typeof updateReceiveNetworks === "function") updateReceiveNetworks();
   }
-  if (sendSelect) sendSelect.value = assetSymbol;
+  if (sendSelect) {
+    sendSelect.value = assetSymbol;
+    if (typeof updateSendNetworks === "function") updateSendNetworks();
+  }
   setLiveTransferTab(mode);
   modal.hidden = false;
   document.body.classList.add("modal-open");

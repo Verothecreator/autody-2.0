@@ -161,7 +161,7 @@ function fundingSourceValue(method) {
 
 async function createFundingRequest(method, button) {
   const normalized = String(method || "").trim().toLowerCase();
-  showLiveNotice(`${fundingMethodLabel(normalized)} funding is coming soon. Crypto receive stays available in the separate receive flow.`, "info");
+  showLiveNotice(`${fundingMethodLabel(normalized)} funding is coming soon.`, "info");
 }
 
 function updateReceiveNetworks() {
@@ -177,6 +177,35 @@ function updateReceiveNetworks() {
     .join("");
 }
 
+function updateSendNetworks() {
+  const assetSelect = document.getElementById("send-asset");
+  const networkSelect = document.getElementById("send-network");
+  if (!assetSelect || !networkSelect) return;
+
+  const asset = liveCryptoAssets[assetSelect.value] || liveCryptoAssets[defaultLiveCryptoSymbol()];
+  networkSelect.innerHTML = asset.networks
+    .slice()
+    .sort((networkA, networkB) => networkA.localeCompare(networkB))
+    .map((network) => `<option value="${network}">${network}</option>`)
+    .join("");
+}
+
+function updateWithdrawalTypeFields() {
+  const type = document.getElementById("send-type")?.value === "external" ? "external" : "internal";
+  document.querySelectorAll("[data-send-network-field], [data-send-destination-field]").forEach((node) => {
+    node.hidden = type !== "external";
+  });
+  document.querySelectorAll("[data-send-recipient-field]").forEach((node) => {
+    node.hidden = type !== "internal";
+  });
+  const reviewCopy = document.getElementById("send-review-copy");
+  if (reviewCopy) {
+    reviewCopy.textContent = type === "external"
+      ? "External wallet withdrawals are submitted to Autody for admin review before release."
+      : "Internal transfers move balances between Autody customers.";
+  }
+}
+
 function setLiveTransferAsset(symbol) {
   const assetSymbol = supportedLiveCryptoSymbol(symbol) || defaultLiveCryptoSymbol();
   const receiveSelect = document.getElementById("receive-asset");
@@ -189,6 +218,7 @@ function setLiveTransferAsset(symbol) {
 
   if (sendSelect) {
     sendSelect.value = assetSymbol;
+    updateSendNetworks();
   }
 
   return assetSymbol;
@@ -208,9 +238,10 @@ function setAutodyLiveTransferMode(mode = "receive") {
   if (title) title.textContent = normalized === "send" ? "Send crypto" : "Receive crypto";
   if (intro) {
     intro.textContent = normalized === "send"
-      ? "Prepare a withdrawal preview for the selected crypto asset. Production sends will require security approval."
+      ? "Submit an internal transfer or external wallet withdrawal request."
       : "If this address is not accepted by your sending platform, generate a new address and try again.";
   }
+  if (normalized === "send") updateWithdrawalTypeFields();
 }
 
 function openAutodyLiveTransferModal(mode = "receive", symbol = "") {
@@ -363,17 +394,56 @@ async function copyReceiveAddress() {
   }
 }
 
-function reviewLiveSend() {
+async function reviewLiveSend() {
+  const button = document.getElementById("review-send");
+  const type = document.getElementById("send-type")?.value === "external" ? "external" : "internal";
   const asset = document.getElementById("send-asset")?.value || defaultLiveCryptoSymbol();
   const amount = Number(document.getElementById("send-amount")?.value || 0);
   const destination = document.getElementById("send-address")?.value?.trim();
+  const recipientEmail = document.getElementById("send-recipient-email")?.value?.trim();
+  const network = document.getElementById("send-network")?.value || "";
 
-  if (!destination || !amount) {
-    showLiveNotice("Enter a destination address and amount to preview a send.", "warning");
+  if (!amount) {
+    showLiveNotice("Enter a withdrawal amount.", "warning");
+    return;
+  }
+  if (type === "internal" && !recipientEmail) {
+    showLiveNotice("Enter the recipient's Autody email.", "warning");
+    return;
+  }
+  if (type === "external" && !destination) {
+    showLiveNotice("Enter the external wallet address.", "warning");
     return;
   }
 
-  showLiveNotice(`Live ${asset} withdrawals are not enabled yet. Production sends will require custody checks, 2FA, approval rules, and network fees.`, "warning");
+  const originalText = button?.textContent || "Submit Withdrawal";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Submitting...";
+  }
+
+  try {
+    const data = await postLiveAccountJson("/api/account/withdrawals/request", {
+      type,
+      asset,
+      network,
+      amount,
+      destination,
+      recipientEmail
+    });
+    showLiveNotice(data.nextStep || "Withdrawal request submitted.", "success");
+    document.getElementById("send-amount").value = "";
+    document.getElementById("send-address").value = "";
+    document.getElementById("send-recipient-email").value = "";
+    if (typeof window.loadLiveWallet === "function") window.loadLiveWallet();
+  } catch (err) {
+    showLiveNotice(err.message || "Withdrawal request could not be created.", "warning");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 document.addEventListener("click", (event) => {
@@ -450,6 +520,8 @@ document.getElementById("receive-network")?.addEventListener("change", () => {
   requestReceiveAddress({ fresh: false, showNotice: false });
 });
 
+document.getElementById("send-asset")?.addEventListener("change", updateSendNetworks);
+document.getElementById("send-type")?.addEventListener("change", updateWithdrawalTypeFields);
 document.getElementById("generate-receive-address")?.addEventListener("click", generateReceiveAddress);
 document.getElementById("copy-receive-address")?.addEventListener("click", copyReceiveAddress);
 document.getElementById("review-send")?.addEventListener("click", reviewLiveSend);
@@ -462,6 +534,8 @@ document.addEventListener("keydown", (event) => {
 populateLiveCryptoSelects();
 setLiveTransferAsset(new URLSearchParams(location.search).get("asset") || defaultLiveCryptoSymbol());
 updateReceiveNetworks();
+updateSendNetworks();
+updateWithdrawalTypeFields();
 
 window.ensureLiveReceiveAddress = () => requestReceiveAddress({ fresh: false, showNotice: false });
 window.openAutodyLiveTransferModal = openAutodyLiveTransferModal;
