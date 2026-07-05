@@ -26,6 +26,12 @@ function formatControlPrice(value) {
   return controlMoney.format(number);
 }
 
+function formatOpsSessionDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Active session";
+  return `Active until ${date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+}
+
 function controlNumberInput(form, name, value) {
   const input = form.elements[name];
   if (input) input.value = value ?? "";
@@ -444,6 +450,22 @@ async function saveControl(form, submit) {
 }
 
 function wireControlOps() {
+  document.getElementById("ops-market-refresh")?.addEventListener("click", async () => {
+    try {
+      controlNotice("Refreshing market control.", "neutral");
+      await loadControlList();
+      if (activeSymbol) {
+        await loadControlOverview(false);
+      } else {
+        syncControlWorkspace();
+        updateControlLabels();
+      }
+      controlNotice(activeSymbol ? `${activeSymbol} control refreshed.` : "Market controls refreshed.", "success");
+    } catch (err) {
+      controlNotice(err.message || "Refresh failed.", "error");
+    }
+  });
+
   document.getElementById("ops-control-list")?.addEventListener("click", (event) => {
     const deleteButton = event.target.closest("[data-delete-control]");
     if (deleteButton) {
@@ -563,7 +585,11 @@ function wireControlOps() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
-    await opsRequireSession();
+    const sessionCheck = await opsRequireSession();
+    const sessionStatus = document.getElementById("ops-session-status");
+    if (sessionStatus) {
+      sessionStatus.textContent = sessionCheck?.expiresAt ? formatOpsSessionDate(sessionCheck.expiresAt) : "Protected access";
+    }
     wireControlOps();
     updateNewControlTypeFields();
     await loadControlList();

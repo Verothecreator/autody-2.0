@@ -1,0 +1,123 @@
+const accountMoney = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 2
+});
+
+const accountDate = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeStyle: "short"
+});
+
+function accountEscape(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function accountNotice(message, state = "neutral") {
+  const notice = document.getElementById("accounts-notice");
+  if (!notice) return;
+  notice.textContent = message;
+  notice.dataset.state = state;
+}
+
+function accountFormatMoney(value) {
+  const number = Number(value);
+  return accountMoney.format(Number.isFinite(number) ? number : 0);
+}
+
+function accountFormatDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : accountDate.format(date);
+}
+
+function accountStatusClass(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (["verified", "approved", "active"].includes(value)) return "positive";
+  if (["rejected", "restricted", "frozen"].includes(value)) return "negative";
+  return "";
+}
+
+function renderAccountKpis(data = {}) {
+  const totals = data.totals || {};
+  const values = {
+    accounts: Number(totals.accounts || 0).toLocaleString("en-US"),
+    liveValue: accountFormatMoney(totals.liveValue),
+    verified: Number(totals.verified || 0).toLocaleString("en-US"),
+    pendingIdentity: Number(totals.pendingIdentity || 0).toLocaleString("en-US")
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    const node = document.querySelector(`[data-account-kpi="${key}"]`);
+    if (node) node.textContent = value;
+  });
+}
+
+function renderAccountsTable(accounts = []) {
+  const target = document.getElementById("accounts-table");
+  const count = document.querySelector("[data-account-count]");
+  if (count) count.textContent = String(accounts.length);
+  if (!target) return;
+  if (!accounts.length) {
+    target.innerHTML = `<div class="admin-empty">No customer accounts found yet.</div>`;
+    return;
+  }
+
+  target.innerHTML = accounts.map((account) => `
+    <div class="admin-record">
+      <span>
+        <strong>${accountEscape(account.displayName || account.email)}</strong>
+        <small>${accountEscape(account.email || "-")}</small>
+      </span>
+      <span>
+        <strong>${accountFormatMoney(account.liveValue)}</strong>
+        <small>${Number(account.livePositions || 0).toLocaleString("en-US")} live positions</small>
+      </span>
+      <span>
+        <strong>${accountFormatMoney(account.liveCash)}</strong>
+        <small>Available USD</small>
+      </span>
+      <span>
+        <strong class="admin-status ${accountStatusClass(account.identityStatus)}">${accountEscape(account.identityStatus || "pending")}</strong>
+        <small>Identity</small>
+      </span>
+      <span>
+        <strong class="admin-status ${accountStatusClass(account.liveStatus)}">${accountEscape(account.liveStatus || "inactive")}</strong>
+        <small>Live account</small>
+      </span>
+      <span>
+        <strong>${accountFormatDate(account.createdAt)}</strong>
+        <small>Created</small>
+      </span>
+    </div>
+  `).join("");
+}
+
+async function loadAccountsData() {
+  accountNotice("Loading account data...", "neutral");
+  const data = await opsPost("/api/admin/accounts/overview", { limit: 150 });
+  renderAccountKpis(data);
+  renderAccountsTable(Array.isArray(data.accounts) ? data.accounts : []);
+  const generated = data.generatedAt ? accountFormatDate(data.generatedAt) : "now";
+  accountNotice(`Account data loaded. Last refresh ${generated}.`, "success");
+}
+
+async function bootAccountsPortal() {
+  const status = document.getElementById("accounts-session-status");
+  const session = await opsRequireSession();
+  if (!session) return;
+  if (status) {
+    status.textContent = session.expiresAt
+      ? `Active until ${accountFormatDate(session.expiresAt)}`
+      : "Active session";
+  }
+  document.getElementById("accounts-refresh")?.addEventListener("click", () => {
+    loadAccountsData().catch((err) => accountNotice(err.message || "Refresh failed.", "error"));
+  });
+  loadAccountsData().catch((err) => accountNotice(err.message || "Could not load account data.", "error"));
+}
+
+bootAccountsPortal();

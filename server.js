@@ -7360,6 +7360,72 @@ function calculateTradeSize(body, price) {
     throw demoTradeError(400, "Enter an order amount greater than zero.");
 }
 
+const AU_FIRST_PURCHASE_MIN_QUANTITY = 10000;
+
+function formatTradeUsd(amount) {
+    const number = numberValue(amount, 0);
+    return `$${number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function auFirstPurchaseMinimumMessage(asset = {}) {
+    const price = firstPositive(asset.price, asset.lastPrice, asset.value) || 0;
+    const requiredUsd = price > 0 ? AU_FIRST_PURCHASE_MIN_QUANTITY * price : 0;
+    const requiredText = requiredUsd > 0 ? `, about ${formatTradeUsd(requiredUsd)} at the current AU price` : "";
+    return `The first AU purchase on this account must be at least ${AU_FIRST_PURCHASE_MIN_QUANTITY.toLocaleString("en-US")} AU${requiredText}. After that first AU purchase, smaller AU orders are available.`;
+}
+
+function assertAuFirstPurchaseMinimum(asset, trade, firstPurchaseMet) {
+    if (normalizeTradeSymbol(asset?.symbol) !== "AU" || firstPurchaseMet) return;
+    const quantity = numberValue(trade?.quantity, 0);
+    if (quantity + 1e-10 >= AU_FIRST_PURCHASE_MIN_QUANTITY) return;
+    throw demoTradeError(400, auFirstPurchaseMinimumMessage(asset));
+}
+
+async function databaseAuFirstPurchaseMet(client, context) {
+    const result = await client.query(`
+        select (
+            exists (
+                select 1
+                from orders
+                where account_mode_id = $1
+                  and upper(symbol) = 'AU'
+                  and side in ('buy', 'swap')
+                  and status = 'filled'
+            )
+            or exists (
+                select 1
+                from holdings
+                where wallet_id = $2
+                  and upper(symbol) = 'AU'
+                  and quantity > 0
+            )
+        ) as met
+    `, [context.account_mode_id, context.wallet_id]);
+    return Boolean(result.rows[0]?.met);
+}
+
+async function assertDatabaseAuFirstPurchaseMinimum(client, context, asset, trade) {
+    if (normalizeTradeSymbol(asset?.symbol) !== "AU") return;
+    const firstPurchaseMet = await databaseAuFirstPurchaseMet(client, context);
+    assertAuFirstPurchaseMinimum(asset, trade, firstPurchaseMet);
+}
+
+function jsonAuFirstPurchaseMet(db, userId, wallet = {}) {
+    const auHolding = (wallet.holdings || []).find((holding) => normalizeTradeSymbol(holding.symbol) === "AU");
+    if (numberValue(auHolding?.balance ?? auHolding?.quantity, 0) > 0) return true;
+    return (db.orders?.[userId] || []).some((order) => {
+        const side = String(order.side || "").toLowerCase();
+        return normalizeTradeSymbol(order.symbol) === "AU"
+            && ["buy", "swap"].includes(side)
+            && String(order.status || "filled").toLowerCase() === "filled";
+    });
+}
+
+function assertJsonAuFirstPurchaseMinimum(db, userId, wallet, asset, trade) {
+    if (normalizeTradeSymbol(asset?.symbol) !== "AU") return;
+    assertAuFirstPurchaseMinimum(asset, trade, jsonAuFirstPurchaseMet(db, userId, wallet));
+}
+
 async function resolveTradeAsset(symbol) {
     const lookup = normalizeTradeSymbol(symbol);
     if (!lookup) throw demoTradeError(400, "Choose an asset first.");
@@ -7702,6 +7768,7 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
         if (side === "buy") {
             const asset = await resolveTradeAsset(body.symbol);
             const trade = calculateTradeSize(body, asset.price);
+            await assertDatabaseAuFirstPurchaseMinimum(client, context, asset, trade);
             await adjustDbCash(client, context.wallet_id, -trade.notionalUsd);
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
             marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "demo-buy" });
@@ -7749,6 +7816,7 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "demo-swap-out" });
 
             const toQuantity = notionalUsd / toAsset.price;
+            await assertDatabaseAuFirstPurchaseMinimum(client, context, toAsset, { quantity: toQuantity, notionalUsd });
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, notionalUsd);
             marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd, source: "demo-swap-in" });
             order = await insertDbOrder(client, context, {
@@ -7861,6 +7929,7 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
     if (side === "buy") {
         const asset = await resolveTradeAsset(body.symbol);
         const trade = calculateTradeSize(body, asset.price);
+        assertJsonAuFirstPurchaseMinimum(db, userId, wallet, asset, trade);
         adjustCash(-trade.notionalUsd);
         buyHolding(asset, trade.quantity, trade.notionalUsd);
         marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "demo-json-buy" });
@@ -7889,6 +7958,7 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price);
         marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "demo-json-swap-out" });
         const toQuantity = notionalUsd / toAsset.price;
+        assertJsonAuFirstPurchaseMinimum(db, userId, wallet, toAsset, { quantity: toQuantity, notionalUsd });
         buyHolding(toAsset, toQuantity, notionalUsd);
         marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd, source: "demo-json-swap-in" });
         order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };
@@ -8063,6 +8133,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             const asset = await resolveTradeAsset(body.symbol);
             const trade = calculateTradeSize(body, asset.price);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
+            await assertDatabaseAuFirstPurchaseMinimum(client, context, asset, trade);
             await adjustDbCash(client, context.wallet_id, -(trade.notionalUsd + feeUsd));
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
             marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "live-buy" });
@@ -8111,6 +8182,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "live-swap-out" });
 
             const toQuantity = netNotionalUsd / toAsset.price;
+            await assertDatabaseAuFirstPurchaseMinimum(client, context, toAsset, { quantity: toQuantity, notionalUsd: netNotionalUsd });
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, netNotionalUsd);
             marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd, source: "live-swap-in" });
             order = await insertDbOrder(client, context, {
@@ -8195,6 +8267,7 @@ async function placeJsonLiveOrder(body, auth = {}) {
         const asset = await resolveTradeAsset(body.symbol);
         const trade = calculateTradeSize(body, asset.price);
         const feeUsd = tradingFeeUsd(trade.notionalUsd);
+        assertJsonAuFirstPurchaseMinimum(db, userId, wallet, asset, trade);
         adjustCash(-(trade.notionalUsd + feeUsd));
         buyHolding(asset, trade.quantity, trade.notionalUsd);
         marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "live-json-buy" });
@@ -8224,6 +8297,7 @@ async function placeJsonLiveOrder(body, auth = {}) {
         realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price) - feeUsd;
         marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "live-json-swap-out" });
         const toQuantity = netNotionalUsd / toAsset.price;
+        assertJsonAuFirstPurchaseMinimum(db, userId, wallet, toAsset, { quantity: toQuantity, notionalUsd: netNotionalUsd });
         buyHolding(toAsset, toQuantity, netNotionalUsd);
         marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd, source: "live-json-swap-in" });
         order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };
@@ -8559,7 +8633,8 @@ async function updateAccountPassword(auth, password) {
         await dbPool.query(`
             update profile_credentials
             set password_salt = $2,
-                password_hash = $3
+                password_hash = $3,
+                password_updated_at = now()
             where profile_id = $1
         `, [auth.profileId, salt, passwordHash]);
         return true;
@@ -8571,7 +8646,8 @@ async function updateAccountPassword(auth, password) {
     user.auth = {
         ...(user.auth || {}),
         passwordSalt: salt,
-        passwordHash
+        passwordHash,
+        passwordUpdatedAt: new Date().toISOString()
     };
     saveDemoDb(db);
     return true;
@@ -8586,7 +8662,8 @@ async function updateDatabaseAccountPasswordByEmail(email, password) {
     const result = await dbPool.query(`
         update profile_credentials
         set password_salt = $2,
-            password_hash = $3
+            password_hash = $3,
+            password_updated_at = now()
         where profile_id = $1
     `, [profile.id, salt, passwordHash]);
     return result.rowCount > 0;
@@ -9587,7 +9664,8 @@ async function ensureSignUpTables(client = dbPool) {
           add column if not exists totp_secret text,
           add column if not exists totp_pending_secret text,
           add column if not exists totp_enabled boolean not null default false,
-          add column if not exists totp_confirmed_at timestamptz;
+          add column if not exists totp_confirmed_at timestamptz,
+          add column if not exists password_updated_at timestamptz;
 
         alter table if exists account_settings
           add column if not exists deposit_alerts boolean not null default false,
@@ -9666,8 +9744,8 @@ async function createDatabaseAccount(signUp) {
 
         const passwordSalt = crypto.randomBytes(16).toString("hex");
         await client.query(`
-            insert into profile_credentials (profile_id, password_algorithm, password_salt, password_hash)
-            values ($1, 'scrypt', $2, $3)
+            insert into profile_credentials (profile_id, password_algorithm, password_salt, password_hash, password_updated_at)
+            values ($1, 'scrypt', $2, $3, now())
         `, [profile.id, passwordSalt, hashPassword(signUp.password, passwordSalt)]);
 
         await client.query(`
@@ -10595,34 +10673,62 @@ async function readLatestMarketChartSnapshot(symbol, range = "1d") {
     }
 }
 
+async function ensureNewsSnapshotTable(client = dbPool) {
+    if (!databaseConfigured()) return;
+    await client.query(`
+        create table if not exists news_snapshots (
+          id uuid default gen_random_uuid(),
+          provider text not null default 'manual',
+          source text not null default 'Market news',
+          subject text not null default 'Markets',
+          title text not null,
+          summary text,
+          image_url text,
+          article_url text,
+          published_at timestamptz,
+          captured_at timestamptz not null default now()
+        );
+
+        alter table news_snapshots
+          add column if not exists id uuid default gen_random_uuid(),
+          add column if not exists summary text;
+
+        create unique index if not exists news_snapshots_title_source_idx
+          on news_snapshots (title, source);
+    `);
+}
+
 async function saveNewsSnapshots(provider, articles = []) {
     if (!databaseConfigured() || !articles.length) return;
 
     try {
+        await ensureNewsSnapshotTable();
         const values = [];
         const placeholders = articles
             .filter((article) => article?.title)
             .map((article, index) => {
-                const offset = index * 7;
+                const offset = index * 8;
                 values.push(
                     provider,
                     article.source || "Market news",
                     article.subject || "Markets",
                     article.title,
+                    article.summary || null,
                     article.image || null,
                     article.url || null,
                     safeIsoDate(article.publishedAt)
                 );
-                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
             });
 
         if (!placeholders.length) return;
 
         await dbPool.query(`
-            insert into news_snapshots (provider, source, subject, title, image_url, article_url, published_at)
+            insert into news_snapshots (provider, source, subject, title, summary, image_url, article_url, published_at)
             values ${placeholders.join(", ")}
             on conflict (title, source) do update
-            set image_url = excluded.image_url,
+            set summary = excluded.summary,
+                image_url = excluded.image_url,
                 article_url = excluded.article_url,
                 published_at = excluded.published_at,
                 captured_at = now()
@@ -10915,6 +11021,18 @@ function adminMarketNameForType(assetType = "crypto") {
 
 const ADMIN_CONTROLLED_LOGO_DIR = path.join(__dirname, "public", "assets", "logos", "generated");
 const ADMIN_CONTROLLED_LOGO_PUBLIC_BASE = "assets/logos/generated";
+const ADMIN_CONTROLLED_LOGO_OVERRIDES = {
+    AV: "Avra-Logo.png",
+    AVRA: "Avra-Logo.png",
+    BC: "Blackwood Capital-Logo.png",
+    BLACKWOODCAPITAL: "Blackwood Capital-Logo.png",
+    LO: "Lokanta-Logo.png",
+    LOKANTA: "Lokanta-Logo.png",
+    MEC: "Meridian Coin-Logo.png",
+    MERIDIANCOIN: "Meridian Coin-Logo.png",
+    VEL: "Velaris-Logo.png",
+    VELARIS: "Velaris-Logo.png"
+};
 
 function adminMarketDefaultVenueForType(assetType = "crypto", symbol = "") {
     const normalized = normalizeAdminMarketAssetType(assetType);
@@ -10958,9 +11076,19 @@ function hashAdminLogoSeed(value = "") {
     return hash;
 }
 
+function adminControlledLogoOverride(control = {}) {
+    const symbol = controlledMarketSymbol(control.symbol || "");
+    const compactName = normalizeText(control.name || control.assetName || "")
+        .replace(/[^a-z0-9]+/gi, "")
+        .toUpperCase();
+    return ADMIN_CONTROLLED_LOGO_OVERRIDES[symbol] || ADMIN_CONTROLLED_LOGO_OVERRIDES[compactName] || "";
+}
+
 function ensureAdminControlledLogo(control = {}) {
     const symbol = controlledMarketSymbol(control.symbol || "");
     if (!symbol || symbol === "AU") return "Autody-Logo.png";
+    const overrideLogo = adminControlledLogoOverride(control);
+    if (overrideLogo) return overrideLogo;
     const existing = normalizeText(control.logoUrl || "");
     const generatedBase = `${ADMIN_CONTROLLED_LOGO_PUBLIC_BASE}/`;
     if (existing && !existing.includes("Autody-Logo.png") && !existing.startsWith(generatedBase)) return existing;
@@ -11201,6 +11329,7 @@ function normalizeAdminMarketControlRow(row = {}) {
     const reservePrice = deriveAdminMarketReservePrice(control.reserveAssetQuantity, control.reserveUsd);
     return {
         ...control,
+        logoUrl: ensureAdminControlledLogo(control),
         reservePrice,
         ...deriveAdminMarketMetrics(control)
     };
@@ -12118,8 +12247,9 @@ async function readLatestNewsSnapshots(limit = 9) {
     if (!databaseConfigured()) return [];
 
     try {
+        await ensureNewsSnapshotTable();
         const result = await dbPool.query(`
-            select provider, source, subject, title, image_url as image, article_url as url, published_at, captured_at
+            select provider, source, subject, title, summary, image_url as image, article_url as url, published_at, captured_at
             from news_snapshots
             order by coalesce(published_at, captured_at) desc
             limit $1
@@ -12129,6 +12259,7 @@ async function readLatestNewsSnapshots(limit = 9) {
             title: row.title,
             source: row.source,
             subject: row.subject,
+            summary: row.summary,
             image: row.image,
             url: row.url,
             publishedAt: row.published_at,
@@ -12139,6 +12270,159 @@ async function readLatestNewsSnapshots(limit = 9) {
         console.error("News snapshot fallback read failed:", err);
         return [];
     }
+}
+
+async function getAdminNewsOverview(body = {}) {
+    if (!databaseConfigured()) {
+        return { success: true, configured: false, articles: [], error: "Database is not configured." };
+    }
+    await ensureNewsSnapshotTable();
+    const limit = Math.min(Math.max(Number(body.limit || 50), 1), 100);
+    const result = await dbPool.query(`
+        select provider, source, subject, title, summary, image_url as image, article_url as url, published_at, captured_at
+        from news_snapshots
+        where provider = 'admin-news'
+        order by coalesce(published_at, captured_at) desc
+        limit $1
+    `, [limit]);
+    return {
+        success: true,
+        configured: true,
+        articles: result.rows.map((row) => ({
+            title: row.title,
+            source: row.source,
+            subject: row.subject,
+            summary: row.summary || "",
+            image: row.image || "",
+            url: row.url || "",
+            publishedAt: row.published_at,
+            capturedAt: row.captured_at,
+            provider: row.provider
+        })),
+        generatedAt: new Date().toISOString()
+    };
+}
+
+async function publishAdminNewsArticle(body = {}) {
+    if (!databaseConfigured()) {
+        throw demoTradeError(503, "Database is not configured for admin news.");
+    }
+    const title = normalizeText(body.title || body.headline).slice(0, 240);
+    const source = normalizeText(body.source || "Autody update").slice(0, 120);
+    const subject = normalizeText(body.subject || body.asset || "Autody").slice(0, 80);
+    const summary = normalizeText(body.summary || body.body || "").slice(0, 600);
+    const url = normalizeText(body.url || body.sourceUrl || "").slice(0, 500);
+    const image = normalizeText(body.image || body.imageUrl || "").slice(0, 500);
+    const publishedAt = safeIsoDate(body.publishedAt) || new Date().toISOString();
+
+    if (!title) throw demoTradeError(400, "Enter a news headline.");
+    if (!source) throw demoTradeError(400, "Enter the news source.");
+
+    await ensureNewsSnapshotTable();
+    await dbPool.query(`
+        insert into news_snapshots (provider, source, subject, title, summary, image_url, article_url, published_at)
+        values ('admin-news', $1, $2, $3, $4, $5, $6, $7)
+        on conflict (title, source) do update
+        set subject = excluded.subject,
+            summary = excluded.summary,
+            image_url = excluded.image_url,
+            article_url = excluded.article_url,
+            published_at = excluded.published_at,
+            captured_at = now()
+    `, [source, subject, title, summary || null, image || null, url || null, publishedAt]);
+
+    return getAdminNewsOverview({ limit: body.limit || 50 });
+}
+
+async function getAdminAccountsOverview(body = {}) {
+    if (!databaseConfigured()) {
+        return { success: true, configured: false, accounts: [], totals: {}, error: "Database is not configured." };
+    }
+    await ensureSignUpTables();
+    const limit = Math.min(Math.max(Number(body.limit || 100), 1), 250);
+    const result = await dbPool.query(`
+        select
+          p.id,
+          p.email,
+          p.display_name,
+          p.created_at,
+          pv.first_name,
+          pv.last_name,
+          pv.legal_name,
+          pv.email_status,
+          pv.phone_status,
+          pv.identity_status,
+          pv.risk_status,
+          pv.terms_version,
+          pv.terms_accepted_at,
+          coalesce(max(w.cash_balance) filter (where am.mode = 'live'), 0) as live_cash,
+          coalesce(sum(h.value_usd) filter (where am.mode = 'live' and upper(h.symbol) <> 'USD'), 0) as live_holdings,
+          coalesce(count(h.symbol) filter (where am.mode = 'live' and upper(h.symbol) <> 'USD' and h.quantity > 0), 0) as live_positions,
+          coalesce(max(w.cash_balance) filter (where am.mode = 'demo'), 0) as demo_cash,
+          coalesce(sum(h.value_usd) filter (where am.mode = 'demo' and upper(h.symbol) <> 'USD'), 0) as demo_holdings,
+          coalesce(max(am.status) filter (where am.mode = 'live'), 'inactive') as live_status,
+          coalesce(max(am.status) filter (where am.mode = 'demo'), 'inactive') as demo_status
+        from profiles p
+        left join profile_verifications pv on pv.profile_id = p.id
+        left join account_modes am on am.profile_id = p.id
+        left join wallets w on w.account_mode_id = am.id
+        left join holdings h on h.wallet_id = w.id
+        group by
+          p.id,
+          p.email,
+          p.display_name,
+          p.created_at,
+          pv.first_name,
+          pv.last_name,
+          pv.legal_name,
+          pv.email_status,
+          pv.phone_status,
+          pv.identity_status,
+          pv.risk_status,
+          pv.terms_version,
+          pv.terms_accepted_at
+        order by p.created_at desc
+        limit $1
+    `, [limit]);
+    const accounts = result.rows.map((row) => {
+        const liveCash = numberValue(row.live_cash, 0);
+        const liveHoldings = numberValue(row.live_holdings, 0);
+        const demoCash = numberValue(row.demo_cash, 0);
+        const demoHoldings = numberValue(row.demo_holdings, 0);
+        return {
+            id: row.id,
+            email: row.email,
+            displayName: row.display_name || withdrawalProfileName(row),
+            firstName: row.first_name || "",
+            lastName: row.last_name || "",
+            legalName: row.legal_name || "",
+            createdAt: row.created_at,
+            emailStatus: row.email_status || "pending",
+            phoneStatus: row.phone_status || "pending",
+            identityStatus: row.identity_status || "pending",
+            riskStatus: row.risk_status || "pending",
+            termsVersion: row.terms_version || "",
+            termsAcceptedAt: row.terms_accepted_at || "",
+            liveStatus: row.live_status || "inactive",
+            demoStatus: row.demo_status || "inactive",
+            liveCash,
+            liveValue: liveCash + liveHoldings,
+            livePositions: numberValue(row.live_positions, 0),
+            demoValue: demoCash + demoHoldings
+        };
+    });
+    return {
+        success: true,
+        configured: true,
+        accounts,
+        totals: {
+            accounts: accounts.length,
+            liveValue: accounts.reduce((sum, account) => sum + numberValue(account.liveValue, 0), 0),
+            verified: accounts.filter((account) => account.identityStatus === "verified" || account.identityStatus === "approved").length,
+            pendingIdentity: accounts.filter((account) => ["pending", "in_review"].includes(account.identityStatus)).length
+        },
+        generatedAt: new Date().toISOString()
+    };
 }
 
 async function buildMarketCatalog(type = "all") {
@@ -14045,11 +14329,18 @@ async function fetchNewsData() {
       .map(ensureArticleImage);
 
     saveNewsSnapshots("gdelt-rss", importantArticles);
+    const adminArticles = (await readLatestNewsSnapshots(12))
+      .filter((article) => article.provider === "admin-news")
+      .slice(0, 4)
+      .map(ensureArticleImage);
+    const blendedArticles = uniqueArticles([...adminArticles, ...importantArticles])
+      .slice(0, 9)
+      .map(ensureArticleImage);
 
     return {
       success: true,
-      articles: importantArticles.length ? importantArticles : fallbackNews.map(ensureArticleImage),
-      fallback: importantArticles.length === 0
+      articles: blendedArticles.length ? blendedArticles : fallbackNews.map(ensureArticleImage),
+      fallback: blendedArticles.length === 0
     };
   } catch (err) {
     console.error("News proxy error:", err);
@@ -14358,9 +14649,10 @@ app.get("/api/news/snapshots", async (req, res) => {
   }
 
   try {
+    await ensureNewsSnapshotTable();
     const limit = Math.min(Number(req.query.limit || 9), 30);
     const result = await dbPool.query(`
-        select provider, source, subject, title, image_url as image, article_url as url, published_at, captured_at
+        select provider, source, subject, title, summary, image_url as image, article_url as url, published_at, captured_at
         from news_snapshots
         order by coalesce(published_at, captured_at) desc
         limit $1
@@ -14371,6 +14663,7 @@ app.get("/api/news/snapshots", async (req, res) => {
         title: row.title,
         source: row.source,
         subject: row.subject,
+        summary: row.summary,
         image: row.image,
         url: row.url,
         publishedAt: row.published_at,
@@ -14968,6 +15261,63 @@ app.post("/api/admin/fees/overview", async (req, res) => {
   } catch (err) {
     console.error("Admin fee overview failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "Fee overview failed." });
+  }
+});
+
+app.post("/api/admin/news/overview", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin news overview is not authorized." });
+    }
+    const result = await getAdminNewsOverview(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin news overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "News overview failed." });
+  }
+});
+
+app.post("/api/admin/news/publish", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin news publish is not authorized." });
+    }
+    const result = await publishAdminNewsArticle(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin news publish failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "News publish failed." });
+  }
+});
+
+app.post("/api/admin/accounts/overview", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin account overview is not authorized." });
+    }
+    const result = await getAdminAccountsOverview(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin account overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Account overview failed." });
   }
 });
 

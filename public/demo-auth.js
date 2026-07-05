@@ -31,6 +31,15 @@
       || pathname.startsWith("/api/kyc");
   }
 
+  async function responseRequiresSignIn(response) {
+    if (response.status === 401) return true;
+    if (response.status !== 403) return false;
+
+    const data = await response.clone().json().catch(() => ({}));
+    const message = String(data.error || data.message || "").toLowerCase();
+    return /sign in|session|token|unauthori[sz]ed|expired|invalid/.test(message);
+  }
+
   const rawSession = localStorage.getItem(sessionKey);
   let session = null;
 
@@ -62,7 +71,7 @@
     window.__autodyAuthFetchGuard = true;
     window.fetch = async (...args) => {
       const response = await nativeFetch(...args);
-      if ((response.status === 401 || response.status === 403) && protectedApiRequest(args[0])) {
+      if (protectedApiRequest(args[0]) && await responseRequiresSignIn(response)) {
         redirectToSignIn();
       }
       return response;

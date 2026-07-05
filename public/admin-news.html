@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Admin | News</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell">
+    <header class="admin-hero">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div>
+        <p class="eyebrow">Admin control</p>
+        <h1>News portal</h1>
+        <p>Publish Autody updates, asset news, and source links into the platform research feed.</p>
+      </div>
+      <div class="admin-key-card ops-session-card">
+        <span class="muted-label">Session</span>
+        <strong>Protected access</strong>
+        <small id="news-session-status">Checking session...</small>
+        <div class="admin-key-actions">
+          <a class="btn" href="ops-console.html">Console</a>
+          <button type="button" class="btn btn-ghost" id="news-refresh">Refresh</button>
+        </div>
+      </div>
+    </header>
+
+    <p class="admin-notice" id="news-notice">Open a session to load news data.</p>
+
+    <section class="admin-data-grid">
+      <form class="app-card admin-action-card" id="news-form">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Publish</span>
+            <h2>New platform story</h2>
+          </div>
+        </div>
+        <label>Headline
+          <input name="title" placeholder="News headline shown to users" required />
+        </label>
+        <div class="admin-form-grid">
+          <label>Source
+            <input name="source" placeholder="Autody, CNBC, company source..." required />
+          </label>
+          <label>Subject
+            <input name="subject" placeholder="AU, Velaris, Crypto, Markets..." />
+          </label>
+        </div>
+        <label>Summary
+          <textarea name="summary" rows="5" placeholder="Short user-facing context for the research feed"></textarea>
+        </label>
+        <label>Source URL
+          <input name="url" placeholder="https://..." />
+        </label>
+        <div class="admin-form-grid">
+          <label>Image URL
+            <input name="image" placeholder="Optional image URL" />
+          </label>
+          <label>Published date
+            <input name="publishedAt" type="datetime-local" />
+          </label>
+        </div>
+        <button type="submit" class="btn">Publish News</button>
+      </form>
+
+      <article class="app-card admin-table-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Published</span>
+            <h2>Admin news feed</h2>
+          </div>
+          <span class="status-pill" data-news-count>0</span>
+        </div>
+        <div class="admin-table" id="news-table"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="ops-auth.js"></script>
+  <script src="admin-news.js"></script>
+</body>
+</html>

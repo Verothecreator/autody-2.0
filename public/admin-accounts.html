@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Admin | Accounts</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell">
+    <header class="admin-hero">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div>
+        <p class="eyebrow">Admin control</p>
+        <h1>Accounts portal</h1>
+        <p>Review created accounts, live value, verification state, and recent platform readiness from one admin view.</p>
+      </div>
+      <div class="admin-key-card ops-session-card">
+        <span class="muted-label">Session</span>
+        <strong>Protected access</strong>
+        <small id="accounts-session-status">Checking session...</small>
+        <div class="admin-key-actions">
+          <a class="btn" href="ops-console.html">Console</a>
+          <button type="button" class="btn btn-ghost" id="accounts-refresh">Refresh</button>
+        </div>
+      </div>
+    </header>
+
+    <p class="admin-notice" id="accounts-notice">Open a session to load account data.</p>
+
+    <section class="admin-kpi-grid">
+      <div class="app-card mini-metric">
+        <span class="muted-label">Accounts</span>
+        <strong data-account-kpi="accounts">0</strong>
+        <small>Created profiles</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Live value</span>
+        <strong data-account-kpi="liveValue">$0.00</strong>
+        <small>Cash plus live holdings</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Verified</span>
+        <strong data-account-kpi="verified">0</strong>
+        <small>Identity approved</small>
+      </div>
+      <div class="app-card mini-metric">
+        <span class="muted-label">Pending review</span>
+        <strong data-account-kpi="pendingIdentity">0</strong>
+        <small>Identity queue</small>
+      </div>
+    </section>
+
+    <section class="admin-data-grid">
+      <article class="app-card admin-table-card wide-card">
+        <div class="card-heading">
+          <div>
+            <span class="muted-label">Profiles</span>
+            <h2>Platform accounts</h2>
+          </div>
+          <span class="status-pill" data-account-count>0</span>
+        </div>
+        <div class="admin-table" id="accounts-table"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="ops-auth.js"></script>
+  <script src="admin-accounts.js"></script>
+</body>
+</html>

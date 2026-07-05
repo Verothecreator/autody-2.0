@@ -37,7 +37,7 @@
         <div>
           <p class="eyebrow">Live wallet</p>
           <h1>Wallet</h1>
-          <p class="app-subtitle">Track verified USD, AU, crypto, stocks, ETFs, and commodity balances once live deposits are connected.</p>
+          <p class="app-subtitle">View available USD, AU, crypto, stocks, ETFs, and commodity balances in one place.</p>
         </div>
         <div class="account-mode-stack">
           <span class="status-pill">Account balance</span>
@@ -49,7 +49,7 @@
         <div class="app-card mini-metric">
           <span class="muted-label">Available USD</span>
           <strong id="live-wallet-cash">$0.00</strong>
-          <small>Waiting for the first verified deposit</small>
+          <small>Available after a verified deposit</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Account value</span>
@@ -59,7 +59,7 @@
         <div class="app-card mini-metric">
           <span class="muted-label">Positions</span>
           <strong id="live-wallet-positions">0</strong>
-          <small>No live assets held yet</small>
+          <small id="live-wallet-positions-label">No assets held yet</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Pending transfers</span>
@@ -75,7 +75,6 @@
               <span class="muted-label">Balances</span>
               <h2>Live holdings</h2>
             </div>
-            <span class="status-pill">Empty account</span>
           </div>
           <div class="asset-table" id="live-wallet-holdings">
             <div class="asset-table-row head">

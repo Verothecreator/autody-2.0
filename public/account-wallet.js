@@ -667,6 +667,7 @@ function renderLiveWallet() {
   setLiveWalletText("live-wallet-cash", formatLiveWalletMoney(liveWalletState.cashBalance));
   setLiveWalletText("live-wallet-total", formatLiveWalletMoney(liveWalletState.totalValue));
   setLiveWalletText("live-wallet-positions", String(liveWalletState.positionsCount));
+  setLiveWalletText("live-wallet-positions-label", liveWalletState.positionsCount ? "Assets currently held" : "No assets held yet");
   setLiveWalletText("live-wallet-pending", String(liveWalletState.pendingTransfers));
 
   liveRenderHoldings(rows);

@@ -3621,6 +3621,13 @@ body.account-body.theme-light .profile-kyc-modal-card {
   transform: translateY(-50%);
 }
 
+.order-max-button:hover,
+.order-max-button:focus-visible,
+.live-send-max:hover,
+.live-send-max:focus-visible {
+  transform: translateY(-50%);
+}
+
 .order-side-toggle {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -5574,15 +5581,6 @@ body.account-body.theme-light .profile-kyc-modal-card {
   padding: 0;
 }
 
-.admin-console-brand {
-  width: fit-content;
-  min-height: 54px;
-  padding: 8px 12px;
-  border: 1px solid rgba(91, 95, 239, 0.24);
-  border-radius: 8px;
-  background: rgba(15, 19, 27, 0.52);
-}
-
 .admin-hero h1 {
   margin: 8px 0 10px;
   font-size: clamp(3rem, 7vw, 6.4rem);
@@ -5620,7 +5618,8 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
 .admin-key-card input,
 .admin-action-card input,
-.admin-action-card select {
+.admin-action-card select,
+.admin-action-card textarea {
   min-height: 46px;
   width: 100%;
   border: 1px solid var(--line);
@@ -5631,7 +5630,14 @@ body.account-body.theme-light .profile-kyc-modal-card {
   font: inherit;
 }
 
+.admin-action-card textarea {
+  min-height: 132px;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
 .admin-action-card input::placeholder,
+.admin-action-card textarea::placeholder,
 .admin-key-card input::placeholder {
   color: rgba(204, 215, 245, 0.58);
 }

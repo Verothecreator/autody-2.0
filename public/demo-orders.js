@@ -15,6 +15,7 @@ const ORDER_PAGE_NAME = location.pathname.split("/").pop() || "demo-orders.html"
 const IS_LIVE_ORDER_PAGE = ORDER_PAGE_NAME === "account-orders.html";
 const ORDER_PAGE_URL = IS_LIVE_ORDER_PAGE ? "account-orders.html" : "demo-orders.html";
 const ORDER_ASSET_PAGE = IS_LIVE_ORDER_PAGE ? "account-asset.html" : "demo-asset.html";
+const AU_FIRST_PURCHASE_MIN_QUANTITY = 10000;
 let orderSide = ["buy", "sell", "swap"].includes(orderParams.get("side")) ? orderParams.get("side") : "buy";
 let orderAssets = [];
 let orderWallet = null;
@@ -22,7 +23,7 @@ let orderHistory = [];
 let orderStatusTimer = null;
 let orderTradingFee = { bps: 0, rate: 0, percent: 0 };
 const ORDER_REFRESH_MS = 10000;
-const ORDER_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
+const ORDER_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
 function escapeOrderHtml(value = "") {
   return String(value)
@@ -159,6 +160,11 @@ function holdingForSymbol(symbol) {
   return currentHoldings().find((holding) => String(holding.symbol || "").toUpperCase() === lookup);
 }
 
+function walletHoldingForSymbol(symbol) {
+  const lookup = String(symbol || "").toUpperCase();
+  return (orderWallet?.holdings || []).find((holding) => String(holding.symbol || "").toUpperCase() === lookup);
+}
+
 function assetForHolding(holding = {}) {
   const marketAsset = bySymbol(holding.symbol);
   return {
@@ -213,6 +219,36 @@ function tradingFeeLabel() {
   return `${Number.isFinite(percent) ? percent.toFixed(2) : "0.00"}%`;
 }
 
+function auFirstPurchaseMet() {
+  const auHolding = walletHoldingForSymbol("AU");
+  const auBalance = Number(auHolding?.balance ?? auHolding?.quantity ?? 0);
+  if (Number.isFinite(auBalance) && auBalance > 0) return true;
+  return orderHistory.some((order) => {
+    const side = String(order.side || order.type || "").toLowerCase();
+    const status = String(order.status || "filled").toLowerCase();
+    return String(order.symbol || "").toUpperCase() === "AU"
+      && ["buy", "swap"].includes(side)
+      && status === "filled";
+  });
+}
+
+function auFirstPurchaseValidation(asset, amount) {
+  if (String(asset?.symbol || "").toUpperCase() !== "AU" || auFirstPurchaseMet()) return null;
+  const price = Number(asset.price);
+  if (!Number.isFinite(price) || price <= 0) {
+    return { blocked: true, message: "AU pricing is loading. Try again in a moment." };
+  }
+  const feeUsd = tradingFeeAmount(amount);
+  const receivedUsd = orderSide === "swap" ? Math.max(0, amount - feeUsd) : amount;
+  const quantity = receivedUsd / price;
+  if (quantity + 1e-10 >= AU_FIRST_PURCHASE_MIN_QUANTITY) return null;
+  const requiredUsd = AU_FIRST_PURCHASE_MIN_QUANTITY * price;
+  return {
+    blocked: true,
+    message: `First AU purchase must be at least ${AU_FIRST_PURCHASE_MIN_QUANTITY.toLocaleString("en-US")} AU, about ${formatOrderMoney(requiredUsd)} at the current AU price. Future AU orders can be any amount.`
+  };
+}
+
 function maxOrderAmount() {
   if (orderSide === "buy") {
     const cash = Number(orderWallet?.cashBalance || 0);
@@ -261,6 +297,12 @@ function assetOption(asset) {
   return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(price)}</option>`;
 }
 
+function sellAssetOption(asset) {
+  const heldValue = holdingValueUsd(holdingForSymbol(asset.symbol));
+  const suffix = ` - ${formatOrderMoney(heldValue)} held`;
+  return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(suffix)}</option>`;
+}
+
 function sortAssetsAlphabetically(assets = []) {
   return [...assets].sort((a, b) => {
     const aSymbol = String(a.symbol || "");
@@ -303,7 +345,7 @@ function renderAssetSelect() {
       : sortAssetsAlphabetically(tradableAssets);
 
   symbolSelect.innerHTML = assetsForSide.length
-    ? assetsForSide.map(assetOption).join("")
+    ? assetsForSide.map((asset) => orderSide === "sell" ? sellAssetOption(asset) : assetOption(asset)).join("")
     : `<option value="">${orderSide === "sell" ? "No held assets to sell" : orderSide === "swap" ? "No crypto assets available" : "Market data loading"}</option>`;
 
   const preferred = assetsForSide.find((asset) => asset.symbol === requestedSymbol) || assetsForSide[0];
@@ -335,6 +377,14 @@ function tradeValidation(asset, amount) {
     const availableUsd = Number(orderWallet?.cashBalance || 0);
     const feeUsd = tradingFeeAmount(amount);
     const totalRequired = amount + feeUsd;
+    const auMinimum = auFirstPurchaseValidation(asset, amount);
+    if (auMinimum?.blocked) {
+      return {
+        ...auMinimum,
+        availableUsd,
+        availableLabel: "Available funds"
+      };
+    }
     return {
       blocked: totalRequired > availableUsd + 0.005,
       message: totalRequired > availableUsd + 0.005
@@ -370,6 +420,14 @@ function tradeValidation(asset, amount) {
   }
   if (fromSymbol === asset.symbol) {
     return { blocked: true, message: "Choose a different asset to receive.", availableUsd: 0 };
+  }
+  const auMinimum = auFirstPurchaseValidation(asset, amount);
+  if (auMinimum?.blocked) {
+    return {
+      ...auMinimum,
+      availableUsd: 0,
+      availableLabel: ""
+    };
   }
 
   const sourceHolding = holdingForSymbol(fromSymbol);
