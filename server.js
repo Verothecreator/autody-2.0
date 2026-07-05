@@ -8592,6 +8592,23 @@ async function updateDatabaseAccountPasswordByEmail(email, password) {
     return result.rowCount > 0;
 }
 
+async function databaseAccountPasswordMatchesEmail(email, password) {
+    if (!databaseConfigured()) return false;
+    const profile = await databaseProfileVerification(email);
+    if (!profile?.id) return false;
+    const result = await dbPool.query(`
+        select password_salt, password_hash
+        from profile_credentials
+        where profile_id = $1
+        limit 1
+    `, [profile.id]);
+    const row = result.rows[0];
+    return verifyPassword(password, {
+        passwordSalt: row?.password_salt,
+        passwordHash: row?.password_hash
+    });
+}
+
 function updateJsonAccountPasswordByEmail(email, password) {
     const db = loadDemoDb();
     const user = jsonUserByEmail(db, email);
@@ -8605,6 +8622,12 @@ function updateJsonAccountPasswordByEmail(email, password) {
     };
     saveDemoDb(db);
     return true;
+}
+
+function jsonAccountPasswordMatchesEmail(email, password) {
+    const db = loadDemoDb();
+    const user = jsonUserByEmail(db, email);
+    return Boolean(user && verifyPassword(password, user.auth));
 }
 
 async function databaseAuthenticator(profileId) {
@@ -10238,14 +10261,16 @@ async function verifyDatabaseCode(email, channel, code, purpose = "sign_up", opt
         return { success: false, error: "Verification code is incorrect." };
     }
 
-    await dbPool.query("update verification_codes set status = 'verified', verified_at = now() where id = $1", [record.id]);
-    if (options.markProfileVerified !== false) {
-        const statusColumn = channel === "email" ? "email_status" : "phone_status";
-        await dbPool.query(`
-            update profile_verifications
-            set ${statusColumn} = 'verified', updated_at = now()
-            where profile_id = $1
-        `, [profile.id]);
+    if (options.consumeCode !== false) {
+        await dbPool.query("update verification_codes set status = 'verified', verified_at = now() where id = $1", [record.id]);
+        if (options.markProfileVerified !== false) {
+            const statusColumn = channel === "email" ? "email_status" : "phone_status";
+            await dbPool.query(`
+                update profile_verifications
+                set ${statusColumn} = 'verified', updated_at = now()
+                where profile_id = $1
+            `, [profile.id]);
+        }
     }
 
     const updated = await databaseProfileVerification(email);
@@ -10309,14 +10334,16 @@ function verifyJsonCode(email, channel, code, purpose = "sign_up", options = {})
         return { success: false, error: "Verification code is incorrect." };
     }
 
-    record.status = "verified";
-    record.verifiedAt = new Date().toISOString();
-    if (options.markProfileVerified !== false) {
-        user.verification = user.verification || {};
-        if (channel === "email") user.verification.emailStatus = "verified";
-        if (channel === "phone") user.verification.phoneStatus = "verified";
+    if (options.consumeCode !== false) {
+        record.status = "verified";
+        record.verifiedAt = new Date().toISOString();
+        if (options.markProfileVerified !== false) {
+            user.verification = user.verification || {};
+            if (channel === "email") user.verification.emailStatus = "verified";
+            if (channel === "phone") user.verification.phoneStatus = "verified";
+        }
+        saveDemoDb(db);
     }
-    saveDemoDb(db);
     return { success: true, user };
 }
 
@@ -15566,17 +15593,32 @@ app.post("/api/auth/password-reset/confirm", async (req, res) => {
     if (passwordMessage) return res.status(400).json({ success: false, error: passwordMessage });
 
     const databaseResult = databaseConfigured()
-      ? await verifyDatabaseCode(email, "email", code, "password_reset", { markProfileVerified: false }).catch(() => null)
+      ? await verifyDatabaseCode(email, "email", code, "password_reset", { markProfileVerified: false, consumeCode: false }).catch(() => null)
       : null;
     if (databaseResult?.success) {
+      const reusedPassword = await databaseAccountPasswordMatchesEmail(email, newPassword);
+      if (reusedPassword) {
+        return res.status(400).json({ success: false, error: "Choose a new password that is different from your current password." });
+      }
+      const consumed = await verifyDatabaseCode(email, "email", code, "password_reset", { markProfileVerified: false });
+      if (!consumed?.success) {
+        return res.status(400).json({ success: false, error: consumed?.error || "Password reset link is invalid or expired." });
+      }
       const updated = await updateDatabaseAccountPasswordByEmail(email, newPassword);
       if (!updated) return res.status(404).json({ success: false, error: "Autody account was not found." });
       return res.json({ success: true });
     }
 
-    const jsonResult = verifyJsonCode(email, "email", code, "password_reset", { markProfileVerified: false });
+    const jsonResult = verifyJsonCode(email, "email", code, "password_reset", { markProfileVerified: false, consumeCode: false });
     if (!jsonResult?.success) {
       return res.status(400).json({ success: false, error: databaseResult?.error || jsonResult?.error || "Password reset code is invalid." });
+    }
+    if (jsonAccountPasswordMatchesEmail(email, newPassword)) {
+      return res.status(400).json({ success: false, error: "Choose a new password that is different from your current password." });
+    }
+    const consumedJson = verifyJsonCode(email, "email", code, "password_reset", { markProfileVerified: false });
+    if (!consumedJson?.success) {
+      return res.status(400).json({ success: false, error: consumedJson?.error || "Password reset link is invalid or expired." });
     }
     const updated = updateJsonAccountPasswordByEmail(email, newPassword);
     if (!updated) return res.status(404).json({ success: false, error: "Autody account was not found." });
