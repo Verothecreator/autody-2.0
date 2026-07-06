@@ -204,7 +204,13 @@
               <input id="send-address" type="text" placeholder="Paste wallet address" />
             </label>
             <label>
-              <span>Amount</span>
+              <span class="live-amount-heading">
+                <span>Amount</span>
+                <select id="send-amount-mode" aria-label="Amount type">
+                  <option value="usd">USD</option>
+                  <option value="asset">Asset</option>
+                </select>
+              </span>
               <div class="live-amount-row">
                 <input id="send-amount" type="number" min="0" placeholder="0.00" />
                 <button class="btn btn-ghost live-send-max" type="button" id="send-max">Max</button>

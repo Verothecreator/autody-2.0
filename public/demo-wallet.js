@@ -350,7 +350,7 @@ function groupAssets(group) {
       balance: Number(holding?.balance || 0),
       currency: market?.currency || "USD",
       status: Number(holding?.balance || 0) > 0 ? "Held" : "Not held",
-      url: `demo-asset.html?symbol=${encodeURIComponent(symbol)}`
+      url: `demo-asset?symbol=${encodeURIComponent(symbol)}`
     };
   });
 }
@@ -364,11 +364,11 @@ function formatBalance(asset) {
 }
 
 function assetMarketUrl(symbol) {
-  return `demo-asset.html?symbol=${encodeURIComponent(symbol)}`;
+  return `demo-asset?symbol=${encodeURIComponent(symbol)}`;
 }
 
 function tradeUrl(side, symbol) {
-  return `demo-orders.html?side=${encodeURIComponent(side)}&symbol=${encodeURIComponent(symbol)}`;
+  return `demo-orders?side=${encodeURIComponent(side)}&symbol=${encodeURIComponent(symbol)}`;
 }
 
 function detailRow(label, value, tone = "") {
@@ -390,8 +390,8 @@ function categoryLabel(asset) {
 function walletActions(asset) {
   if (asset.symbol === "USD") {
     return [
-      ["Buy assets", "demo-markets.html"],
-      ["Orders", "demo-orders.html"]
+      ["Buy assets", "demo-markets"],
+      ["Orders", "demo-orders"]
     ];
   }
   if (asset.symbol === "AU") {
@@ -404,8 +404,8 @@ function walletActions(asset) {
   if (asset.isGroup) {
     const filter = asset.key === "stocks" ? "stocks" : asset.key;
     return [
-      [`Browse ${asset.name}`, `demo-markets.html?filter=${encodeURIComponent(filter)}`],
-      ["Orders", "demo-orders.html"]
+      [`Browse ${asset.name}`, `demo-markets?filter=${encodeURIComponent(filter)}`],
+      ["Orders", "demo-orders"]
     ];
   }
   const type = String(asset.assetType || asset.category || "").toLowerCase();
@@ -731,7 +731,7 @@ document.addEventListener("click", (event) => {
       if (key && !["usd", "au"].includes(key)) expandedGroupKey = key;
     }
     closeWalletMenus();
-    history.replaceState(null, "", `demo-wallet.html?asset=${encodeURIComponent(selectedSymbol)}`);
+    history.replaceState(null, "", `demo-wallet?asset=${encodeURIComponent(selectedSymbol)}`);
     renderWallet(walletState);
     return;
   }

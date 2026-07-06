@@ -5,11 +5,11 @@ let assetLoading = false;
 let assetRequestToken = 0;
 
 const ASSET_REFRESH_MS = 10000;
-const ASSET_PAGE_NAME = location.pathname.split("/").pop() || "demo-asset.html";
-const IS_LIVE_ASSET_PAGE = ASSET_PAGE_NAME === "account-asset.html";
-const ASSET_ORDERS_PAGE = IS_LIVE_ASSET_PAGE ? "account-orders.html" : "demo-orders.html";
-const ASSET_WALLET_PAGE = IS_LIVE_ASSET_PAGE ? "account-wallet.html" : "demo-wallet.html";
-const ASSET_RESEARCH_PAGE = IS_LIVE_ASSET_PAGE ? "account-research.html" : "demo-research.html";
+const ASSET_PAGE_NAME = (location.pathname.split("/").pop() || "demo-asset.html").replace(/\.html$/i, "");
+const IS_LIVE_ASSET_PAGE = ASSET_PAGE_NAME === "account-asset";
+const ASSET_ORDERS_PAGE = IS_LIVE_ASSET_PAGE ? "account-orders" : "demo-orders";
+const ASSET_WALLET_PAGE = IS_LIVE_ASSET_PAGE ? "account-wallet" : "demo-wallet";
+const ASSET_RESEARCH_PAGE = IS_LIVE_ASSET_PAGE ? "account-research" : "demo-research";
 const ASSET_WATCHLIST_API = IS_LIVE_ASSET_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
 
 function priceDigits(number, compact = false) {
@@ -128,11 +128,12 @@ function assetLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallbackText(asset);
   const src = assetLogoSrc(asset);
   const autodyClass = String(asset.symbol || "").toUpperCase() === "AU" ? "autody-logo" : "";
+  const customClass = asset.customAsset && String(asset.symbol || "").toUpperCase() !== "AU" ? "custom-logo" : "";
   const img = src
     ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${customClass} ${escapeHtml(extraClass)}" data-symbol="${escapeHtml(fallback)}">
       ${img}
       <b>${escapeHtml(fallback)}</b>
     </span>
@@ -364,17 +365,17 @@ function renderActions(asset) {
   }
 
   const cryptoActions = `
-    <a href="demo-orders.html?side=buy&symbol=${symbol}">Buy</a>
-    <a href="demo-orders.html?side=sell&symbol=${symbol}">Sell</a>
-    <a href="demo-orders.html?side=swap&symbol=${symbol}">Swap</a>
+    <a href="${ASSET_ORDERS_PAGE}?side=buy&symbol=${symbol}">Buy</a>
+    <a href="${ASSET_ORDERS_PAGE}?side=sell&symbol=${symbol}">Sell</a>
+    <a href="${ASSET_ORDERS_PAGE}?side=swap&symbol=${symbol}">Swap</a>
     <button type="button" data-demo-blocked-action="Receive">Receive</button>
     <button type="button" data-demo-blocked-action="Send">Send</button>
   `;
   const marketActions = `
-    <a href="demo-orders.html?side=buy&symbol=${symbol}">Buy</a>
-    <a href="demo-orders.html?side=sell&symbol=${symbol}">Sell</a>
+    <a href="${ASSET_ORDERS_PAGE}?side=buy&symbol=${symbol}">Buy</a>
+    <a href="${ASSET_ORDERS_PAGE}?side=sell&symbol=${symbol}">Sell</a>
     <button type="button" data-add-watchlist>Watchlist</button>
-    <a href="demo-research.html">Research</a>
+    <a href="${ASSET_RESEARCH_PAGE}">Research</a>
   `;
   document.getElementById("asset-action-grid").innerHTML = asset.assetType === "crypto" ? cryptoActions : marketActions;
 }

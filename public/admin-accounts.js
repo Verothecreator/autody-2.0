@@ -9,6 +9,8 @@ const accountDate = new Intl.DateTimeFormat("en-US", {
   timeStyle: "short"
 });
 
+let accountsCache = [];
+
 function accountEscape(value = "") {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -37,9 +39,14 @@ function accountFormatDate(value) {
 
 function accountStatusClass(status = "") {
   const value = String(status || "").toLowerCase();
-  if (["verified", "approved", "active"].includes(value)) return "positive";
-  if (["rejected", "restricted", "frozen"].includes(value)) return "negative";
+  if (["verified", "approved", "active", "standard"].includes(value)) return "positive";
+  if (["rejected", "restricted", "frozen", "banned", "deleted"].includes(value)) return "negative";
   return "";
+}
+
+function accountLimitValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number.toFixed(2) : "";
 }
 
 function renderAccountKpis(data = {}) {
@@ -67,7 +74,7 @@ function renderAccountsTable(accounts = []) {
   }
 
   target.innerHTML = accounts.map((account) => `
-    <div class="admin-record">
+    <div class="admin-record admin-account-record" data-account-profile-id="${accountEscape(account.id)}">
       <span>
         <strong>${accountEscape(account.displayName || account.email)}</strong>
         <small>${accountEscape(account.email || "-")}</small>
@@ -92,6 +99,22 @@ function renderAccountsTable(accounts = []) {
         <strong>${accountFormatDate(account.createdAt)}</strong>
         <small>Created</small>
       </span>
+      <span class="admin-account-limits">
+        <label>Order cap
+          <input data-account-limit="order" type="number" min="0" step="0.01" placeholder="No cap" value="${accountEscape(accountLimitValue(account.maxOrderUsd))}" />
+        </label>
+        <label>Withdrawal cap
+          <input data-account-limit="withdrawal" type="number" min="0" step="0.01" placeholder="No cap" value="${accountEscape(accountLimitValue(account.maxWithdrawalUsd))}" />
+        </label>
+      </span>
+      <span class="admin-record-actions">
+        <button type="button" class="btn btn-ghost" data-account-command="impersonate">Open</button>
+        <button type="button" class="btn btn-ghost" data-account-command="limit">Save limits</button>
+        <button type="button" class="btn btn-ghost" data-account-command="restricted">Restrict</button>
+        <button type="button" class="btn btn-ghost" data-account-command="banned">Ban</button>
+        <button type="button" class="btn btn-ghost" data-account-command="deleted">Soft delete</button>
+        <button type="button" class="btn btn-ghost" data-account-command="active">Restore</button>
+      </span>
     </div>
   `).join("");
 }
@@ -99,10 +122,62 @@ function renderAccountsTable(accounts = []) {
 async function loadAccountsData() {
   accountNotice("Loading account data...", "neutral");
   const data = await opsPost("/api/admin/accounts/overview", { limit: 150 });
+  accountsCache = Array.isArray(data.accounts) ? data.accounts : [];
   renderAccountKpis(data);
-  renderAccountsTable(Array.isArray(data.accounts) ? data.accounts : []);
+  renderAccountsTable(accountsCache);
   const generated = data.generatedAt ? accountFormatDate(data.generatedAt) : "now";
   accountNotice(`Account data loaded. Last refresh ${generated}.`, "success");
+}
+
+function rowProfileId(node) {
+  return node?.closest("[data-account-profile-id]")?.dataset.accountProfileId || "";
+}
+
+async function runAccountCommand(button) {
+  const command = button.dataset.accountCommand;
+  const row = button.closest("[data-account-profile-id]");
+  const profileId = rowProfileId(button);
+  if (!profileId || !command) return;
+  const account = accountsCache.find((item) => item.id === profileId);
+
+  if (["banned", "deleted"].includes(command) && !confirm(`${command === "deleted" ? "Soft delete" : "Ban"} ${account?.email || "this account"}?`)) {
+    return;
+  }
+
+  const maxOrderUsd = row.querySelector('[data-account-limit="order"]')?.value || "";
+  const maxWithdrawalUsd = row.querySelector('[data-account-limit="withdrawal"]')?.value || "";
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = command === "impersonate" ? "Opening..." : "Saving...";
+
+  try {
+    if (command === "impersonate") {
+      const data = await opsPost("/api/admin/accounts/impersonate", { profileId });
+      if (data.session?.token) {
+        localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
+        window.open(data.next || "account", "_blank", "noopener");
+        accountNotice(`Support access opened for ${data.email || account?.email || "account"}.`, "success");
+      } else {
+        accountNotice("Could not create an account session.", "error");
+      }
+      return;
+    }
+
+    await opsPost("/api/admin/accounts/control", {
+      profileId,
+      action: command,
+      maxOrderUsd,
+      maxWithdrawalUsd,
+      note: command === "limit" ? "Admin account limit update" : `Admin marked account ${command}`
+    });
+    accountNotice(`Account ${command === "active" ? "restored" : command} update saved.`, "success");
+    await loadAccountsData();
+  } catch (err) {
+    accountNotice(err.message || "Account action failed.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
 }
 
 async function bootAccountsPortal() {
@@ -116,6 +191,11 @@ async function bootAccountsPortal() {
   }
   document.getElementById("accounts-refresh")?.addEventListener("click", () => {
     loadAccountsData().catch((err) => accountNotice(err.message || "Refresh failed.", "error"));
+  });
+  document.getElementById("accounts-table")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-account-command]");
+    if (!button) return;
+    runAccountCommand(button);
   });
   loadAccountsData().catch((err) => accountNotice(err.message || "Could not load account data.", "error"));
 }

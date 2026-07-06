@@ -132,17 +132,49 @@ function formatLiveSendAmount(value) {
   return number.toFixed(8).replace(/\.?0+$/, "");
 }
 
+function formatLiveSendUsd(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "";
+  return number.toFixed(2);
+}
+
 async function liveSendWallet() {
   const data = await getLiveAccountJson("/api/account/wallet");
   liveSendWalletCache = data.wallet || null;
   return liveSendWalletCache;
 }
 
+function liveSendHoldingForSymbol(wallet = {}, symbol = "") {
+  const lookup = String(symbol || "").trim().toUpperCase();
+  return (wallet.holdings || []).find((item) => String(item.symbol || "").toUpperCase() === lookup) || null;
+}
+
 function liveSendBalanceForSymbol(wallet = {}, symbol = "") {
   const lookup = String(symbol || "").trim().toUpperCase();
   if (lookup === "USD") return Number(wallet.cashBalance || 0);
-  const holding = (wallet.holdings || []).find((item) => String(item.symbol || "").toUpperCase() === lookup);
-  return Number(holding?.balance || 0);
+  return Number(liveSendHoldingForSymbol(wallet, lookup)?.balance || 0);
+}
+
+function liveSendValueForSymbol(wallet = {}, symbol = "") {
+  const lookup = String(symbol || "").trim().toUpperCase();
+  if (lookup === "USD") return Number(wallet.cashBalance || 0);
+  const holding = liveSendHoldingForSymbol(wallet, lookup);
+  const direct = Number(holding?.valueUsd);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const balance = Number(holding?.balance || 0);
+  const price = Number(holding?.lastPrice || holding?.price || 0);
+  return Number.isFinite(balance) && Number.isFinite(price) ? balance * price : 0;
+}
+
+function currentSendAmountMode() {
+  return document.getElementById("send-amount-mode")?.value === "asset" ? "asset" : "usd";
+}
+
+function updateSendAmountPlaceholder() {
+  const amountInput = document.getElementById("send-amount");
+  const mode = currentSendAmountMode();
+  const asset = document.getElementById("send-asset")?.value || defaultLiveCryptoSymbol();
+  if (amountInput) amountInput.placeholder = mode === "asset" ? `0 ${asset}` : "0.00";
 }
 
 function setFundingTab(tabName) {
@@ -218,6 +250,7 @@ function updateSendNetworks() {
     .sort((networkA, networkB) => networkA.localeCompare(networkB))
     .map((network) => `<option value="${network}">${network}</option>`)
     .join("");
+  updateSendAmountPlaceholder();
 }
 
 function updateWithdrawalTypeFields() {
@@ -433,6 +466,7 @@ async function reviewLiveSend() {
   const type = document.getElementById("send-type")?.value === "external" ? "external" : "internal";
   const asset = document.getElementById("send-asset")?.value || defaultLiveCryptoSymbol();
   const amount = Number(document.getElementById("send-amount")?.value || 0);
+  const amountMode = currentSendAmountMode();
   const destination = document.getElementById("send-address")?.value?.trim();
   const recipientEmail = document.getElementById("send-recipient-email")?.value?.trim();
   const network = document.getElementById("send-network")?.value || "";
@@ -462,6 +496,7 @@ async function reviewLiveSend() {
       asset,
       network,
       amount,
+      amountMode,
       destination,
       recipientEmail
     });
@@ -494,9 +529,10 @@ async function setMaxLiveSendAmount() {
 
   try {
     const wallet = await liveSendWallet();
-    const balance = liveSendBalanceForSymbol(wallet, asset);
-    amountInput.value = formatLiveSendAmount(balance);
-    if (!balance) showLiveNotice(`No ${asset} balance is available to send.`, "warning");
+    const mode = currentSendAmountMode();
+    const max = mode === "usd" ? liveSendValueForSymbol(wallet, asset) : liveSendBalanceForSymbol(wallet, asset);
+    amountInput.value = mode === "usd" ? formatLiveSendUsd(max) : formatLiveSendAmount(max);
+    if (!max) showLiveNotice(`No ${asset} balance is available to send.`, "warning");
   } catch (err) {
     showLiveNotice(err.message || "Could not load the available balance.", "warning");
   } finally {
@@ -542,7 +578,7 @@ document.addEventListener("click", (event) => {
     }
     if (liveFocus.dataset.liveFocus === "funding") {
       event.preventDefault();
-      if (!openAutodyLiveFundingModal("card")) window.location.href = "account-wallet.html#live-funding";
+      if (!openAutodyLiveFundingModal("card")) window.location.href = "account-wallet#live-funding";
     }
     return;
   }
@@ -568,7 +604,7 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     localStorage.removeItem("autodyDemoSession");
     localStorage.removeItem("autodyDemoUser");
-    window.location.href = signOut.getAttribute("href") || "sign-in.html";
+    window.location.href = signOut.getAttribute("href") || "sign-in";
   }
 });
 
@@ -585,6 +621,7 @@ document.getElementById("send-asset")?.addEventListener("change", () => {
   updateSendNetworks();
   liveSendWalletCache = null;
 });
+document.getElementById("send-amount-mode")?.addEventListener("change", updateSendAmountPlaceholder);
 document.getElementById("send-type")?.addEventListener("change", updateWithdrawalTypeFields);
 document.getElementById("generate-receive-address")?.addEventListener("click", generateReceiveAddress);
 document.getElementById("copy-receive-address")?.addEventListener("click", copyReceiveAddress);
@@ -601,6 +638,7 @@ setLiveTransferAsset(new URLSearchParams(location.search).get("asset") || defaul
 updateReceiveNetworks();
 updateSendNetworks();
 updateWithdrawalTypeFields();
+updateSendAmountPlaceholder();
 
 window.ensureLiveReceiveAddress = () => requestReceiveAddress({ fresh: false, showNotice: false });
 window.openAutodyLiveTransferModal = openAutodyLiveTransferModal;

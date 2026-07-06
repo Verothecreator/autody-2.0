@@ -8,10 +8,10 @@ let demoWallet = null;
 let marketsLoading = false;
 
 const MARKET_REFRESH_MS = 10000;
-const MIN_STABLE_MARKET_ASSETS = 390;
-const MARKET_PAGE_NAME = location.pathname.split("/").pop() || "demo-markets.html";
-const MARKET_HISTORY_PAGE = MARKET_PAGE_NAME === "account-markets.html" ? "account-markets.html" : "demo-markets.html";
-const IS_LIVE_MARKET_PAGE = MARKET_PAGE_NAME === "account-markets.html";
+const MIN_STABLE_MARKET_ASSETS = 400;
+const MARKET_PAGE_NAME = (location.pathname.split("/").pop() || "demo-markets.html").replace(/\.html$/i, "");
+const MARKET_HISTORY_PAGE = MARKET_PAGE_NAME === "account-markets" ? "account-markets" : "demo-markets";
+const IS_LIVE_MARKET_PAGE = MARKET_PAGE_NAME === "account-markets";
 const MARKET_WATCHLIST_API = IS_LIVE_MARKET_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
 
 function marketPriceDigits(number, compact = false) {
@@ -71,7 +71,7 @@ function cssValue(value = "") {
 }
 
 function assetUrl(asset) {
-  const page = IS_LIVE_MARKET_PAGE ? "account-asset.html" : "demo-asset.html";
+  const page = IS_LIVE_MARKET_PAGE ? "account-asset" : "demo-asset";
   return `${page}?symbol=${encodeURIComponent(asset.symbol)}`;
 }
 
@@ -94,12 +94,13 @@ function marketLogoSrc(asset) {
 function marketLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallbackText(asset);
   const src = marketLogoSrc(asset);
-  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const autodyClass = asset.symbol === "AU" ? "autody-logo" : "";
+  const customClass = asset.customAsset && asset.symbol !== "AU" ? "custom-logo" : "";
   const img = src
     ? `<img src="${escapeMarketHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeMarketHtml(extraClass)}" data-symbol="${escapeMarketHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${customClass} ${escapeMarketHtml(extraClass)}" data-symbol="${escapeMarketHtml(fallback)}">
       ${img}
       <b>${escapeMarketHtml(fallback)}</b>
     </span>
@@ -351,6 +352,10 @@ async function loadDemoMarkets(options = {}) {
     ]);
 
     const nextAssets = catalog.assets || [];
+    if (!allMarketAssets.length && nextAssets.length < MIN_STABLE_MARKET_ASSETS) {
+      console.warn(`Waiting for full market catalog: ${nextAssets.length} assets`);
+      return;
+    }
     if (allMarketAssets.length >= MIN_STABLE_MARKET_ASSETS && nextAssets.length < MIN_STABLE_MARKET_ASSETS) {
       console.warn(`Skipping short market catalog refresh: ${nextAssets.length} assets`);
       return;

@@ -10,8 +10,8 @@ function setError(message) {
 
 function nextPage() {
   const params = new URLSearchParams(location.search);
-  const next = params.get("next") || "account.html";
-  return next === "account.html" || next.startsWith("account-") ? next : "account.html";
+  const next = (params.get("next") || "account").replace(/\.html$/i, "");
+  return next === "account" || next.startsWith("account-") ? next : "account";
 }
 
 function trustedDeviceForEmail(email) {

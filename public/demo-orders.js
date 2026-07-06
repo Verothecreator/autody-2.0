@@ -11,10 +11,10 @@ const orderWholeMoney = new Intl.NumberFormat("en-US", {
 });
 
 const orderParams = new URLSearchParams(location.search);
-const ORDER_PAGE_NAME = location.pathname.split("/").pop() || "demo-orders.html";
-const IS_LIVE_ORDER_PAGE = ORDER_PAGE_NAME === "account-orders.html";
-const ORDER_PAGE_URL = IS_LIVE_ORDER_PAGE ? "account-orders.html" : "demo-orders.html";
-const ORDER_ASSET_PAGE = IS_LIVE_ORDER_PAGE ? "account-asset.html" : "demo-asset.html";
+const ORDER_PAGE_NAME = (location.pathname.split("/").pop() || "demo-orders.html").replace(/\.html$/i, "");
+const IS_LIVE_ORDER_PAGE = ORDER_PAGE_NAME === "account-orders";
+const ORDER_PAGE_URL = IS_LIVE_ORDER_PAGE ? "account-orders" : "demo-orders";
+const ORDER_ASSET_PAGE = IS_LIVE_ORDER_PAGE ? "account-asset" : "demo-asset";
 const AU_FIRST_PURCHASE_MIN_QUANTITY = 10000;
 let orderSide = ["buy", "sell", "swap"].includes(orderParams.get("side")) ? orderParams.get("side") : "buy";
 let orderAssets = [];
@@ -181,17 +181,21 @@ function assetForHolding(holding = {}) {
 }
 
 function holdingValueUsd(holding = {}) {
+  const symbol = String(holding.symbol || "").toUpperCase();
+  const balance = Number(holding.balance || 0);
+  if (["USDT", "USDC"].includes(symbol) && Number.isFinite(balance)) {
+    return balance;
+  }
   const direct = Number(holding.valueUsd);
   if (Number.isFinite(direct)) return direct;
   const asset = assetForHolding(holding);
-  const balance = Number(holding.balance || 0);
   const price = Number(asset.price);
   return Number.isFinite(balance) && Number.isFinite(price) ? balance * price : 0;
 }
 
 function currentHoldings() {
   return (orderWallet?.holdings || []).filter((holding) => (
-    !ORDER_GROUP_SYMBOLS.has(String(holding.symbol || "").toUpperCase()) && Number(holding.balance) > 0
+    !ORDER_GROUP_SYMBOLS.has(String(holding.symbol || "").toUpperCase()) && Number(holding.balance) > 0.00000001
   ));
 }
 
@@ -299,7 +303,7 @@ function assetOption(asset) {
 
 function sellAssetOption(asset) {
   const heldValue = holdingValueUsd(holdingForSymbol(asset.symbol));
-  const suffix = ` - ${formatOrderMoney(heldValue)} held`;
+  const suffix = ` - ${formatOrderMoney(heldValue)}`;
   return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(suffix)}</option>`;
 }
 
@@ -360,7 +364,7 @@ function renderSideState() {
   document.getElementById("order-from-wrap").hidden = orderSide !== "swap";
   document.getElementById("order-to-wrap").hidden = orderSide !== "sell";
   document.getElementById("order-asset-label").textContent = orderSide === "sell" ? "Asset to sell" : orderSide === "swap" ? "Receive" : "Asset to buy";
-  document.getElementById("order-amount-label").textContent = orderSide === "sell" ? "Sell amount (USD)" : orderSide === "swap" ? "Swap amount (USD)" : "Buy amount (USD)";
+  document.getElementById("order-amount-label").textContent = orderSide === "sell" ? "Sell amount (USD)" : orderSide === "swap" ? "Swap amount" : "Buy amount (USD)";
   const submit = document.getElementById("order-submit");
   submit.textContent = orderSide === "swap"
     ? IS_LIVE_ORDER_PAGE ? "Place Live Swap" : "Place Demo Swap"
@@ -646,6 +650,8 @@ async function submitOrder(event) {
     if (IS_LIVE_ORDER_PAGE && data.tradingFee) orderTradingFee = data.tradingFee;
     setStatus(`${orderSide.toUpperCase()} filled for ${asset.symbol}. Wallet updated.`, "gain");
     await loadOrdersPage({ silent: true });
+    const amountInput = document.getElementById("order-amount");
+    if (amountInput) amountInput.value = "";
   } catch (err) {
     setStatus(err.message || `${IS_LIVE_ORDER_PAGE ? "Live" : "Demo"} order failed.`, "loss");
   } finally {
@@ -657,6 +663,8 @@ document.addEventListener("click", (event) => {
   const sideButton = event.target.closest("[data-order-side]");
   if (!sideButton) return;
   orderSide = sideButton.dataset.orderSide;
+  const amountInput = document.getElementById("order-amount");
+  if (amountInput) amountInput.value = "";
   const symbol = document.getElementById("order-symbol")?.value || orderParams.get("symbol") || "BTC";
   history.replaceState(null, "", `${ORDER_PAGE_URL}?side=${encodeURIComponent(orderSide)}&symbol=${encodeURIComponent(symbol)}`);
   renderSideState();

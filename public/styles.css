@@ -592,6 +592,70 @@ h3 {
   padding: 24px;
 }
 
+.mobile-app-section {
+  background:
+    linear-gradient(135deg, rgba(91, 95, 239, 0.12), rgba(38, 212, 160, 0.08)),
+    rgba(11, 15, 23, 0.96);
+}
+
+.mobile-app-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.mobile-install-status {
+  min-height: 22px;
+  margin-top: 14px;
+  color: var(--muted);
+}
+
+.mobile-install-status[data-state="success"] {
+  color: var(--green);
+}
+
+.mobile-install-status[data-state="error"] {
+  color: var(--red);
+}
+
+.mobile-app-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.mobile-app-panel > div {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgba(79, 91, 126, 0.48);
+  border-radius: 8px;
+  background: rgba(24, 29, 39, 0.78);
+  padding: 16px;
+}
+
+.mobile-app-panel span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: rgba(91, 95, 239, 0.24);
+  color: var(--accent);
+  font-weight: 900;
+}
+
+.mobile-app-panel strong,
+.mobile-app-panel small {
+  display: block;
+}
+
+.mobile-app-panel small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
 .dashboard-header strong {
   display: block;
   font-size: 1.4rem;
@@ -3602,6 +3666,22 @@ body.account-body.theme-light .profile-kyc-modal-card {
   display: block;
 }
 
+.live-amount-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.live-amount-heading select {
+  width: auto;
+  min-height: 32px;
+  padding: 0 32px 0 12px;
+  border-radius: 7px;
+  font-size: 0.76rem;
+}
+
 .order-amount-row input,
 .live-amount-row input {
   min-width: 0;
@@ -4226,6 +4306,10 @@ body.account-body.theme-light .profile-kyc-modal-card {
   background: rgba(255, 255, 255, 0.96);
 }
 
+.asset-logo.custom-logo.has-image {
+  background: transparent;
+}
+
 .asset-logo-fit {
   position: absolute;
   inset: 4px;
@@ -4240,6 +4324,10 @@ body.account-body.theme-light .profile-kyc-modal-card {
   display: block;
   object-fit: contain;
   object-position: center;
+}
+
+.asset-logo.custom-logo img {
+  object-fit: cover;
 }
 
 .asset-logo.logo-type-stock .asset-logo-fit,
@@ -5792,6 +5880,47 @@ body.account-body.theme-light .profile-kyc-modal-card {
   padding: 14px;
 }
 
+.admin-account-record {
+  min-width: 1160px;
+  grid-template-columns: minmax(210px, 1fr) repeat(5, minmax(120px, 0.55fr)) minmax(230px, 0.9fr) minmax(330px, 1fr);
+}
+
+.admin-account-limits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+.admin-account-limits label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.admin-account-limits input {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.admin-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-record-actions .btn {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 0.78rem;
+}
+
+.admin-record .admin-account-limits,
+.admin-record .admin-record-actions {
+  overflow: visible;
+  white-space: normal;
+}
+
 .admin-record-scan {
   min-width: 560px;
   grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.6fr) minmax(220px, 0.8fr);
@@ -6538,6 +6667,7 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
   .admin-record,
   .admin-record-scan,
+  .admin-account-record,
   .admin-kyc-record,
   .admin-kyc-files {
     min-width: 0;

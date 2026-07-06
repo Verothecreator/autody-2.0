@@ -1,0 +1,24 @@
+{
+  "name": "Autody",
+  "short_name": "Autody",
+  "description": "Autody markets, wallet, deposits, orders, withdrawals, and account tools.",
+  "start_url": "/account",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070a10",
+  "theme_color": "#101328",
+  "icons": [
+    {
+      "src": "/Autody-Logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/Autody-Logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

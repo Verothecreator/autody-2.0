@@ -3,6 +3,7 @@ let activeNewsIndex = 0;
 let newsSlideTimer = null;
 let marketRefreshTimer = null;
 let newsRefreshTimer = null;
+let deferredInstallPrompt = null;
 
 const HOME_MARKET_REFRESH_MS = 10000;
 const HOME_NEWS_REFRESH_MS = 1800000;
@@ -267,6 +268,13 @@ function setPublicSupportStatus(message = "", tone = "info") {
   status.dataset.tone = tone;
 }
 
+function setMobileInstallStatus(message = "", tone = "info") {
+  const status = document.getElementById("mobile-install-status");
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.state = tone;
+}
+
 function publicSupportPayload() {
   return {
     name: document.getElementById("public-support-name")?.value?.trim() || "",
@@ -279,6 +287,26 @@ function publicSupportPayload() {
 }
 
 document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-install-app]")) {
+    if (!deferredInstallPrompt) {
+      setMobileInstallStatus("Open this page in Chrome or Edge on Android, then choose Install app from the browser menu.", "info");
+      return;
+    }
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice
+      .then(() => {
+        deferredInstallPrompt = null;
+        setMobileInstallStatus("Autody install prompt closed.", "success");
+      })
+      .catch(() => setMobileInstallStatus("Install prompt could not be opened.", "error"));
+    return;
+  }
+
+  if (event.target.closest("[data-ios-install]")) {
+    setMobileInstallStatus("On iPhone, open Autody in Safari, tap Share, then Add to Home Screen.", "info");
+    return;
+  }
+
   if (event.target.closest("[data-public-support-open]")) {
     setPublicSupportOpen(true);
     return;
@@ -343,6 +371,15 @@ document.addEventListener("DOMContentLoaded", () => {
   loadNewsData();
   marketRefreshTimer = setInterval(loadMarketData, HOME_MARKET_REFRESH_MS);
   newsRefreshTimer = setInterval(loadNewsData, HOME_NEWS_REFRESH_MS);
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js").catch(() => null);
+  }
+});
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  setMobileInstallStatus("Autody is ready to install on this device.", "success");
 });
 
 window.addEventListener("focus", loadMarketData);

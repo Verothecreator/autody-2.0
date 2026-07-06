@@ -198,7 +198,7 @@ function normalizeLiveWalletHolding(holding = {}) {
     currency: holding.currency || market.currency || "USD",
     status: holding.status || (liveWalletNumber(holding.balance, 0) > 0 ? "Held" : "Ready"),
     detail: holding.detail || "",
-    url: holding.url || `account-asset.html?symbol=${encodeURIComponent(symbol)}`
+    url: holding.url || `account-asset?symbol=${encodeURIComponent(symbol)}`
   };
 }
 
@@ -360,7 +360,7 @@ function liveGroupAssets(group) {
       balance: 0,
       currency: market.currency || "USD",
       status: "Not held",
-      url: `account-asset.html?symbol=${encodeURIComponent(symbol)}`
+      url: `account-asset?symbol=${encodeURIComponent(symbol)}`
     };
   });
 
@@ -390,7 +390,7 @@ function liveWalletAssetForSymbol(symbol) {
     currency: market.currency || "USD",
     status: "Not held",
     detail: hasLiveWalletNumber(market.price) ? "Live price before you hold" : "Available after market data loads",
-    url: `account-asset.html?symbol=${encodeURIComponent(lookup)}`
+    url: `account-asset?symbol=${encodeURIComponent(lookup)}`
   };
 }
 
@@ -402,11 +402,11 @@ function formatLiveBalance(asset) {
 }
 
 function liveAssetMarketUrl(symbol) {
-  return `account-asset.html?symbol=${encodeURIComponent(symbol)}`;
+  return `account-asset?symbol=${encodeURIComponent(symbol)}`;
 }
 
 function liveTradeUrl(side, symbol) {
-  return `account-orders.html?side=${encodeURIComponent(side)}&symbol=${encodeURIComponent(symbol)}`;
+  return `account-orders?side=${encodeURIComponent(side)}&symbol=${encodeURIComponent(symbol)}`;
 }
 
 function liveWalletUsesCryptoActionGrid(asset = {}) {
@@ -453,10 +453,10 @@ function liveWalletActions(asset) {
   }
   if (asset.isGroup) {
     const filter = asset.key === "stocks" ? "stocks" : asset.key;
-    const primary = asset.key === "crypto" ? ["Receive Crypto", "modal:receive"] : [`Browse ${asset.name}`, `account-markets.html?filter=${encodeURIComponent(filter)}`];
+    const primary = asset.key === "crypto" ? ["Receive Crypto", "modal:receive"] : [`Browse ${asset.name}`, `account-markets?filter=${encodeURIComponent(filter)}`];
     return [
       primary,
-      ["Orders", "account-orders.html"]
+      ["Orders", "account-orders"]
     ];
   }
   const type = String(asset.assetType || asset.category || "").toLowerCase();
@@ -820,7 +820,7 @@ document.addEventListener("click", (event) => {
     if (typeof window.openAutodyLiveFundingModal === "function") {
       window.openAutodyLiveFundingModal("card");
     } else {
-      window.location.href = "account-wallet.html#live-funding";
+      window.location.href = "account-wallet#live-funding";
     }
     return;
   }
@@ -901,7 +901,7 @@ document.addEventListener("click", (event) => {
       if (key && !["usd", "au"].includes(key)) expandedLiveWalletGroupKey = key;
     }
     closeLiveWalletMenus();
-    history.replaceState(null, "", `account-wallet.html?asset=${encodeURIComponent(selectedLiveWalletSymbol)}`);
+    history.replaceState(null, "", `account-wallet?asset=${encodeURIComponent(selectedLiveWalletSymbol)}`);
     renderLiveWallet();
     return;
   }

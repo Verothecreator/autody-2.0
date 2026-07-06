@@ -6,15 +6,15 @@
   let redirectingToSignIn = false;
 
   function currentAccountNextPage() {
-    const page = location.pathname.split("/").pop() || "account.html";
-    return page === "account.html" || page.startsWith("account-") ? encodeURIComponent(page) : "account.html";
+    const page = (location.pathname.split("/").pop() || "account").replace(/\.html$/i, "");
+    return page === "account" || page.startsWith("account-") ? encodeURIComponent(page) : "account";
   }
 
   function redirectToSignIn() {
     if (redirectingToSignIn) return;
     redirectingToSignIn = true;
     localStorage.removeItem(sessionKey);
-    location.replace(`sign-in.html?next=${currentAccountNextPage()}`);
+    location.replace(`sign-in?next=${currentAccountNextPage()}`);
   }
 
   function protectedApiRequest(input) {

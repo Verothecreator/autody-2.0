@@ -1832,6 +1832,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
         dbPool.query(`
             select
               wr.*,
+              case when wr.profile_id = $1 then 'outgoing' else 'incoming' end as transfer_direction,
               p.email,
               p.display_name,
               pv.first_name,
@@ -1840,6 +1841,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             join profiles p on p.id = wr.profile_id
             left join profile_verifications pv on pv.profile_id = p.id
             where wr.profile_id = $1
+               or wr.recipient_profile_id = $1
             order by wr.created_at desc
             limit 20
         `, [row.profile_id]).catch(() => ({ rows: [] }))
@@ -2170,9 +2172,15 @@ function buildLiveWalletRecords(account) {
         const symbol = String(request.asset || request.asset_symbol || "").toUpperCase();
         const status = request.status || "pending_review";
         const valueUsd = numberValue(request.amountUsd ?? request.amount_usd, 0);
+        const direction = request.direction || (
+            String(request.recipientProfileId || request.recipient_profile_id || "") === String(account?.user?.id || "")
+                ? "incoming"
+                : "outgoing"
+        );
+        const internalTitle = direction === "incoming" ? `Received ${symbol}` : `Sent ${symbol}`;
         return {
             type: type === "internal" ? "internal_transfer" : "withdrawal",
-            title: type === "internal" ? `Internal send ${symbol}` : `Withdrawal ${symbol}`,
+            title: type === "internal" ? internalTitle : `Withdrawal ${symbol}`,
             symbol,
             assetType: "crypto",
             valueUsd,
@@ -4261,6 +4269,47 @@ function normalizeWithdrawalAmount(value) {
     return Math.round(amount * 1e10) / 1e10;
 }
 
+function normalizeWithdrawalAmountMode(value) {
+    const normalized = String(value || "usd").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (["usd", "cash", "fiat", "value", "value_usd"].includes(normalized)) return "usd";
+    if (["asset", "coin", "token", "quantity", "units"].includes(normalized)) return "asset";
+    throw demoTradeError(400, "Choose USD amount or asset amount.");
+}
+
+function withdrawalUnitPrice(symbol, info = {}) {
+    const price = firstPositive(info.price, info.lastPrice, info.value);
+    if (TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(symbol)) && price > 0.95 && price < 1.05) return 1;
+    return price;
+}
+
+function withdrawalAssetAmountFromInput(inputAmount, amountMode, assetSymbol, info = {}) {
+    if (assetSymbol === "USD" || amountMode === "asset") return inputAmount;
+    const price = withdrawalUnitPrice(assetSymbol, info);
+    if (!price) throw demoTradeError(409, `${assetSymbol} does not have a live price yet.`);
+    return Math.round((inputAmount / price) * 1e10) / 1e10;
+}
+
+function withdrawalUsdAmountFromInput(inputAmount, amountMode, assetSymbol, assetAmount, info = {}) {
+    if (assetSymbol === "USD") return inputAmount;
+    if (amountMode === "usd") return Math.round(inputAmount * 100) / 100;
+    const price = withdrawalUnitPrice(assetSymbol, info);
+    return price ? Math.round(assetAmount * price * 100) / 100 : null;
+}
+
+const WITHDRAWAL_HOLD_DAYS = 90;
+const WITHDRAWAL_HOLD_EXEMPT_EMAILS = new Set(["wisjohn737@gmail.com", "verop6968@gmail.com"]);
+
+function assertExternalWithdrawalAgeAllowed(user = {}) {
+    const email = normalizeEmail(user.email);
+    if (WITHDRAWAL_HOLD_EXEMPT_EMAILS.has(email)) return;
+    const createdAt = Date.parse(user.createdAt || user.created_at || "");
+    if (!Number.isFinite(createdAt)) return;
+    const ageMs = Date.now() - createdAt;
+    if (ageMs >= WITHDRAWAL_HOLD_DAYS * 24 * 60 * 60 * 1000) return;
+    const availableAt = new Date(createdAt + WITHDRAWAL_HOLD_DAYS * 24 * 60 * 60 * 1000);
+    throw demoTradeError(403, `External withdrawals become available on ${availableAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`);
+}
+
 function normalizeWithdrawalNetwork(assetSymbol, type, value) {
     if (type === "internal") return normalizeText(value) || "Autody internal";
     if (assetSymbol === "USD") return "Manual ledger";
@@ -4297,6 +4346,7 @@ function mapWithdrawalRequestRow(row = {}) {
         destination: row.destination || "",
         recipientProfileId: row.recipient_profile_id || "",
         recipientEmail: row.recipient_email || "",
+        direction: row.direction || row.transfer_direction || "",
         status: row.status || "pending_review",
         note: row.note || "",
         txHash: row.tx_hash || "",
@@ -4357,9 +4407,10 @@ async function walletAssetInfo(symbol, existing = null) {
     const marketAsset = symbol === "USD" ? null : await findMarketAssetBySymbol(symbol).catch(() => null);
     const quantity = numberValue(existing?.quantity, 0);
     const valueUsd = numberValue(existing?.value_usd, 0);
-    const price = symbol === "USD"
+    const rawPrice = symbol === "USD"
         ? 1
         : firstPositive(existing?.last_price, quantity > 0 ? valueUsd / quantity : null, marketAsset?.price) || 0;
+    const price = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
     return {
         symbol,
         name: existing?.asset_name || marketAsset?.name || LIVE_DEPOSIT_ASSETS[symbol]?.name || symbol,
@@ -4424,11 +4475,14 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
     if (!databaseConfigured()) return null;
     const type = normalizeWithdrawalType(body.type || body.withdrawalType || body.mode);
     const assetSymbol = normalizeWithdrawalAssetSymbol(body.asset || body.symbol);
-    const amount = normalizeWithdrawalAmount(body.amount);
+    const inputAmount = normalizeWithdrawalAmount(body.amount);
+    const amountMode = normalizeWithdrawalAmountMode(body.amountMode || body.valueMode || body.inputMode);
     const network = normalizeWithdrawalNetwork(assetSymbol, type, body.network);
     const note = normalizeText(body.note);
     const destination = normalizeText(body.destination || body.address || body.walletAddress);
     const recipientEmail = normalizeEmail(body.recipientEmail || body.email || body.toEmail);
+
+    if (type === "external") assertExternalWithdrawalAgeAllowed(auth.user);
 
     if (type === "external" && !destination) {
         throw demoTradeError(400, "Enter the external wallet address.");
@@ -4445,6 +4499,12 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
         await client.query("begin");
         await ensureWithdrawalTables(client);
         const context = await getPracticeDbContext(client, auth.profileId, "live");
+        assertLiveAccountOperational(context, type === "external" ? "External withdrawals" : "Internal transfers");
+        const existingForAmount = assetSymbol === "USD" ? null : await readDbHoldingForUpdate(client, context.wallet_id, assetSymbol);
+        const amountInfo = await walletAssetInfo(assetSymbol, existingForAmount);
+        const amount = withdrawalAssetAmountFromInput(inputAmount, amountMode, assetSymbol, amountInfo);
+        const projectedAmountUsd = withdrawalUsdAmountFromInput(inputAmount, amountMode, assetSymbol, amount, amountInfo);
+        await assertDatabaseAccountWithdrawalLimit(auth.profileId, projectedAmountUsd);
         let recipient = null;
         let recipientContext = null;
         let movementInfo = null;
@@ -4462,9 +4522,7 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
             movementInfo = await assertDbWalletAssetBalance(client, context.wallet_id, assetSymbol, amount);
         }
 
-        const amountUsd = movementInfo?.amountUsd == null && movementInfo?.price
-            ? amount * movementInfo.price
-            : movementInfo?.amountUsd ?? null;
+        const amountUsd = withdrawalUsdAmountFromInput(inputAmount, amountMode, assetSymbol, amount, movementInfo || amountInfo);
         const result = await client.query(`
             insert into withdrawal_requests (
               profile_id, account_mode_id, request_type, asset_symbol, network, amount, amount_usd,
@@ -4489,7 +4547,9 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
             note,
             JSON.stringify({
                 createdBy: "account",
-                price: movementInfo?.price || null
+                inputAmount,
+                amountMode,
+                price: withdrawalUnitPrice(assetSymbol, movementInfo || amountInfo) || null
             })
         ]);
 
@@ -4554,7 +4614,8 @@ function jsonDebitWalletAsset(db, userId, symbol, amount) {
     const holding = jsonHoldingForWithdrawal(wallet, symbol);
     const balance = numberValue(holding?.balance ?? holding?.quantity, 0);
     if (balance + 1e-10 < amount) throw demoTradeError(400, `Not enough ${symbol} available for this withdrawal.`);
-    const price = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+    const rawPrice = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+    const price = withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
     holding.balance = Math.max(0, balance - amount);
     holding.valueUsd = price ? holding.balance * price : numberValue(holding.valueUsd, 0);
     holding.updatedAt = new Date().toISOString();
@@ -4596,10 +4657,12 @@ function jsonCreditWalletAsset(db, userId, symbol, amount, sourceInfo = {}) {
 function createJsonWithdrawalRequest(auth, body = {}) {
     const type = normalizeWithdrawalType(body.type || body.withdrawalType || body.mode);
     const assetSymbol = normalizeWithdrawalAssetSymbol(body.asset || body.symbol);
-    const amount = normalizeWithdrawalAmount(body.amount);
+    const inputAmount = normalizeWithdrawalAmount(body.amount);
+    const amountMode = normalizeWithdrawalAmountMode(body.amountMode || body.valueMode || body.inputMode);
     const network = normalizeWithdrawalNetwork(assetSymbol, type, body.network);
     const destination = normalizeText(body.destination || body.address || body.walletAddress);
     const recipientEmail = normalizeEmail(body.recipientEmail || body.email || body.toEmail);
+    if (type === "external") assertExternalWithdrawalAgeAllowed(auth.user);
     if (type === "external" && !destination) throw demoTradeError(400, "Enter the external wallet address.");
     if (type === "internal" && !recipientEmail) throw demoTradeError(400, "Enter the recipient's Autody email.");
     if (recipientEmail && recipientEmail === normalizeEmail(auth.user?.email)) throw demoTradeError(400, "Choose another Autody account as the recipient.");
@@ -4608,6 +4671,16 @@ function createJsonWithdrawalRequest(auth, body = {}) {
     const recipient = type === "internal" ? jsonUserByEmail(db, recipientEmail) : null;
     if (type === "internal" && !recipient) throw demoTradeError(404, "Recipient Autody account was not found.");
 
+    const senderWallet = db.wallets?.[auth.userId];
+    const amountInfo = assetSymbol === "USD"
+        ? { symbol: "USD", name: "USD Funds", assetType: "cash", price: 1 }
+        : (() => {
+            const holding = jsonHoldingForWithdrawal(senderWallet || {}, assetSymbol);
+            const balance = numberValue(holding?.balance ?? holding?.quantity, 0);
+            const price = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+            return { symbol: assetSymbol, name: holding?.name || LIVE_DEPOSIT_ASSETS[assetSymbol]?.name || assetSymbol, assetType: holding?.category || "crypto", price };
+        })();
+    const amount = withdrawalAssetAmountFromInput(inputAmount, amountMode, assetSymbol, amountInfo);
     let movementInfo = null;
     let finalDestination = destination;
     if (type === "internal") {
@@ -4637,13 +4710,19 @@ function createJsonWithdrawalRequest(auth, body = {}) {
         asset: assetSymbol,
         network,
         amount,
-        amountUsd: movementInfo?.amountUsd == null ? null : Math.round(movementInfo.amountUsd * 100) / 100,
+        amountUsd: withdrawalUsdAmountFromInput(inputAmount, amountMode, assetSymbol, amount, movementInfo || amountInfo),
         feeUsd: 0,
         destination: finalDestination,
         recipientUserId: recipient?.id || "",
         recipientEmail: recipient?.email || "",
+        direction: "outgoing",
         status: type === "internal" ? "completed" : "pending_review",
         note: normalizeText(body.note),
+        metadata: {
+            inputAmount,
+            amountMode,
+            price: withdrawalUnitPrice(assetSymbol, movementInfo || amountInfo) || null
+        },
         txHash: "",
         createdAt: now,
         updatedAt: now,
@@ -4651,6 +4730,16 @@ function createJsonWithdrawalRequest(auth, body = {}) {
     };
     db.withdrawalRequests = db.withdrawalRequests || {};
     db.withdrawalRequests[auth.userId] = [request, ...(db.withdrawalRequests[auth.userId] || [])].slice(0, 50);
+    if (type === "internal" && recipient) {
+        const recipientRequest = {
+            ...request,
+            direction: "incoming",
+            destination: recipient.email,
+            recipientUserId: recipient.id,
+            recipientEmail: recipient.email
+        };
+        db.withdrawalRequests[recipient.id] = [recipientRequest, ...(db.withdrawalRequests[recipient.id] || [])].slice(0, 50);
+    }
     saveDemoDb(db);
     return request;
 }
@@ -7309,9 +7398,11 @@ async function getAdminDepositOverview(body = {}) {
 }
 
 function tradeAssetType(asset) {
-    if (asset?.symbol === "AU" || asset?.customAsset) return "currency";
-    const assetType = String(asset?.assetType || "crypto").toLowerCase();
+    const symbol = normalizeTradeSymbol(asset?.symbol);
+    if (symbol === "AU") return "currency";
+    const assetType = String(asset?.assetType || asset?.category || (asset?.customAsset ? "crypto" : "crypto")).toLowerCase();
     if (assetType === "stocks") return "stock";
+    if (["commodities", "oil", "metal", "metals", "oilmetals", "oil_and_metals", "oil-and-metals"].includes(assetType)) return "commodity";
     if (["crypto", "stock", "etf", "commodity", "currency"].includes(assetType)) return assetType;
     return "crypto";
 }
@@ -7328,6 +7419,15 @@ function assertSwapEligibleAsset(asset, role = "asset") {
 
 function tradeAssetPrice(asset) {
     return firstPositive(asset?.price, asset?.lastPrice, asset?.value);
+}
+
+const TRADE_STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
+
+function tradeExecutionPrice(asset) {
+    const price = tradeAssetPrice(asset);
+    const symbol = normalizeTradeSymbol(asset?.symbol);
+    if (TRADE_STABLECOIN_SYMBOLS.has(symbol) && price > 0.95 && price < 1.05) return 1;
+    return price;
 }
 
 function normalizeTradeSymbol(symbol) {
@@ -7433,12 +7533,13 @@ async function resolveTradeAsset(symbol) {
     const asset = await findMarketAssetBySymbol(lookup);
     if (!asset) throw demoTradeError(404, "That asset is not available in Markets yet.");
 
-    const price = tradeAssetPrice(asset);
+    const price = tradeExecutionPrice(asset);
     if (!price) throw demoTradeError(409, `${asset.symbol} does not have a live price yet.`);
 
     return {
         ...asset,
         symbol: String(asset.symbol || lookup).toUpperCase(),
+        marketPrice: tradeAssetPrice(asset),
         price
     };
 }
@@ -7465,6 +7566,7 @@ async function getPracticeDbContext(client = dbPool, profileId = null, mode = "d
             select
                 p.id as profile_id,
                 am.id as account_mode_id,
+                am.status as account_status,
                 w.id as wallet_id,
                 w.cash_balance,
                 w.reserved_cash,
@@ -7479,6 +7581,7 @@ async function getPracticeDbContext(client = dbPool, profileId = null, mode = "d
             select
                 p.id as profile_id,
                 am.id as account_mode_id,
+                am.status as account_status,
                 w.id as wallet_id,
                 w.cash_balance,
                 w.reserved_cash,
@@ -7506,6 +7609,42 @@ async function getPracticeDbContext(client = dbPool, profileId = null, mode = "d
 
     if (!result.rows[0]) throw demoTradeError(503, "Practice account is not ready yet.");
     return result.rows[0];
+}
+
+function assertLiveAccountOperational(context = {}, action = "This action") {
+    const status = String(context.account_status || "active").toLowerCase();
+    if (!["restricted", "frozen", "banned", "deleted", "disabled"].includes(status)) return;
+    throw demoTradeError(403, `${action} is unavailable while this account is ${status}.`);
+}
+
+async function databaseAdminAccountLimits(profileId) {
+    if (!databaseConfigured() || !profileId) return {};
+    await ensureAdminAccountControlTables();
+    const result = await dbPool.query(`
+        select max_order_usd, max_withdrawal_usd
+        from account_admin_limits
+        where profile_id = $1
+        limit 1
+    `, [profileId]).catch(() => ({ rows: [] }));
+    const row = result.rows[0] || {};
+    return {
+        maxOrderUsd: row.max_order_usd == null ? null : numberValue(row.max_order_usd, 0),
+        maxWithdrawalUsd: row.max_withdrawal_usd == null ? null : numberValue(row.max_withdrawal_usd, 0)
+    };
+}
+
+async function assertDatabaseAccountOrderLimit(profileId, notionalUsd) {
+    const limits = await databaseAdminAccountLimits(profileId);
+    if (limits.maxOrderUsd == null || limits.maxOrderUsd <= 0) return;
+    if (numberValue(notionalUsd, 0) <= limits.maxOrderUsd + 1e-10) return;
+    throw demoTradeError(403, `This account is limited to ${formatTradeUsd(limits.maxOrderUsd)} per order.`);
+}
+
+async function assertDatabaseAccountWithdrawalLimit(profileId, amountUsd) {
+    const limits = await databaseAdminAccountLimits(profileId);
+    if (limits.maxWithdrawalUsd == null || limits.maxWithdrawalUsd <= 0 || amountUsd == null) return;
+    if (numberValue(amountUsd, 0) <= limits.maxWithdrawalUsd + 1e-10) return;
+    throw demoTradeError(403, `This account is limited to ${formatTradeUsd(limits.maxWithdrawalUsd)} per withdrawal.`);
 }
 
 function reduceWatchlistRows(rows = []) {
@@ -8124,6 +8263,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
     try {
         await client.query("begin");
         const context = await getPracticeDbContext(client, auth.profileId, "live");
+        assertLiveAccountOperational(context, "Live orders");
         let order;
         let realizedDelta = 0;
         let fee = null;
@@ -8132,6 +8272,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
         if (side === "buy") {
             const asset = await resolveTradeAsset(body.symbol);
             const trade = calculateTradeSize(body, asset.price);
+            await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
             await assertDatabaseAuFirstPurchaseMinimum(client, context, asset, trade);
             await adjustDbCash(client, context.wallet_id, -(trade.notionalUsd + feeUsd));
@@ -8149,6 +8290,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
         } else if (side === "sell") {
             const asset = await resolveTradeAsset(body.symbol);
             const trade = calculateTradeSize(body, asset.price);
+            await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
             const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity);
             realizedDelta += result.realizedProfitLoss - feeUsd;
@@ -8168,6 +8310,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
             const tradeInput = calculateTradeSize(body, 1);
             const notionalUsd = tradeInput.notionalUsd;
+            await assertDatabaseAccountOrderLimit(auth.profileId, notionalUsd);
             const feeUsd = tradingFeeUsd(notionalUsd);
             const netNotionalUsd = Math.max(0, notionalUsd - feeUsd);
             assertSwapEligibleAsset(toAsset, toAsset.symbol);
@@ -8477,6 +8620,25 @@ async function createDatabaseSessionWithClient(client, profileId, sessionHours =
     `, [profileId]);
 
     await client.query(`
+        insert into app_sessions (profile_id, token_hash, created_at, expires_at)
+        values ($1, $2, $3, $4)
+    `, [profileId, tokenHash, now.toISOString(), expiresAt.toISOString()]);
+
+    return {
+        token,
+        userId: profileId,
+        expiresAt: expiresAt.toISOString()
+    };
+}
+
+async function createDatabaseSupportSession(profileId, sessionHours = 4) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * sessionHours);
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    await dbPool.query("delete from app_sessions where expires_at <= now()");
+    await dbPool.query(`
         insert into app_sessions (profile_id, token_hash, created_at, expires_at)
         values ($1, $2, $3, $4)
     `, [profileId, tokenHash, now.toISOString(), expiresAt.toISOString()]);
@@ -12334,11 +12496,143 @@ async function publishAdminNewsArticle(body = {}) {
     return getAdminNewsOverview({ limit: body.limit || 50 });
 }
 
+async function ensureAdminAccountControlTables(client = dbPool) {
+    if (!databaseConfigured()) return;
+    await ensureSignUpTables(client);
+    await client.query(`
+        create table if not exists account_admin_limits (
+          profile_id uuid primary key references profiles(id) on delete cascade,
+          max_order_usd numeric(18, 2),
+          max_withdrawal_usd numeric(18, 2),
+          note text not null default '',
+          updated_at timestamptz not null default now()
+        );
+
+        create table if not exists admin_account_events (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid references profiles(id) on delete set null,
+          action text not null,
+          note text not null default '',
+          metadata jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now()
+        );
+    `);
+}
+
+function normalizeAdminAccountAction(value = "") {
+    const action = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (["restrict", "restricted", "freeze", "frozen"].includes(action)) return "restricted";
+    if (["ban", "banned", "disable", "disabled"].includes(action)) return "banned";
+    if (["delete", "deleted", "soft_delete", "remove"].includes(action)) return "deleted";
+    if (["restore", "active", "activate", "unrestrict", "unban"].includes(action)) return "active";
+    if (["limit", "limits", "set_limit", "set_limits"].includes(action)) return "limit";
+    throw demoTradeError(400, "Choose restrict, ban, delete, restore, or limit.");
+}
+
+async function adminProfileForControl(body = {}, client = dbPool) {
+    const profileId = normalizeText(body.profileId || body.id);
+    const email = normalizeEmail(body.email);
+    if (!profileId && !email) throw demoTradeError(400, "Choose an account first.");
+    const result = profileId
+        ? await client.query("select id, email, display_name from profiles where id = $1 limit 1", [profileId])
+        : await client.query("select id, email, display_name from profiles where lower(email) = lower($1) limit 1", [email]);
+    const profile = result.rows[0];
+    if (!profile) throw demoTradeError(404, "Account was not found.");
+    return profile;
+}
+
+function nullableAdminMoney(value) {
+    if (value === "" || value == null) return null;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) throw demoTradeError(400, "Limits must be zero or higher.");
+    return Math.round(number * 100) / 100;
+}
+
+async function updateAdminAccountControl(body = {}) {
+    if (!databaseConfigured()) throw demoTradeError(503, "Database is not configured.");
+    const action = normalizeAdminAccountAction(body.action);
+    const note = normalizeText(body.note).slice(0, 500);
+    const maxOrderUsd = nullableAdminMoney(body.maxOrderUsd ?? body.max_order_usd);
+    const maxWithdrawalUsd = nullableAdminMoney(body.maxWithdrawalUsd ?? body.max_withdrawal_usd);
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        await ensureAdminAccountControlTables(client);
+        const profile = await adminProfileForControl(body, client);
+
+        if (action !== "limit") {
+            await client.query(`
+                update account_modes
+                set status = $2
+                where profile_id = $1
+            `, [profile.id, action]);
+            await client.query(`
+                update profile_verifications
+                set risk_status = $2,
+                    updated_at = now()
+                where profile_id = $1
+            `, [profile.id, action === "active" ? "standard" : action]);
+        }
+
+        if (action === "limit" || maxOrderUsd != null || maxWithdrawalUsd != null) {
+            await client.query(`
+                insert into account_admin_limits (profile_id, max_order_usd, max_withdrawal_usd, note, updated_at)
+                values ($1, $2, $3, $4, now())
+                on conflict (profile_id) do update
+                set max_order_usd = excluded.max_order_usd,
+                    max_withdrawal_usd = excluded.max_withdrawal_usd,
+                    note = excluded.note,
+                    updated_at = now()
+            `, [profile.id, maxOrderUsd, maxWithdrawalUsd, note]);
+        }
+
+        await client.query(`
+            insert into admin_account_events (profile_id, action, note, metadata)
+            values ($1, $2, $3, $4::jsonb)
+        `, [
+            profile.id,
+            action,
+            note,
+            JSON.stringify({ maxOrderUsd, maxWithdrawalUsd })
+        ]);
+        await client.query("commit");
+        return { success: true, profileId: profile.id, email: profile.email, action };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+async function createAdminAccountImpersonation(body = {}) {
+    if (!databaseConfigured()) throw demoTradeError(503, "Database is not configured.");
+    await ensureAdminAccountControlTables();
+    const profile = await adminProfileForControl(body);
+    const session = await createDatabaseSupportSession(profile.id, Math.min(SESSION_HOURS, 4));
+    await dbPool.query(`
+        insert into admin_account_events (profile_id, action, note, metadata)
+        values ($1, 'impersonate', $2, $3::jsonb)
+    `, [
+        profile.id,
+        normalizeText(body.note || "Admin support access").slice(0, 500),
+        JSON.stringify({ email: profile.email })
+    ]).catch(() => {});
+    return {
+        success: true,
+        profileId: profile.id,
+        email: profile.email,
+        session,
+        next: "account"
+    };
+}
+
 async function getAdminAccountsOverview(body = {}) {
     if (!databaseConfigured()) {
         return { success: true, configured: false, accounts: [], totals: {}, error: "Database is not configured." };
     }
     await ensureSignUpTables();
+    await ensureAdminAccountControlTables();
     const limit = Math.min(Math.max(Number(body.limit || 100), 1), 250);
     const result = await dbPool.query(`
         select
@@ -12361,12 +12655,16 @@ async function getAdminAccountsOverview(body = {}) {
           coalesce(max(w.cash_balance) filter (where am.mode = 'demo'), 0) as demo_cash,
           coalesce(sum(h.value_usd) filter (where am.mode = 'demo' and upper(h.symbol) <> 'USD'), 0) as demo_holdings,
           coalesce(max(am.status) filter (where am.mode = 'live'), 'inactive') as live_status,
-          coalesce(max(am.status) filter (where am.mode = 'demo'), 'inactive') as demo_status
+          coalesce(max(am.status) filter (where am.mode = 'demo'), 'inactive') as demo_status,
+          max(aal.max_order_usd) as max_order_usd,
+          max(aal.max_withdrawal_usd) as max_withdrawal_usd,
+          max(aal.note) as limit_note
         from profiles p
         left join profile_verifications pv on pv.profile_id = p.id
         left join account_modes am on am.profile_id = p.id
         left join wallets w on w.account_mode_id = am.id
         left join holdings h on h.wallet_id = w.id
+        left join account_admin_limits aal on aal.profile_id = p.id
         group by
           p.id,
           p.email,
@@ -12405,6 +12703,9 @@ async function getAdminAccountsOverview(body = {}) {
             termsAcceptedAt: row.terms_accepted_at || "",
             liveStatus: row.live_status || "inactive",
             demoStatus: row.demo_status || "inactive",
+            maxOrderUsd: row.max_order_usd == null ? null : numberValue(row.max_order_usd, 0),
+            maxWithdrawalUsd: row.max_withdrawal_usd == null ? null : numberValue(row.max_withdrawal_usd, 0),
+            limitNote: row.limit_note || "",
             liveCash,
             liveValue: liveCash + liveHoldings,
             livePositions: numberValue(row.live_positions, 0),
@@ -12436,8 +12737,11 @@ async function buildMarketCatalog(type = "all") {
 
     const includeCrypto = type !== "stocks";
     const includeStocks = type !== "crypto";
+    const liveCryptoCatalog = cryptoCatalogCache.assets.length >= CRYPTO_MARKET_LIMIT
+        ? cryptoCatalogCache.assets
+        : [];
     const cryptoCatalog = includeCrypto
-        ? (cryptoCatalogCache.assets.length ? cryptoCatalogCache.assets : staticCryptoFallbackCatalog())
+        ? (liveCryptoCatalog.length ? liveCryptoCatalog : staticCryptoFallbackCatalog())
         : [];
     const stockCatalog = includeStocks ? TRADE_STOCK_ASSETS.map(assetCatalogEntry) : [];
     let catalog = [...cryptoCatalog, ...stockCatalog];
@@ -12519,6 +12823,22 @@ async function buildMarketCatalog(type = "all") {
         }));
     if (controlledSupplemental.length) {
         catalog = [...catalog, ...controlledSupplemental];
+    }
+
+    if (type === "all" && catalog.length < 400) {
+        const existingSymbols = new Set(catalog.map((asset) => String(asset.symbol || "").toUpperCase()));
+        const topUpCrypto = SUPPLEMENTAL_CRYPTO_FALLBACKS
+            .filter((asset) => asset?.symbol && !existingSymbols.has(String(asset.symbol).toUpperCase()))
+            .slice(0, 400 - catalog.length)
+            .map((asset, index) => assetCatalogEntry({
+                ...asset,
+                rank: 950 + index,
+                assetType: "crypto",
+                market: asset.market || "Crypto",
+                region: "Global",
+                status: "Catalog fallback"
+            }));
+        if (topUpCrypto.length) catalog = [...catalog, ...topUpCrypto];
     }
 
     const assets = catalog.map((asset) => {
@@ -15321,6 +15641,44 @@ app.post("/api/admin/accounts/overview", async (req, res) => {
   }
 });
 
+app.post("/api/admin/accounts/control", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin account control is not authorized." });
+    }
+    const result = await updateAdminAccountControl(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin account control failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Account control failed." });
+  }
+});
+
+app.post("/api/admin/accounts/impersonate", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin account access is not authorized." });
+    }
+    const result = await createAdminAccountImpersonation(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin account impersonation failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Account access failed." });
+  }
+});
+
 app.post("/api/admin/withdrawals/decision", async (req, res) => {
   try {
     let body = {};
@@ -16674,7 +17032,20 @@ app.get("/config", (req, res) => {
 
 
 
+app.use((req, res, next) => {
+  if (req.method === "GET" && /\.html$/i.test(req.path)) {
+    const queryIndex = req.url.indexOf("?");
+    const query = queryIndex >= 0 ? req.url.slice(queryIndex) : "";
+    const cleanPath = req.path
+      .replace(/\/index\.html$/i, "/")
+      .replace(/\.html$/i, "");
+    return res.redirect(301, `${cleanPath || "/"}${query}`);
+  }
+  return next();
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
+  extensions: ["html"],
   setHeaders(res, filePath) {
     if (/\.(html|css|js)$/i.test(filePath)) {
       res.setHeader("Cache-Control", "no-store");
