@@ -22,6 +22,7 @@ const liveWalletState = {
   totalValue: 0,
   positionsCount: 0,
   pendingTransfers: 0,
+  withdrawalAccess: null,
   holdings: [],
   records: []
 };
@@ -712,8 +713,13 @@ async function loadLiveWallet() {
         liveWalletState.totalValue = liveWalletNumber(walletData.wallet.totalValue, liveWalletState.cashBalance);
         liveWalletState.positionsCount = liveWalletNumber(walletData.wallet.positionsCount, 0);
         liveWalletState.pendingTransfers = liveWalletNumber(walletData.wallet.pendingTransfers, 0);
+        liveWalletState.withdrawalAccess = walletData.wallet.withdrawalAccess || null;
         liveWalletState.holdings = Array.isArray(walletData.wallet.holdings) ? walletData.wallet.holdings : [];
         liveWalletState.records = Array.isArray(walletData.wallet.records) ? walletData.wallet.records : [];
+        window.AutodyLiveWithdrawalAccess = liveWalletState.withdrawalAccess;
+        window.dispatchEvent(new CustomEvent("autody-live-wallet-updated", {
+          detail: { wallet: walletData.wallet }
+        }));
       }
     } else {
       throw new Error(`/api/account/wallet returned ${walletResponse.status}`);

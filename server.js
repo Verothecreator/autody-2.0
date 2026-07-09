@@ -1781,7 +1781,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     const row = accountResult.rows[0];
     if (!row) return null;
 
-    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult, withdrawalResult] = await Promise.all([
+    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult, withdrawalResult, firstLiveDepositAt] = await Promise.all([
         dbPool.query(`
             select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at
             from holdings
@@ -1844,7 +1844,10 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
                or wr.recipient_profile_id = $1
             order by wr.created_at desc
             limit 20
-        `, [row.profile_id]).catch(() => ({ rows: [] }))
+        `, [row.profile_id]).catch(() => ({ rows: [] })),
+        accountMode === "live"
+            ? databaseFirstLiveDepositAt(dbPool, row, row.profile_id).catch(() => null)
+            : Promise.resolve(null)
     ]);
 
     const holdings = holdingsResult.rows.map(mapDbHolding);
@@ -1903,6 +1906,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
         wallet: { cash, holdings: nonCashHoldings },
         orders: ordersResult.rows,
         withdrawals: withdrawalResult.rows.map(mapWithdrawalRequestRow),
+        firstLiveDepositAt,
         watchlist: reduceWatchlistRows(watchlistResult.rows),
         researchPreferences: researchResult.rows.map((item) => item.topic),
         performance: {
@@ -1945,6 +1949,7 @@ function getJsonAccountByUserId(userId, mode = "live") {
     };
     const accountMode = normalizeWatchlistMode(mode);
     const cash = accountMode === "live" ? liveCash : wallet.cash;
+    const firstLiveDepositAt = accountMode === "live" ? jsonFirstLiveDepositAt(db, userId) : null;
     return {
         user: {
             ...user,
@@ -1959,6 +1964,7 @@ function getJsonAccountByUserId(userId, mode = "live") {
         },
         orders: db.orders?.[userId] || [],
         withdrawals: db.withdrawalRequests?.[userId] || [],
+        firstLiveDepositAt,
         watchlist: jsonWatchlistForMode(db, accountMode, userId),
         researchPreferences: db.researchPreferences?.[userId] || [],
         performance: db.performance?.[userId] || {},
@@ -2211,6 +2217,7 @@ function buildLiveWalletRecords(account) {
 
 async function buildLiveWalletSnapshot(account) {
     const baseCash = account.wallet?.cash || walletDefaultHolding("USD", "USD Funds", "cash", "Awaiting deposit");
+    const withdrawalAccess = withdrawalAccessSnapshot(account.user, account.firstLiveDepositAt);
     const rawHoldings = account.wallet?.holdings || [];
     const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
     const symbolsForMarket = [...holdingsBySymbol.keys()]
@@ -2336,6 +2343,7 @@ async function buildLiveWalletSnapshot(account) {
             etfValue,
             commodityValue
         },
+        withdrawalAccess,
         holdings: [
             cash,
             au,
@@ -4334,6 +4342,65 @@ function assertWithdrawalIdentityVerified(user = {}) {
     throw demoTradeError(403, "Verify your identity before requesting a withdrawal or internal transfer. Withdrawals are available after identity review is approved.");
 }
 
+function withdrawalAccessSnapshot(user = {}, firstDepositAt = null) {
+    const firstDepositIso = safeIsoDate(firstDepositAt);
+    const hasFirstDeposit = Boolean(firstDepositIso);
+    const identityStatus = withdrawalIdentityStatus(user) || "pending";
+    const identityVerified = ["verified", "approved"].includes(identityStatus);
+    const email = normalizeEmail(user.email);
+    const exempt = WITHDRAWAL_HOLD_EXEMPT_EMAILS.has(email);
+    const availableAt = hasFirstDeposit ? withdrawalHoldAvailableDate(firstDepositIso) : null;
+    const holdPassed = !hasFirstDeposit || exempt || !availableAt || Date.now() >= availableAt.getTime();
+    const availableAtIso = availableAt ? safeIsoDate(availableAt) : null;
+
+    if (hasFirstDeposit && !identityVerified) {
+        return {
+            gated: true,
+            stage: "identity_required",
+            hasFirstDeposit,
+            firstDepositAt: firstDepositIso,
+            identityStatus,
+            identityVerified,
+            exempt,
+            availableAt: availableAtIso,
+            title: "Identity verification required",
+            message: "Complete identity verification before withdrawals or internal transfers can continue from this funded account.",
+            actionLabel: "Open identity verification"
+        };
+    }
+
+    if (hasFirstDeposit && !holdPassed) {
+        return {
+            gated: true,
+            stage: "hold_active",
+            hasFirstDeposit,
+            firstDepositAt: firstDepositIso,
+            identityStatus,
+            identityVerified,
+            exempt,
+            availableAt: availableAtIso,
+            holdDays: WITHDRAWAL_HOLD_DAYS,
+            title: "Withdrawal hold active",
+            message: `Withdrawals and internal transfers become available ${WITHDRAWAL_HOLD_DAYS} days after the first verified deposit, as stated in Autody's Terms of Service. This account can request withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`,
+            actionLabel: "Close"
+        };
+    }
+
+    return {
+        gated: false,
+        stage: "ready",
+        hasFirstDeposit,
+        firstDepositAt: firstDepositIso,
+        identityStatus,
+        identityVerified,
+        exempt,
+        availableAt: availableAtIso,
+        holdDays: WITHDRAWAL_HOLD_DAYS,
+        title: "Withdrawals available",
+        message: ""
+    };
+}
+
 function assertWithdrawalDepositAgeAllowed(user = {}, firstDepositAt = null) {
     const email = normalizeEmail(user.email);
     if (WITHDRAWAL_HOLD_EXEMPT_EMAILS.has(email)) return;
@@ -4589,10 +4656,12 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
         await client.query("begin");
         await ensureWithdrawalTables(client);
         const context = await getPracticeDbContext(client, auth.profileId, "live");
-        assertLiveAccountOperational(context, type === "external" ? "External withdrawals" : "Internal transfers");
-        assertWithdrawalIdentityVerified(auth.user);
         const firstDepositAt = await databaseFirstLiveDepositAt(client, context, auth.profileId);
-        assertWithdrawalDepositAgeAllowed(auth.user, firstDepositAt);
+        assertLiveAccountOperational(context, type === "external" ? "External withdrawals" : "Internal transfers");
+        if (firstDepositAt) {
+            assertWithdrawalIdentityVerified(auth.user);
+            assertWithdrawalDepositAgeAllowed(auth.user, firstDepositAt);
+        }
         const existingForAmount = assetSymbol === "USD" ? null : await readDbHoldingForUpdate(client, context.wallet_id, assetSymbol);
         const amountInfo = await walletAssetInfo(assetSymbol, existingForAmount);
         const amount = withdrawalAssetAmountFromInput(inputAmount, amountMode, assetSymbol, amountInfo);
@@ -4767,8 +4836,11 @@ function createJsonWithdrawalRequest(auth, body = {}) {
     if (recipientEmail && recipientEmail === normalizeEmail(auth.user?.email)) throw demoTradeError(400, "Choose another Autody account as the recipient.");
 
     const db = loadDemoDb();
-    assertWithdrawalIdentityVerified(auth.user);
-    assertWithdrawalDepositAgeAllowed(auth.user, jsonFirstLiveDepositAt(db, auth.userId));
+    const firstDepositAt = jsonFirstLiveDepositAt(db, auth.userId);
+    if (firstDepositAt) {
+        assertWithdrawalIdentityVerified(auth.user);
+        assertWithdrawalDepositAgeAllowed(auth.user, firstDepositAt);
+    }
     const recipient = type === "internal" ? jsonUserByEmail(db, recipientEmail) : null;
     if (type === "internal" && !recipient) throw demoTradeError(404, "Recipient Autody account was not found.");
 

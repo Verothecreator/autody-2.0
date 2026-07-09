@@ -221,50 +221,58 @@
               <strong>Send crypto from Autody</strong>
               <span>Move assets to another Autody account or request a transfer to an external wallet.</span>
             </div>
-            <label>
-              <span>Withdrawal type</span>
-              <select id="send-type">
-                <option value="internal">Internal transfer</option>
-                <option value="external">External wallet</option>
-              </select>
-            </label>
-            <label>
-              <span>Asset</span>
-              <select id="send-asset">
-                <option value="AU">AU / Autody AU</option>
-                <option value="ETH">ETH / Ethereum</option>
-              </select>
-            </label>
-            <label data-send-network-field hidden>
-              <span>Network</span>
-              <select id="send-network"></select>
-            </label>
-            <label data-send-recipient-field>
-              <span>Recipient Autody email</span>
-              <input id="send-recipient-email" type="email" placeholder="customer@example.com" />
-            </label>
-            <label data-send-destination-field hidden>
-              <span>Destination address</span>
-              <input id="send-address" type="text" placeholder="Paste wallet address" />
-            </label>
-            <label>
-              <span class="live-amount-heading">
-                <span>Amount</span>
-                <select id="send-amount-mode" aria-label="Amount type">
-                  <option value="usd">USD</option>
-                  <option value="asset">Asset</option>
-                </select>
-              </span>
-              <div class="live-amount-row">
-                <input id="send-amount" type="number" min="0" placeholder="0.00" />
-                <button class="btn btn-ghost live-send-max" type="button" id="send-max">Max</button>
-              </div>
-            </label>
-            <div class="live-transfer-footnote">
-              <span>Transfer review</span>
-              <strong id="send-review-copy">Internal transfers are processed inside Autody. External wallet withdrawals are reviewed before release for account protection.</strong>
+            <div class="live-withdrawal-gate" id="live-withdrawal-gate" hidden>
+              <span class="muted-label" id="withdrawal-gate-eyebrow">Withdrawal access</span>
+              <strong id="withdrawal-gate-title">Identity verification required</strong>
+              <p id="withdrawal-gate-message">Complete identity verification before withdrawals can continue.</p>
+              <button class="btn btn-full" type="button" id="withdrawal-gate-action">Open identity verification</button>
             </div>
-            <button class="btn btn-full" type="button" id="review-send">Continue</button>
+            <div class="live-send-form-fields" id="live-send-form-fields">
+              <label>
+                <span>Withdrawal type</span>
+                <select id="send-type">
+                  <option value="internal">Internal transfer</option>
+                  <option value="external">External wallet</option>
+                </select>
+              </label>
+              <label>
+                <span>Asset</span>
+                <select id="send-asset">
+                  <option value="AU">AU / Autody AU</option>
+                  <option value="ETH">ETH / Ethereum</option>
+                </select>
+              </label>
+              <label data-send-network-field hidden>
+                <span>Network</span>
+                <select id="send-network"></select>
+              </label>
+              <label data-send-recipient-field>
+                <span>Recipient Autody email</span>
+                <input id="send-recipient-email" type="email" placeholder="customer@example.com" />
+              </label>
+              <label data-send-destination-field hidden>
+                <span>Destination address</span>
+                <input id="send-address" type="text" placeholder="Paste wallet address" />
+              </label>
+              <label>
+                <span class="live-amount-heading">
+                  <span>Amount</span>
+                  <select id="send-amount-mode" aria-label="Amount type">
+                    <option value="usd">USD</option>
+                    <option value="asset">Asset</option>
+                  </select>
+                </span>
+                <div class="live-amount-row">
+                  <input id="send-amount" type="number" min="0" placeholder="0.00" />
+                  <button class="btn btn-ghost live-send-max" type="button" id="send-max">Max</button>
+                </div>
+              </label>
+              <div class="live-transfer-footnote">
+                <span>Transfer review</span>
+                <strong id="send-review-copy">Internal transfers are processed inside Autody. External wallet withdrawals are reviewed before release for account protection.</strong>
+              </div>
+              <button class="btn btn-full" type="button" id="review-send">Continue</button>
+            </div>
           </div>
         </div>
       </div>

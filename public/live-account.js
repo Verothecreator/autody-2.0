@@ -63,6 +63,7 @@ const liveNotice = document.getElementById("live-notice");
 let liveNoticeTimer = null;
 const receiveRouteCache = new Map();
 let liveSendWalletCache = null;
+let liveWithdrawalAccessLoading = false;
 
 function liveCryptoOptionMarkup() {
   return Object.entries(liveCryptoAssets)
@@ -141,7 +142,62 @@ function formatLiveSendUsd(value) {
 async function liveSendWallet() {
   const data = await getLiveAccountJson("/api/account/wallet");
   liveSendWalletCache = data.wallet || null;
+  window.AutodyLiveWithdrawalAccess = liveSendWalletCache?.withdrawalAccess || null;
   return liveSendWalletCache;
+}
+
+function currentWithdrawalAccess() {
+  return liveSendWalletCache?.withdrawalAccess || window.AutodyLiveWithdrawalAccess || null;
+}
+
+function activeWithdrawalGate() {
+  const access = currentWithdrawalAccess();
+  return access?.gated ? access : null;
+}
+
+function updateLiveWithdrawalGate() {
+  const gate = document.getElementById("live-withdrawal-gate");
+  const fields = document.getElementById("live-send-form-fields");
+  if (!gate || !fields) return;
+
+  if (typeof window.AutodyLiveWithdrawalAccess === "undefined" && !liveSendWalletCache && !liveWithdrawalAccessLoading) {
+    liveWithdrawalAccessLoading = true;
+    liveSendWallet()
+      .catch(() => null)
+      .finally(() => {
+        liveWithdrawalAccessLoading = false;
+        updateLiveWithdrawalGate();
+      });
+  }
+
+  const gateState = activeWithdrawalGate();
+  const shouldGate = Boolean(gateState);
+  gate.hidden = !shouldGate;
+  fields.hidden = shouldGate;
+
+  if (!shouldGate) return;
+
+  const title = document.getElementById("withdrawal-gate-title");
+  const message = document.getElementById("withdrawal-gate-message");
+  const eyebrow = document.getElementById("withdrawal-gate-eyebrow");
+  const action = document.getElementById("withdrawal-gate-action");
+  if (eyebrow) {
+    eyebrow.textContent = gateState.stage === "identity_required"
+      ? "Identity check"
+      : "Withdrawal hold";
+  }
+  if (title) title.textContent = gateState.title || "Withdrawal access";
+  if (message) message.textContent = gateState.message || "Withdrawal access is not available for this account yet.";
+  if (action) action.textContent = gateState.actionLabel || "Close";
+}
+
+function handleWithdrawalGateAction() {
+  const gateState = activeWithdrawalGate();
+  if (gateState?.stage === "identity_required") {
+    window.location.href = "account-settings";
+    return;
+  }
+  closeAutodyLiveTransferModal();
 }
 
 function liveSendHoldingForSymbol(wallet = {}, symbol = "") {
@@ -271,6 +327,7 @@ function updateWithdrawalTypeFields() {
   if (reviewButton) {
     reviewButton.textContent = type === "external" ? "Submit Request" : "Send Now";
   }
+  updateLiveWithdrawalGate();
 }
 
 function setLiveTransferAsset(symbol) {
@@ -308,7 +365,11 @@ function setAutodyLiveTransferMode(mode = "receive") {
       ? "Choose an internal transfer or external wallet withdrawal."
       : "If this address is not accepted by your sending platform, generate a new address and try again.";
   }
-  if (normalized === "send") updateWithdrawalTypeFields();
+  if (normalized === "send") {
+    updateWithdrawalTypeFields();
+  } else {
+    updateLiveWithdrawalGate();
+  }
 }
 
 function openAutodyLiveTransferModal(mode = "receive", symbol = "") {
@@ -462,6 +523,13 @@ async function copyReceiveAddress() {
 }
 
 async function reviewLiveSend() {
+  const gateState = activeWithdrawalGate();
+  if (gateState) {
+    updateLiveWithdrawalGate();
+    showLiveNotice(gateState.message || "Withdrawal access is not available for this account yet.", "warning");
+    return;
+  }
+
   const button = document.getElementById("review-send");
   const type = document.getElementById("send-type")?.value === "external" ? "external" : "internal";
   const asset = document.getElementById("send-asset")?.value || defaultLiveCryptoSymbol();
@@ -627,6 +695,15 @@ document.getElementById("generate-receive-address")?.addEventListener("click", g
 document.getElementById("copy-receive-address")?.addEventListener("click", copyReceiveAddress);
 document.getElementById("review-send")?.addEventListener("click", reviewLiveSend);
 document.getElementById("send-max")?.addEventListener("click", setMaxLiveSendAmount);
+document.getElementById("withdrawal-gate-action")?.addEventListener("click", handleWithdrawalGateAction);
+
+window.addEventListener("autody-live-wallet-updated", (event) => {
+  if (event.detail?.wallet) {
+    liveSendWalletCache = event.detail.wallet;
+    window.AutodyLiveWithdrawalAccess = event.detail.wallet.withdrawalAccess || null;
+  }
+  updateLiveWithdrawalGate();
+});
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
@@ -639,10 +716,12 @@ updateReceiveNetworks();
 updateSendNetworks();
 updateWithdrawalTypeFields();
 updateSendAmountPlaceholder();
+updateLiveWithdrawalGate();
 
 window.ensureLiveReceiveAddress = () => requestReceiveAddress({ fresh: false, showNotice: false });
 window.openAutodyLiveTransferModal = openAutodyLiveTransferModal;
 window.closeAutodyLiveTransferModal = closeAutodyLiveTransferModal;
+window.updateLiveWithdrawalGate = updateLiveWithdrawalGate;
 window.openAutodyLiveFundingModal = openAutodyLiveFundingModal;
 window.closeAutodyLiveFundingModal = closeAutodyLiveFundingModal;
 

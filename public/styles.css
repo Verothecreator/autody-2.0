@@ -2777,6 +2777,35 @@ body.modal-open {
   display: none !important;
 }
 
+.live-send-form-fields,
+.live-withdrawal-gate {
+  display: grid;
+  gap: 14px;
+}
+
+.live-send-form-fields[hidden],
+.live-withdrawal-gate[hidden] {
+  display: none !important;
+}
+
+.live-withdrawal-gate {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.live-withdrawal-gate strong {
+  font-size: clamp(1.4rem, 2vw, 2rem);
+  line-height: 1.05;
+}
+
+.live-withdrawal-gate p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .live-panel-heading {
   display: flex;
   align-items: flex-start;
