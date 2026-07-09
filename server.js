@@ -2004,11 +2004,7 @@ function walletRecordFromOrder(order) {
     const side = String(order.side || "order").toLowerCase();
     const symbol = String(order.symbol || "").toUpperCase();
     const status = order.status || "draft";
-    const quantity = numberValue(order.quantity ?? order.amount, 0);
-    let valueUsd = numberValue(order.notional_usd ?? order.notionalUsd, 0);
-    if (TRADE_STABLECOIN_SYMBOLS.has(symbol) && quantity > 0) {
-        valueUsd = Math.round(quantity * 100) / 100;
-    }
+    const valueUsd = numberValue(order.notional_usd ?? order.notionalUsd, 0);
 
     return {
         type: side,
@@ -2075,17 +2071,16 @@ async function buildDemoWalletSnapshot(account) {
         const category = holding.category || marketAsset?.assetType || "market";
         const balance = numberValue(holding.balance, 0);
         const rawPrice = firstPositive(marketAsset?.price, holding.lastPrice);
-        const valuePrice = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
+        const valuePrice = symbol === "USD" ? 1 : rawPrice;
         const price = rawPrice;
-        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(symbol);
         const valueUsd = symbol === "USD"
             ? cash.valueUsd
             : balance > 0 && valuePrice != null
                 ? balance * valuePrice
                 : numberValue(holding.valueUsd, 0);
-        const averageCost = isStablecoin && balance > 0 ? 1 : positiveNumber(holding.averageCost);
+        const averageCost = positiveNumber(holding.averageCost);
         const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
-        const unrealizedProfitLoss = isStablecoin && balance > 0 ? 0 : costBasis != null ? valueUsd - costBasis : null;
+        const unrealizedProfitLoss = costBasis != null ? valueUsd - costBasis : null;
 
         return {
             ...holding,
@@ -2246,17 +2241,16 @@ async function buildLiveWalletSnapshot(account) {
         const category = holding.category || marketAsset?.assetType || (symbol === "AU" ? "currency" : "market");
         const balance = numberValue(holding.balance, 0);
         const rawPrice = firstPositive(marketAsset?.price, holding.lastPrice);
-        const valuePrice = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
+        const valuePrice = symbol === "USD" ? 1 : rawPrice;
         const price = rawPrice;
-        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(symbol);
         const valueUsd = symbol === "USD"
             ? cash.valueUsd
             : balance > 0 && valuePrice != null
                 ? balance * valuePrice
                 : numberValue(holding.valueUsd, 0);
-        const averageCost = isStablecoin && balance > 0 ? 1 : positiveNumber(holding.averageCost);
+        const averageCost = positiveNumber(holding.averageCost);
         const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
-        const unrealizedProfitLoss = isStablecoin && balance > 0 ? 0 : costBasis != null ? valueUsd - costBasis : null;
+        const unrealizedProfitLoss = costBasis != null ? valueUsd - costBasis : null;
 
         return {
             ...holding,
@@ -5561,10 +5555,7 @@ async function resolveDepositCreditAsset(symbol, priceHint = null) {
     const lookup = normalizeTradeSymbol(symbol);
     const marketAsset = await findMarketAssetBySymbol(lookup).catch(() => null);
     const stableFallback = STABLE_DEPOSIT_ASSETS.has(lookup) ? 1 : null;
-    const rawPrice = firstPositive(marketAsset?.price, priceHint, stableFallback) || 0;
-    const price = TRADE_STABLECOIN_SYMBOLS.has(lookup) && (!rawPrice || (rawPrice > 0.95 && rawPrice < 1.05))
-        ? 1
-        : rawPrice;
+    const price = firstPositive(marketAsset?.price, priceHint, stableFallback) || 0;
     const assetType = marketAsset?.assetType || marketAsset?.asset_type || marketAsset?.type
         || (lookup === "AU" ? "currency" : LIVE_DEPOSIT_ASSETS[lookup] ? "crypto" : "asset");
 
@@ -7544,10 +7535,7 @@ function tradeAssetPrice(asset) {
 const TRADE_STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
 
 function tradeExecutionPrice(asset) {
-    const price = tradeAssetPrice(asset);
-    const symbol = normalizeTradeSymbol(asset?.symbol);
-    if (TRADE_STABLECOIN_SYMBOLS.has(symbol) && price > 0.95 && price < 1.05) return 1;
-    return price;
+    return tradeAssetPrice(asset);
 }
 
 function normalizeTradeSymbol(symbol) {
@@ -7919,18 +7907,18 @@ async function applyDbBuy(client, walletId, asset, quantity, notionalUsd) {
     return { realizedProfitLoss: 0, quantity: nextQuantity };
 }
 
-async function applyDbSell(client, walletId, asset, quantity) {
+async function applyDbSell(client, walletId, asset, quantity, options = {}) {
     const existing = await readDbHoldingForUpdate(client, walletId, asset.symbol);
     const currentQuantity = numberValue(existing?.quantity, 0);
-    const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(asset.symbol));
+    const proceedsPrice = firstPositive(options.proceedsPrice, asset.price) || asset.price;
 
     if (currentQuantity + 1e-10 < quantity) {
         throw demoTradeError(400, `Not enough ${asset.symbol} available for this order.`);
     }
 
-    const averageCost = isStablecoin ? 1 : firstPositive(existing?.average_cost, existing?.last_price, asset.price) || asset.price;
+    const averageCost = firstPositive(existing?.average_cost, existing?.last_price, asset.price) || asset.price;
     const nextQuantity = Math.max(0, currentQuantity - quantity);
-    const realizedProfitLoss = isStablecoin ? 0 : (asset.price - averageCost) * quantity;
+    const realizedProfitLoss = (proceedsPrice - averageCost) * quantity;
     await saveDbHolding(client, walletId, {
         ...asset,
         name: existing?.asset_name || asset.name,
@@ -7970,7 +7958,6 @@ async function refreshDbPerformance(client, context, realizedDelta = 0) {
             coalesce(sum(
                 case
                     when symbol <> 'USD' and quantity > 0 and average_cost is not null and last_price is not null
-                      and upper(symbol) not in ('USDT', 'USDC', 'DAI', 'PYUSD', 'FDUSD', 'TUSD')
                     then (last_price - average_cost) * quantity
                     else 0
                 end
@@ -8050,8 +8037,9 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             });
         } else if (side === "sell") {
             const asset = await resolveTradeAsset(body.symbol);
-            const trade = calculateTradeSize(body, asset.price);
-            const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity);
+            const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+            const trade = calculateTradeSize(body, proceedsPrice);
+            const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity, { proceedsPrice });
             realizedDelta += result.realizedProfitLoss;
             await adjustDbCash(client, context.wallet_id, trade.notionalUsd);
             marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "demo-sell" });
@@ -8186,17 +8174,17 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         const nextAverage = nextQuantity > 0 ? ((currentQuantity * currentAverage) + notionalUsd) / nextQuantity : asset.price;
         return upsertJsonHolding(wallet, asset, nextQuantity, nextAverage, asset.price);
     };
-    const sellHolding = (asset, quantity) => {
+    const sellHolding = (asset, quantity, options = {}) => {
         const existing = findHolding(asset.symbol);
         const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
-        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(asset.symbol));
         if (currentQuantity + 1e-10 < quantity) {
             throw demoTradeError(400, `Not enough ${asset.symbol} in this demo wallet.`);
         }
-        const averageCost = isStablecoin ? 1 : firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const proceedsPrice = firstPositive(options.proceedsPrice, asset.price) || asset.price;
+        const averageCost = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
         const nextQuantity = Math.max(0, currentQuantity - quantity);
         upsertJsonHolding(wallet, asset, nextQuantity, nextQuantity > 0 ? averageCost : null, asset.price);
-        return isStablecoin ? 0 : (asset.price - averageCost) * quantity;
+        return (proceedsPrice - averageCost) * quantity;
     };
 
     let order;
@@ -8212,8 +8200,9 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
     } else if (side === "sell") {
         const asset = await resolveTradeAsset(body.symbol);
-        const trade = calculateTradeSize(body, asset.price);
-        realizedDelta += sellHolding(asset, trade.quantity);
+        const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+        const trade = calculateTradeSize(body, proceedsPrice);
+        realizedDelta += sellHolding(asset, trade.quantity, { proceedsPrice });
         adjustCash(trade.notionalUsd);
         marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "demo-json-sell" });
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
@@ -8425,10 +8414,11 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd, metadata: { mode: "live", feeSide: "cash" } };
         } else if (side === "sell") {
             const asset = await resolveTradeAsset(body.symbol);
-            const trade = calculateTradeSize(body, asset.price);
+            const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+            const trade = calculateTradeSize(body, proceedsPrice);
             await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
-            const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity);
+            const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity, { proceedsPrice });
             realizedDelta += result.realizedProfitLoss - feeUsd;
             await adjustDbCash(client, context.wallet_id, trade.notionalUsd - feeUsd);
             marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "live-sell" });
@@ -8527,15 +8517,15 @@ async function placeJsonLiveOrder(body, auth = {}) {
         const nextAverage = nextQuantity > 0 ? ((currentQuantity * currentAverage) + notionalUsd) / nextQuantity : asset.price;
         return upsertJsonHolding(wallet, asset, nextQuantity, nextAverage, asset.price);
     };
-    const sellHolding = (asset, quantity) => {
+    const sellHolding = (asset, quantity, options = {}) => {
         const existing = findHolding(asset.symbol);
         const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
-        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(asset.symbol));
         if (currentQuantity + 1e-10 < quantity) throw demoTradeError(400, `Not enough ${asset.symbol} available for this order.`);
-        const averageCost = isStablecoin ? 1 : firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const proceedsPrice = firstPositive(options.proceedsPrice, asset.price) || asset.price;
+        const averageCost = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
         const nextQuantity = Math.max(0, currentQuantity - quantity);
         upsertJsonHolding(wallet, asset, nextQuantity, nextQuantity > 0 ? averageCost : null, asset.price);
-        return isStablecoin ? 0 : (asset.price - averageCost) * quantity;
+        return (proceedsPrice - averageCost) * quantity;
     };
 
     let order;
@@ -8555,9 +8545,10 @@ async function placeJsonLiveOrder(body, auth = {}) {
         fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd };
     } else if (side === "sell") {
         const asset = await resolveTradeAsset(body.symbol);
-        const trade = calculateTradeSize(body, asset.price);
+        const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+        const trade = calculateTradeSize(body, proceedsPrice);
         const feeUsd = tradingFeeUsd(trade.notionalUsd);
-        realizedDelta += sellHolding(asset, trade.quantity) - feeUsd;
+        realizedDelta += sellHolding(asset, trade.quantity, { proceedsPrice }) - feeUsd;
         adjustCash(trade.notionalUsd - feeUsd);
         marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "live-json-sell" });
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };

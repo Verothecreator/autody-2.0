@@ -631,17 +631,30 @@ h3 {
 }
 
 .mobile-store-icon {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
 }
 
 .mobile-store-icon svg {
   width: 24px;
   height: 24px;
   fill: currentColor;
+}
+
+.mobile-store-android .mobile-store-icon {
+  background: linear-gradient(135deg, rgba(40, 212, 156, 0.95), rgba(82, 99, 255, 0.95));
+  color: white;
+}
+
+.mobile-store-ios .mobile-store-icon {
+  background: white;
+  color: #05070d;
 }
 
 .mobile-store-copy {

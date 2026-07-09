@@ -25,6 +25,7 @@ let orderTradingFee = { bps: 0, rate: 0, percent: 0 };
 const ORDER_REFRESH_MS = 10000;
 const ORDER_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 const ORDER_HOLDING_DUST_USD = 0.005;
+const ORDER_STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
 
 function escapeOrderHtml(value = "") {
   return String(value)
@@ -182,10 +183,10 @@ function assetForHolding(holding = {}) {
   };
 }
 
-function holdingValueUsd(holding = {}) {
+function holdingValueUsd(holding = {}, options = {}) {
   const symbol = String(holding.symbol || "").toUpperCase();
   const balance = Number(holding.balance || 0);
-  if (["USDT", "USDC"].includes(symbol) && Number.isFinite(balance)) {
+  if (options.faceStablecoin && ORDER_STABLECOIN_SYMBOLS.has(symbol) && Number.isFinite(balance)) {
     return balance;
   }
   const direct = Number(holding.valueUsd);
@@ -267,7 +268,7 @@ function maxOrderAmount() {
 
   if (orderSide === "sell") {
     const asset = selectedAsset();
-    return Math.max(0, holdingValueUsd(holdingForSymbol(asset?.symbol)));
+    return Math.max(0, holdingValueUsd(holdingForSymbol(asset?.symbol), { faceStablecoin: true }));
   }
 
   const fromSymbol = document.getElementById("order-from")?.value || "";
@@ -307,7 +308,7 @@ function assetOption(asset) {
 }
 
 function sellAssetOption(asset) {
-  const heldValue = holdingValueUsd(holdingForSymbol(asset.symbol));
+  const heldValue = holdingValueUsd(holdingForSymbol(asset.symbol), { faceStablecoin: true });
   const suffix = ` - ${formatOrderMoney(heldValue)}`;
   return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(suffix)}</option>`;
 }
@@ -408,7 +409,7 @@ function tradeValidation(asset, amount) {
 
   if (orderSide === "sell") {
     const holding = holdingForSymbol(asset.symbol);
-    const availableUsd = holdingValueUsd(holding);
+    const availableUsd = holdingValueUsd(holding, { faceStablecoin: true });
     return {
       blocked: !holding || amount > availableUsd + 0.005,
       message: !holding ? `No ${asset.symbol} available to sell.` : amount > availableUsd + 0.005 ? `You only have ${formatOrderMoney(availableUsd)} of ${asset.symbol} available.` : "",
@@ -485,7 +486,9 @@ function renderPreview() {
   const feeUsd = tradingFeeAmount(amount);
   const netAmount = Math.max(0, amount - feeUsd);
   const receivedUsd = orderSide === "swap" ? netAmount : amount;
-  const quantity = Number.isFinite(price) && price > 0 && amount > 0 ? receivedUsd / price : 0;
+  const sellUsesFaceValue = orderSide === "sell" && ORDER_STABLECOIN_SYMBOLS.has(String(asset.symbol || "").toUpperCase());
+  const executionPrice = sellUsesFaceValue ? 1 : price;
+  const quantity = Number.isFinite(executionPrice) && executionPrice > 0 && amount > 0 ? receivedUsd / executionPrice : 0;
   const fromSymbol = document.getElementById("order-from")?.value || "";
   const validation = tradeValidation(asset, amount);
   let swapSourceQuantity = 0;
