@@ -9,7 +9,7 @@ const HOME_MARKET_REFRESH_MS = 10000;
 const HOME_NEWS_REFRESH_MS = 1800000;
 const HOME_CRYPTO_SYMBOLS = ["BTC", "ETH", "BCH", "SOL", "BNB", "XRP"];
 const HOME_STOCK_SYMBOLS = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"];
-const HOME_STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD", "USDE", "USD1", "USDD", "FRAX"]);
+const HOME_STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD", "USDE", "USD1", "USDD", "FRAX", "USDP", "GUSD", "LUSD"]);
 
 function priceDigits(number, compact = false) {
   if (compact) return 2;

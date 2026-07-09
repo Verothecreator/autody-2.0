@@ -25,7 +25,7 @@ let orderTradingFee = { bps: 0, rate: 0, percent: 0 };
 const ORDER_REFRESH_MS = 10000;
 const ORDER_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 const ORDER_HOLDING_DUST_USD = 0.005;
-const ORDER_STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
+const ORDER_STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD", "USDE", "USD1", "USDD", "FRAX", "USDP", "GUSD", "LUSD"]);
 
 function escapeOrderHtml(value = "") {
   return String(value)

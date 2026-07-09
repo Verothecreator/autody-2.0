@@ -13649,10 +13649,9 @@ function existingCryptoMetadata() {
 }
 
 function cryptoMarketKind(row, existing) {
-  const stableSymbols = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD", "USDE", "USD1", "USDD", "FRAX"]);
   const symbol = String(row.symbol || "").toUpperCase();
   const price = Number(row.current_price);
-  if (existing?.market === "Stablecoin" || stableSymbols.has(symbol) || (Number.isFinite(price) && price > 0.97 && price < 1.03 && /usd|dai|frax/i.test(row.name || ""))) {
+  if (existing?.market === "Stablecoin" || STABLECOIN_SYMBOLS.has(symbol) || (Number.isFinite(price) && price > 0.97 && price < 1.03 && /usd|dai|frax/i.test(row.name || ""))) {
     return "Stablecoin";
   }
   return "Crypto";
