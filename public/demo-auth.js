@@ -10,6 +10,13 @@
     return page === "account" || page.startsWith("account-") ? encodeURIComponent(page) : "account";
   }
 
+  function currentPageMode() {
+    const page = (location.pathname.split("/").pop() || "").replace(/\.html$/i, "");
+    if (page === "account" || page.startsWith("account-")) return "live";
+    if (page === "demo-account" || page.startsWith("demo-")) return "demo";
+    return "";
+  }
+
   function redirectToSignIn() {
     if (redirectingToSignIn) return;
     redirectingToSignIn = true;
@@ -26,9 +33,14 @@
     } catch (err) {
       pathname = rawUrl;
     }
-    return pathname.startsWith("/api/account")
-      || pathname.startsWith("/api/demo")
-      || pathname.startsWith("/api/kyc");
+    const mode = currentPageMode();
+    if (mode === "live") {
+      return pathname.startsWith("/api/account") || pathname.startsWith("/api/kyc");
+    }
+    if (mode === "demo") {
+      return pathname.startsWith("/api/demo");
+    }
+    return false;
   }
 
   async function responseRequiresSignIn(response) {

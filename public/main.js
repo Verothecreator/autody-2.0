@@ -291,7 +291,7 @@ async function ensureWalletConnectReady() {
         name: "Autody",
         description: "Autody Token Sale",
         url: window.location.origin,
-        icons: ["https://autody-online.onrender.com/favicon.ico"]
+        icons: [`${window.location.origin}/favicon.ico`]
       }
     });
   }
