@@ -129,8 +129,14 @@ function renderResearchWallet(wallet = {}, watchSymbols = []) {
   const fallbackStarting = IS_LIVE_RESEARCH_PAGE ? 0 : 50000;
   const starting = Number(wallet.startingBalance ?? fallbackStarting);
   const total = Number(wallet.totalValue ?? starting);
-  const profitLoss = total - starting;
-  const profitLossPct = starting > 0 ? (profitLoss / starting) * 100 : 0;
+  const liveProfitLoss = Number(wallet.profitLoss);
+  const liveProfitLossPct = Number(wallet.profitLossPct);
+  const profitLoss = IS_LIVE_RESEARCH_PAGE && Number.isFinite(liveProfitLoss)
+    ? liveProfitLoss
+    : total - starting;
+  const profitLossPct = IS_LIVE_RESEARCH_PAGE && Number.isFinite(liveProfitLossPct)
+    ? liveProfitLossPct
+    : starting > 0 ? (profitLoss / starting) * 100 : 0;
   const tone = researchTone(profitLoss);
 
   document.getElementById("research-cash").textContent = formatResearchMoney(wallet.cashBalance, !IS_LIVE_RESEARCH_PAGE);

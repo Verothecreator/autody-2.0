@@ -36,6 +36,7 @@ const LIVE_WALLET_GROUPS = [
 ];
 
 const LIVE_GROUP_SYMBOLS = new Set(LIVE_WALLET_GROUPS.map((group) => group.symbol));
+const LIVE_WALLET_STABLECOINS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
 
 const LIVE_CRYPTO_ICONS = {
   BTC: "btc",
@@ -186,7 +187,7 @@ function normalizeLiveWalletHolding(holding = {}) {
 
   let balance = liveWalletNumber(holding.balance, 0);
   let valueUsd = liveWalletNumber(holding.valueUsd, 0);
-  if (["USDT", "USDC"].includes(symbol) && balance > 0) {
+  if (LIVE_WALLET_STABLECOINS.has(symbol) && balance > 0) {
     valueUsd = balance;
   }
   if (balance <= 0.00000001 || valueUsd < LIVE_WALLET_DUST_USD) {
@@ -577,6 +578,7 @@ function liveRenderDetail(asset) {
   const moveTone = liveWalletMoveClass(asset.changePct);
   const balance = Number(asset.balance || 0);
   const valueUsd = Number(asset.valueUsd || 0);
+  const isStablecoin = LIVE_WALLET_STABLECOINS.has(String(asset.symbol || "").toUpperCase());
   const heroValue = !asset.isGroup && asset.symbol !== "USD" && valueUsd <= 0 && hasLiveWalletNumber(asset.price)
     ? formatLiveWalletPrice(asset.price, asset.currency || "USD")
     : formatLiveWalletMoney(valueUsd);
@@ -601,13 +603,13 @@ function liveRenderDetail(asset) {
   if (!asset.isGroup && hasLiveWalletNumber(asset.changePct)) {
     rows.push(liveDetailRow("24h move", formatLiveWalletMove(asset.changePct), moveTone));
   }
-  if (!asset.isGroup && hasLiveWalletNumber(asset.averageCost)) {
+  if (!asset.isGroup && !isStablecoin && hasLiveWalletNumber(asset.averageCost)) {
     rows.push(liveDetailRow("Average cost", formatLiveWalletMoney(asset.averageCost)));
   }
-  if (!asset.isGroup && hasLiveWalletNumber(asset.costBasis)) {
+  if (!asset.isGroup && !isStablecoin && hasLiveWalletNumber(asset.costBasis)) {
     rows.push(liveDetailRow("Cost basis", formatLiveWalletMoney(asset.costBasis)));
   }
-  if (!asset.isGroup && hasLiveWalletNumber(asset.unrealizedProfitLoss)) {
+  if (!asset.isGroup && !isStablecoin && hasLiveWalletNumber(asset.unrealizedProfitLoss)) {
     rows.push(liveDetailRow("Unrealized P/L", formatLiveWalletMoney(asset.unrealizedProfitLoss), liveWalletMoveClass(asset.unrealizedProfitLoss)));
   }
   if (!asset.isGroup) rows.push(liveDetailRow("Status", asset.status || "Ready"));

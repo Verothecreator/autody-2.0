@@ -2004,7 +2004,11 @@ function walletRecordFromOrder(order) {
     const side = String(order.side || "order").toLowerCase();
     const symbol = String(order.symbol || "").toUpperCase();
     const status = order.status || "draft";
-    const valueUsd = numberValue(order.notional_usd ?? order.notionalUsd, 0);
+    const quantity = numberValue(order.quantity ?? order.amount, 0);
+    let valueUsd = numberValue(order.notional_usd ?? order.notionalUsd, 0);
+    if (TRADE_STABLECOIN_SYMBOLS.has(symbol) && quantity > 0) {
+        valueUsd = Math.round(quantity * 100) / 100;
+    }
 
     return {
         type: side,
@@ -2073,14 +2077,15 @@ async function buildDemoWalletSnapshot(account) {
         const rawPrice = firstPositive(marketAsset?.price, holding.lastPrice);
         const valuePrice = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
         const price = rawPrice;
+        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(symbol);
         const valueUsd = symbol === "USD"
             ? cash.valueUsd
             : balance > 0 && valuePrice != null
                 ? balance * valuePrice
                 : numberValue(holding.valueUsd, 0);
-        const averageCost = positiveNumber(holding.averageCost);
+        const averageCost = isStablecoin && balance > 0 ? 1 : positiveNumber(holding.averageCost);
         const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
-        const unrealizedProfitLoss = costBasis != null ? valueUsd - costBasis : null;
+        const unrealizedProfitLoss = isStablecoin && balance > 0 ? 0 : costBasis != null ? valueUsd - costBasis : null;
 
         return {
             ...holding,
@@ -2243,14 +2248,15 @@ async function buildLiveWalletSnapshot(account) {
         const rawPrice = firstPositive(marketAsset?.price, holding.lastPrice);
         const valuePrice = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
         const price = rawPrice;
+        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(symbol);
         const valueUsd = symbol === "USD"
             ? cash.valueUsd
             : balance > 0 && valuePrice != null
                 ? balance * valuePrice
                 : numberValue(holding.valueUsd, 0);
-        const averageCost = positiveNumber(holding.averageCost);
+        const averageCost = isStablecoin && balance > 0 ? 1 : positiveNumber(holding.averageCost);
         const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
-        const unrealizedProfitLoss = costBasis != null ? valueUsd - costBasis : null;
+        const unrealizedProfitLoss = isStablecoin && balance > 0 ? 0 : costBasis != null ? valueUsd - costBasis : null;
 
         return {
             ...holding,
@@ -4287,7 +4293,7 @@ function normalizeWithdrawalAmountMode(value) {
 
 function withdrawalUnitPrice(symbol, info = {}) {
     const price = firstPositive(info.price, info.lastPrice, info.value);
-    if (TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(symbol)) && price > 0.95 && price < 1.05) return 1;
+    if (TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(symbol)) && (!price || (price > 0.95 && price < 1.05))) return 1;
     return price;
 }
 
@@ -4318,15 +4324,31 @@ function formatWithdrawalHoldDate(date) {
     return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function assertExternalWithdrawalDepositAgeAllowed(user = {}, firstDepositAt = null) {
+function withdrawalIdentityStatus(user = {}) {
+    const verification = user.verification || {};
+    return normalizeText(
+        verification.identity
+        || verification.identityStatus
+        || user.identityStatus
+        || user.identity_status
+    ).toLowerCase();
+}
+
+function assertWithdrawalIdentityVerified(user = {}) {
+    const status = withdrawalIdentityStatus(user);
+    if (["verified", "approved"].includes(status)) return;
+    throw demoTradeError(403, "Verify your identity before requesting a withdrawal or internal transfer. Withdrawals are available after identity review is approved.");
+}
+
+function assertWithdrawalDepositAgeAllowed(user = {}, firstDepositAt = null) {
     const email = normalizeEmail(user.email);
     if (WITHDRAWAL_HOLD_EXEMPT_EMAILS.has(email)) return;
     const availableAt = withdrawalHoldAvailableDate(firstDepositAt);
     if (!availableAt) {
-        throw demoTradeError(403, "External withdrawals become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. Add funds or receive crypto to start the withdrawal clock.");
+        throw demoTradeError(403, "Withdrawals and internal transfers become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. Add funds or receive crypto to start the withdrawal clock.");
     }
     if (Date.now() >= availableAt.getTime()) return;
-    throw demoTradeError(403, `External withdrawals become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. This account can request external withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`);
+    throw demoTradeError(403, `Withdrawals and internal transfers become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. This account can request withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`);
 }
 
 function normalizeWithdrawalNetwork(assetSymbol, type, value) {
@@ -4574,10 +4596,9 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
         await ensureWithdrawalTables(client);
         const context = await getPracticeDbContext(client, auth.profileId, "live");
         assertLiveAccountOperational(context, type === "external" ? "External withdrawals" : "Internal transfers");
-        if (type === "external") {
-            const firstDepositAt = await databaseFirstLiveDepositAt(client, context, auth.profileId);
-            assertExternalWithdrawalDepositAgeAllowed(auth.user, firstDepositAt);
-        }
+        assertWithdrawalIdentityVerified(auth.user);
+        const firstDepositAt = await databaseFirstLiveDepositAt(client, context, auth.profileId);
+        assertWithdrawalDepositAgeAllowed(auth.user, firstDepositAt);
         const existingForAmount = assetSymbol === "USD" ? null : await readDbHoldingForUpdate(client, context.wallet_id, assetSymbol);
         const amountInfo = await walletAssetInfo(assetSymbol, existingForAmount);
         const amount = withdrawalAssetAmountFromInput(inputAmount, amountMode, assetSymbol, amountInfo);
@@ -4752,9 +4773,8 @@ function createJsonWithdrawalRequest(auth, body = {}) {
     if (recipientEmail && recipientEmail === normalizeEmail(auth.user?.email)) throw demoTradeError(400, "Choose another Autody account as the recipient.");
 
     const db = loadDemoDb();
-    if (type === "external") {
-        assertExternalWithdrawalDepositAgeAllowed(auth.user, jsonFirstLiveDepositAt(db, auth.userId));
-    }
+    assertWithdrawalIdentityVerified(auth.user);
+    assertWithdrawalDepositAgeAllowed(auth.user, jsonFirstLiveDepositAt(db, auth.userId));
     const recipient = type === "internal" ? jsonUserByEmail(db, recipientEmail) : null;
     if (type === "internal" && !recipient) throw demoTradeError(404, "Recipient Autody account was not found.");
 
@@ -5541,7 +5561,10 @@ async function resolveDepositCreditAsset(symbol, priceHint = null) {
     const lookup = normalizeTradeSymbol(symbol);
     const marketAsset = await findMarketAssetBySymbol(lookup).catch(() => null);
     const stableFallback = STABLE_DEPOSIT_ASSETS.has(lookup) ? 1 : null;
-    const price = firstPositive(marketAsset?.price, priceHint, stableFallback) || 0;
+    const rawPrice = firstPositive(marketAsset?.price, priceHint, stableFallback) || 0;
+    const price = TRADE_STABLECOIN_SYMBOLS.has(lookup) && (!rawPrice || (rawPrice > 0.95 && rawPrice < 1.05))
+        ? 1
+        : rawPrice;
     const assetType = marketAsset?.assetType || marketAsset?.asset_type || marketAsset?.type
         || (lookup === "AU" ? "currency" : LIVE_DEPOSIT_ASSETS[lookup] ? "crypto" : "asset");
 
@@ -7899,14 +7922,15 @@ async function applyDbBuy(client, walletId, asset, quantity, notionalUsd) {
 async function applyDbSell(client, walletId, asset, quantity) {
     const existing = await readDbHoldingForUpdate(client, walletId, asset.symbol);
     const currentQuantity = numberValue(existing?.quantity, 0);
+    const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(asset.symbol));
 
     if (currentQuantity + 1e-10 < quantity) {
         throw demoTradeError(400, `Not enough ${asset.symbol} available for this order.`);
     }
 
-    const averageCost = firstPositive(existing?.average_cost, existing?.last_price, asset.price) || asset.price;
+    const averageCost = isStablecoin ? 1 : firstPositive(existing?.average_cost, existing?.last_price, asset.price) || asset.price;
     const nextQuantity = Math.max(0, currentQuantity - quantity);
-    const realizedProfitLoss = (asset.price - averageCost) * quantity;
+    const realizedProfitLoss = isStablecoin ? 0 : (asset.price - averageCost) * quantity;
     await saveDbHolding(client, walletId, {
         ...asset,
         name: existing?.asset_name || asset.name,
@@ -7946,6 +7970,7 @@ async function refreshDbPerformance(client, context, realizedDelta = 0) {
             coalesce(sum(
                 case
                     when symbol <> 'USD' and quantity > 0 and average_cost is not null and last_price is not null
+                      and upper(symbol) not in ('USDT', 'USDC', 'DAI', 'PYUSD', 'FDUSD', 'TUSD')
                     then (last_price - average_cost) * quantity
                     else 0
                 end
@@ -8164,13 +8189,14 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
     const sellHolding = (asset, quantity) => {
         const existing = findHolding(asset.symbol);
         const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
+        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(asset.symbol));
         if (currentQuantity + 1e-10 < quantity) {
             throw demoTradeError(400, `Not enough ${asset.symbol} in this demo wallet.`);
         }
-        const averageCost = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const averageCost = isStablecoin ? 1 : firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
         const nextQuantity = Math.max(0, currentQuantity - quantity);
         upsertJsonHolding(wallet, asset, nextQuantity, nextQuantity > 0 ? averageCost : null, asset.price);
-        return (asset.price - averageCost) * quantity;
+        return isStablecoin ? 0 : (asset.price - averageCost) * quantity;
     };
 
     let order;
@@ -8504,11 +8530,12 @@ async function placeJsonLiveOrder(body, auth = {}) {
     const sellHolding = (asset, quantity) => {
         const existing = findHolding(asset.symbol);
         const currentQuantity = numberValue(existing?.balance ?? existing?.quantity, 0);
+        const isStablecoin = TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(asset.symbol));
         if (currentQuantity + 1e-10 < quantity) throw demoTradeError(400, `Not enough ${asset.symbol} available for this order.`);
-        const averageCost = firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
+        const averageCost = isStablecoin ? 1 : firstPositive(existing?.averageCost, existing?.lastPrice, asset.price) || asset.price;
         const nextQuantity = Math.max(0, currentQuantity - quantity);
         upsertJsonHolding(wallet, asset, nextQuantity, nextQuantity > 0 ? averageCost : null, asset.price);
-        return (asset.price - averageCost) * quantity;
+        return isStablecoin ? 0 : (asset.price - averageCost) * quantity;
     };
 
     let order;
@@ -12737,6 +12764,56 @@ async function createAdminAccountImpersonation(body = {}) {
     };
 }
 
+function adminProtectedAccountEmails() {
+    return new Set([
+        ADMIN_ACCOUNT_EMAIL,
+        PRACTICE_USER_EMAIL,
+        ...WITHDRAWAL_HOLD_EXEMPT_EMAILS
+    ].map(normalizeEmail).filter(Boolean));
+}
+
+async function permanentlyDeleteAdminAccount(body = {}) {
+    if (!databaseConfigured()) throw demoTradeError(503, "Database is not configured.");
+    const note = normalizeText(body.note || "Admin permanently deleted account").slice(0, 500);
+    const client = await dbPool.connect();
+    try {
+        await client.query("begin");
+        await ensureAdminAccountControlTables(client);
+        const profile = await adminProfileForControl(body, client);
+        const email = normalizeEmail(profile.email);
+        if (adminProtectedAccountEmails().has(email)) {
+            throw demoTradeError(403, "This account is protected and cannot be permanently deleted from the portal.");
+        }
+
+        await client.query(`
+            insert into admin_account_events (profile_id, action, note, metadata)
+            values ($1, 'permanent_delete', $2, $3::jsonb)
+        `, [
+            profile.id,
+            note,
+            JSON.stringify({ email: profile.email, displayName: profile.display_name || "" })
+        ]);
+
+        const deleted = await client.query(`
+            delete from profiles
+            where id = $1
+            returning id, email
+        `, [profile.id]);
+        await client.query("commit");
+        return {
+            success: true,
+            profileId: profile.id,
+            email: deleted.rows[0]?.email || profile.email,
+            action: "permanent_delete"
+        };
+    } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
 async function getAdminAccountsOverview(body = {}) {
     if (!databaseConfigured()) {
         return { success: true, configured: false, accounts: [], totals: {}, error: "Database is not configured." };
@@ -15786,6 +15863,25 @@ app.post("/api/admin/accounts/impersonate", async (req, res) => {
   } catch (err) {
     console.error("Admin account impersonation failed:", err);
     return res.status(err.status || 500).json({ success: false, error: err.message || "Account access failed." });
+  }
+});
+
+app.post("/api/admin/accounts/permanent-delete", async (req, res) => {
+  try {
+    let body = {};
+    try {
+      body = parseJsonBody(req);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: "Invalid JSON payload." });
+    }
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin account deletion is not authorized." });
+    }
+    const result = await permanentlyDeleteAdminAccount(body);
+    return res.json(result);
+  } catch (err) {
+    console.error("Admin permanent account delete failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Permanent account deletion failed." });
   }
 });
 

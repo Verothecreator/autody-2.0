@@ -114,6 +114,7 @@ function renderAccountsTable(accounts = []) {
         <button type="button" class="btn btn-ghost" data-account-command="banned">Ban</button>
         <button type="button" class="btn btn-ghost" data-account-command="deleted">Soft delete</button>
         <button type="button" class="btn btn-ghost" data-account-command="active">Restore</button>
+        <button type="button" class="btn btn-danger" data-account-command="permanent-delete">Permanent delete</button>
       </span>
     </div>
   `).join("");
@@ -139,6 +140,15 @@ async function runAccountCommand(button) {
   const profileId = rowProfileId(button);
   if (!profileId || !command) return;
   const account = accountsCache.find((item) => item.id === profileId);
+  const accountEmail = (account?.email || "").trim().toLowerCase();
+
+  if (command === "permanent-delete") {
+    const typed = prompt(`Type ${account?.email || "the account email"} to permanently delete this account.`);
+    if ((typed || "").trim().toLowerCase() !== accountEmail) {
+      accountNotice("Permanent delete cancelled.", "neutral");
+      return;
+    }
+  }
 
   if (["banned", "deleted"].includes(command) && !confirm(`${command === "deleted" ? "Soft delete" : "Ban"} ${account?.email || "this account"}?`)) {
     return;
@@ -160,6 +170,16 @@ async function runAccountCommand(button) {
       } else {
         accountNotice("Could not create an account session.", "error");
       }
+      return;
+    }
+
+    if (command === "permanent-delete") {
+      await opsPost("/api/admin/accounts/permanent-delete", {
+        profileId,
+        note: "Admin permanently deleted account from Accounts portal"
+      });
+      accountNotice(`Account ${account?.email || ""} permanently deleted.`, "success");
+      await loadAccountsData();
       return;
     }
 

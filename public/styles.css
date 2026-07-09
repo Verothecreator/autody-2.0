@@ -130,6 +130,17 @@ input {
   border-color: var(--line);
 }
 
+.btn-danger {
+  background: rgba(255, 87, 120, 0.12);
+  color: var(--negative);
+  border-color: rgba(255, 87, 120, 0.34);
+}
+
+.btn-danger:hover {
+  background: rgba(255, 87, 120, 0.2);
+  border-color: rgba(255, 87, 120, 0.5);
+}
+
 .btn-large {
   min-height: 50px;
   padding: 0 22px;
@@ -612,21 +623,43 @@ h3 {
 .mobile-store-button {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 12px;
+  min-width: 218px;
+  padding-inline: 18px;
+  text-align: left;
 }
 
 .mobile-store-icon {
-  width: 22px;
-  height: 22px;
+  width: 34px;
+  height: 34px;
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
 }
 
 .mobile-store-icon svg {
-  width: 100%;
-  height: 100%;
+  width: 24px;
+  height: 24px;
   fill: currentColor;
+}
+
+.mobile-store-copy {
+  display: grid;
+  gap: 1px;
+  line-height: 1.05;
+}
+
+.mobile-store-copy small {
+  color: rgba(226, 232, 255, 0.74);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.mobile-store-copy strong {
+  color: inherit;
+  font-size: 1.05rem;
+  font-weight: 950;
 }
 
 .mobile-install-status {
@@ -4332,6 +4365,7 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
 .asset-logo.custom-logo.has-image {
   background: transparent;
+  border-color: transparent;
 }
 
 .asset-logo-fit {
@@ -4352,6 +4386,16 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
 .asset-logo.custom-logo img {
   object-fit: contain;
+}
+
+.asset-logo.custom-logo .asset-logo-fit {
+  inset: 0;
+  border-radius: inherit;
+}
+
+.asset-logo.custom-logo img {
+  border-radius: inherit;
+  object-fit: cover;
 }
 
 .asset-logo.logo-type-stock .asset-logo-fit,

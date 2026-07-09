@@ -289,7 +289,7 @@ function publicSupportPayload() {
 document.addEventListener("click", (event) => {
   if (event.target.closest("[data-install-app]")) {
     if (!deferredInstallPrompt) {
-      setMobileInstallStatus("Use the browser install option to add Autody to the home screen.", "info");
+      setMobileInstallStatus("Select Install in the browser menu to add Autody to the home screen.", "info");
       return;
     }
     deferredInstallPrompt.prompt();
@@ -303,7 +303,7 @@ document.addEventListener("click", (event) => {
   }
 
   if (event.target.closest("[data-ios-install]")) {
-    setMobileInstallStatus("Use Safari's Add to Home Screen option to install Autody on iPhone.", "info");
+    setMobileInstallStatus("Open Safari's share menu, then choose Add to Home Screen.", "info");
     return;
   }
 
