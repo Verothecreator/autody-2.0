@@ -11,6 +11,7 @@ const liveWalletWholeMoney = new Intl.NumberFormat("en-US", {
 });
 
 const LIVE_WALLET_REFRESH_MS = 10000;
+const LIVE_WALLET_DUST_USD = 0.005;
 
 let liveWalletCatalog = [];
 let selectedLiveWalletSymbol = new URLSearchParams(location.search).get("asset") || "USD";
@@ -183,6 +184,18 @@ function normalizeLiveWalletHolding(holding = {}) {
       ? Number(holding.lastPrice)
       : market.price ?? null;
 
+  let balance = liveWalletNumber(holding.balance, 0);
+  let valueUsd = liveWalletNumber(holding.valueUsd, 0);
+  if (["USDT", "USDC"].includes(symbol) && balance > 0) {
+    valueUsd = balance;
+  }
+  if (balance <= 0.00000001 || valueUsd < LIVE_WALLET_DUST_USD) {
+    if (symbol !== "USD" && symbol !== "AU" && !LIVE_GROUP_SYMBOLS.has(symbol)) {
+      balance = 0;
+      valueUsd = 0;
+    }
+  }
+
   return {
     ...market,
     ...holding,
@@ -190,8 +203,8 @@ function normalizeLiveWalletHolding(holding = {}) {
     name: holding.name || holding.assetName || market.name || symbol,
     category,
     assetType: category,
-    balance: liveWalletNumber(holding.balance, 0),
-    valueUsd: liveWalletNumber(holding.valueUsd, 0),
+    balance,
+    valueUsd,
     price,
     changePct: holding.changePct ?? market.changePct ?? null,
     logoUrl: holding.logoUrl || market.logoUrl || null,
@@ -255,26 +268,27 @@ function liveLogoFallbackText(asset) {
 function liveWalletLogoSrc(asset) {
   const symbol = String(asset.symbol || "").toUpperCase();
   const assetType = String(asset.assetType || asset.category || "").toLowerCase();
-  if (asset.customAsset || symbol === "AU") return "Autody-Logo.png";
+  if (asset.logoUrl) return asset.logoUrl;
+  if (symbol === "AU") return "Autody-Logo.png";
   if (assetType === "crypto") {
     const icon = LIVE_CRYPTO_ICONS[symbol] || liveLogoFallbackText(asset).toLowerCase();
     return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(icon)}.png`;
   }
-  if (asset.logoUrl) return asset.logoUrl;
   return "";
 }
 
 function liveWalletLogoMarkup(asset, extraClass = "") {
   const fallback = liveLogoFallbackText(asset);
   const src = liveWalletLogoSrc(asset);
-  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const autodyClass = asset.symbol === "AU" ? "autody-logo" : "";
+  const customClass = asset.customAsset && asset.symbol !== "AU" ? "custom-logo" : "";
   const typeClass = `logo-type-${String(asset.assetType || asset.category || "market").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const symbolClass = `logo-symbol-${fallback.toLowerCase()}`;
   const img = src
     ? `<span class="asset-logo-fit"><img src="${escapeLiveWalletHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${typeClass} ${symbolClass} ${escapeLiveWalletHtml(extraClass)}" data-symbol="${escapeLiveWalletHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${customClass} ${typeClass} ${symbolClass} ${escapeLiveWalletHtml(extraClass)}" data-symbol="${escapeLiveWalletHtml(fallback)}">
       ${img}
       <b>${escapeLiveWalletHtml(fallback)}</b>
     </span>
@@ -341,6 +355,7 @@ function liveGroupAssets(group) {
   if (!group.defaults.length) return [];
   const heldAssets = liveWalletHoldings()
     .filter((asset) => !LIVE_GROUP_SYMBOLS.has(asset.symbol))
+    .filter((asset) => liveWalletNumber(asset.balance, 0) > 0.00000001 && liveWalletNumber(asset.valueUsd, 0) >= LIVE_WALLET_DUST_USD)
     .filter((asset) => liveGroupKeyForAsset(asset) === group.key)
     .sort((left, right) => liveWalletNumber(right.valueUsd, 0) - liveWalletNumber(left.valueUsd, 0));
   const heldSymbols = new Set(heldAssets.map((asset) => asset.symbol));
@@ -659,7 +674,7 @@ function renderLiveWallet() {
   const selected = liveSelectedAsset(rows);
   selectedLiveWalletSymbol = selected?.symbol || "USD";
 
-  const balanceText = `${liveWalletWholeMoney.format(liveWalletState.cashBalance)} USD`;
+  const balanceText = `${formatLiveWalletMoney(liveWalletState.cashBalance)} USD`;
   document.querySelectorAll("[data-live-balance]").forEach((node) => {
     node.textContent = balanceText;
   });

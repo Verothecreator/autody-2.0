@@ -598,11 +598,35 @@ h3 {
     rgba(11, 15, 23, 0.96);
 }
 
+.mobile-app-layout {
+  max-width: 760px;
+}
+
 .mobile-app-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 24px;
+}
+
+.mobile-store-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mobile-store-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.mobile-store-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
 }
 
 .mobile-install-status {
@@ -4327,7 +4351,7 @@ body.account-body.theme-light .profile-kyc-modal-card {
 }
 
 .asset-logo.custom-logo img {
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .asset-logo.logo-type-stock .asset-logo-fit,
@@ -5823,6 +5847,10 @@ body.account-body.theme-light .profile-kyc-modal-card {
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
 }
 
+.admin-accounts-grid {
+  grid-template-columns: 1fr;
+}
+
 .admin-action-card {
   display: grid;
   gap: 14px;
@@ -5881,13 +5909,18 @@ body.account-body.theme-light .profile-kyc-modal-card {
 }
 
 .admin-account-record {
-  min-width: 1160px;
-  grid-template-columns: minmax(210px, 1fr) repeat(5, minmax(120px, 0.55fr)) minmax(230px, 0.9fr) minmax(330px, 1fr);
+  min-width: 0;
+  grid-template-columns: minmax(220px, 1.25fr) repeat(5, minmax(118px, 0.7fr));
+  align-items: start;
+}
+
+.admin-account-record .admin-account-limits {
+  grid-column: 1 / -1;
 }
 
 .admin-account-limits {
   display: grid;
-  grid-template-columns: repeat(2, minmax(100px, 1fr));
+  grid-template-columns: repeat(2, minmax(180px, 260px));
   gap: 8px;
 }
 
@@ -5901,6 +5934,10 @@ body.account-body.theme-light .profile-kyc-modal-card {
 .admin-account-limits input {
   min-height: 36px;
   padding: 0 10px;
+}
+
+.admin-account-record .admin-record-actions {
+  grid-column: 1 / -1;
 }
 
 .admin-record-actions {

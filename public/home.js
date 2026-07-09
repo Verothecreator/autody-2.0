@@ -289,21 +289,21 @@ function publicSupportPayload() {
 document.addEventListener("click", (event) => {
   if (event.target.closest("[data-install-app]")) {
     if (!deferredInstallPrompt) {
-      setMobileInstallStatus("Open this page in Chrome or Edge on Android, then choose Install app from the browser menu.", "info");
+      setMobileInstallStatus("Use the browser install option to add Autody to the home screen.", "info");
       return;
     }
     deferredInstallPrompt.prompt();
     deferredInstallPrompt.userChoice
       .then(() => {
         deferredInstallPrompt = null;
-        setMobileInstallStatus("Autody install prompt closed.", "success");
+        setMobileInstallStatus("Autody is ready from the device home screen when installation is complete.", "success");
       })
       .catch(() => setMobileInstallStatus("Install prompt could not be opened.", "error"));
     return;
   }
 
   if (event.target.closest("[data-ios-install]")) {
-    setMobileInstallStatus("On iPhone, open Autody in Safari, tap Share, then Add to Home Screen.", "info");
+    setMobileInstallStatus("Use Safari's Add to Home Screen option to install Autody on iPhone.", "info");
     return;
   }
 
@@ -379,7 +379,7 @@ document.addEventListener("DOMContentLoaded", () => {
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   deferredInstallPrompt = event;
-  setMobileInstallStatus("Autody is ready to install on this device.", "success");
+  setMobileInstallStatus("Autody is ready to download on this device.", "success");
 });
 
 window.addEventListener("focus", loadMarketData);

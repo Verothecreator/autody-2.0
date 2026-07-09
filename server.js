@@ -1979,6 +1979,7 @@ async function getAuthenticatedAccount(req, mode = "live") {
 }
 
 const WALLET_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS"]);
+const WALLET_HOLDING_VALUE_DUST_USD = 0.005;
 
 function walletHoldingUrl(holding) {
     const symbol = String(holding.symbol || "").toUpperCase();
@@ -2069,11 +2070,13 @@ async function buildDemoWalletSnapshot(account) {
             .sort();
         const category = holding.category || marketAsset?.assetType || "market";
         const balance = numberValue(holding.balance, 0);
-        const price = firstPositive(marketAsset?.price, holding.lastPrice);
+        const rawPrice = firstPositive(marketAsset?.price, holding.lastPrice);
+        const valuePrice = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
+        const price = rawPrice;
         const valueUsd = symbol === "USD"
             ? cash.valueUsd
-            : balance > 0 && price != null
-                ? balance * price
+            : balance > 0 && valuePrice != null
+                ? balance * valuePrice
                 : numberValue(holding.valueUsd, 0);
         const averageCost = positiveNumber(holding.averageCost);
         const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
@@ -2107,7 +2110,9 @@ async function buildDemoWalletSnapshot(account) {
         const symbol = String(holding.symbol || "").toUpperCase();
         return symbol !== "AU" && !WALLET_GROUP_SYMBOLS.has(symbol);
     });
-    const positions = rawPositionHoldings.map(enrichHolding).filter((holding) => holding.balance > 0 || holding.valueUsd > 0);
+    const positions = rawPositionHoldings
+        .map(enrichHolding)
+        .filter((holding) => holding.balance > 1e-10 && holding.valueUsd >= WALLET_HOLDING_VALUE_DUST_USD);
     const cryptoPositions = positions.filter((holding) => holding.category === "crypto" || holding.category === "currency");
     const stockPositions = positions.filter((holding) => ["stock", "stocks", "etf", "commodity"].includes(holding.category));
     const cryptoValue = cryptoPositions.reduce((sum, holding) => sum + numberValue(holding.valueUsd, 0), 0);
@@ -2235,11 +2240,13 @@ async function buildLiveWalletSnapshot(account) {
         const marketAsset = marketMap.get(symbol);
         const category = holding.category || marketAsset?.assetType || (symbol === "AU" ? "currency" : "market");
         const balance = numberValue(holding.balance, 0);
-        const price = firstPositive(marketAsset?.price, holding.lastPrice);
+        const rawPrice = firstPositive(marketAsset?.price, holding.lastPrice);
+        const valuePrice = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
+        const price = rawPrice;
         const valueUsd = symbol === "USD"
             ? cash.valueUsd
-            : balance > 0 && price != null
-                ? balance * price
+            : balance > 0 && valuePrice != null
+                ? balance * valuePrice
                 : numberValue(holding.valueUsd, 0);
         const averageCost = positiveNumber(holding.averageCost);
         const costBasis = averageCost != null && balance > 0 ? averageCost * balance : null;
@@ -2272,7 +2279,9 @@ async function buildLiveWalletSnapshot(account) {
         const symbol = String(holding.symbol || "").toUpperCase();
         return !LIVE_WALLET_GROUP_SYMBOLS.has(symbol);
     });
-    const positions = rawPositionHoldings.map(enrichHolding).filter((holding) => holding.balance > 0 || holding.valueUsd > 0);
+    const positions = rawPositionHoldings
+        .map(enrichHolding)
+        .filter((holding) => holding.balance > 1e-10 && holding.valueUsd >= WALLET_HOLDING_VALUE_DUST_USD);
     const cryptoPositions = positions.filter((holding) => ["crypto", "currency", "stablecoin"].includes(String(holding.category || "").toLowerCase()));
     const stockPositions = positions.filter((holding) => ["stock", "stocks"].includes(String(holding.category || "").toLowerCase()));
     const etfPositions = positions.filter((holding) => String(holding.category || "").toLowerCase() === "etf");
@@ -4299,15 +4308,25 @@ function withdrawalUsdAmountFromInput(inputAmount, amountMode, assetSymbol, asse
 const WITHDRAWAL_HOLD_DAYS = 90;
 const WITHDRAWAL_HOLD_EXEMPT_EMAILS = new Set(["wisjohn737@gmail.com", "verop6968@gmail.com"]);
 
-function assertExternalWithdrawalAgeAllowed(user = {}) {
+function withdrawalHoldAvailableDate(firstDepositAt) {
+    const depositMs = Date.parse(firstDepositAt || "");
+    if (!Number.isFinite(depositMs)) return null;
+    return new Date(depositMs + WITHDRAWAL_HOLD_DAYS * 24 * 60 * 60 * 1000);
+}
+
+function formatWithdrawalHoldDate(date) {
+    return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function assertExternalWithdrawalDepositAgeAllowed(user = {}, firstDepositAt = null) {
     const email = normalizeEmail(user.email);
     if (WITHDRAWAL_HOLD_EXEMPT_EMAILS.has(email)) return;
-    const createdAt = Date.parse(user.createdAt || user.created_at || "");
-    if (!Number.isFinite(createdAt)) return;
-    const ageMs = Date.now() - createdAt;
-    if (ageMs >= WITHDRAWAL_HOLD_DAYS * 24 * 60 * 60 * 1000) return;
-    const availableAt = new Date(createdAt + WITHDRAWAL_HOLD_DAYS * 24 * 60 * 60 * 1000);
-    throw demoTradeError(403, `External withdrawals become available on ${availableAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`);
+    const availableAt = withdrawalHoldAvailableDate(firstDepositAt);
+    if (!availableAt) {
+        throw demoTradeError(403, "External withdrawals become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. Add funds or receive crypto to start the withdrawal clock.");
+    }
+    if (Date.now() >= availableAt.getTime()) return;
+    throw demoTradeError(403, `External withdrawals become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. This account can request external withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`);
 }
 
 function normalizeWithdrawalNetwork(assetSymbol, type, value) {
@@ -4409,7 +4428,7 @@ async function walletAssetInfo(symbol, existing = null) {
     const valueUsd = numberValue(existing?.value_usd, 0);
     const rawPrice = symbol === "USD"
         ? 1
-        : firstPositive(existing?.last_price, quantity > 0 ? valueUsd / quantity : null, marketAsset?.price) || 0;
+        : firstPositive(marketAsset?.price, existing?.last_price, quantity > 0 ? valueUsd / quantity : null) || 0;
     const price = symbol === "USD" ? 1 : withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
     return {
         symbol,
@@ -4471,6 +4490,63 @@ async function creditDbWalletAsset(client, walletId, symbol, amount, sourceInfo 
     return { ...info, amountUsd: info.price ? amount * info.price : null };
 }
 
+async function databaseFirstLiveDepositAt(client, context = {}, profileId = "") {
+    await ensureDepositTables(client);
+    await ensureFiatFundingTables(client);
+    const result = await client.query(`
+        select min(deposit_at) as first_deposit_at
+        from (
+          select coalesce(filled_at, created_at) as deposit_at
+          from orders
+          where account_mode_id = $1
+            and lower(side) = 'deposit'
+            and lower(status) = 'filled'
+
+          union all
+
+          select coalesce(credited_at, created_at) as deposit_at
+          from crypto_deposit_events
+          where profile_id = $2
+            and lower(status) = 'credited'
+
+          union all
+
+          select coalesce(settled_at, updated_at, created_at) as deposit_at
+          from fiat_funding_requests
+          where profile_id = $2
+            and lower(status) in ('settled', 'credited', 'completed', 'succeeded')
+        ) deposits
+    `, [context.account_mode_id, profileId]);
+    return result.rows[0]?.first_deposit_at || null;
+}
+
+function jsonFirstLiveDepositAt(db = {}, userId = "") {
+    const dates = [];
+    const pushDate = (value) => {
+        const time = Date.parse(value || "");
+        if (Number.isFinite(time)) dates.push(time);
+    };
+
+    (db.orders?.[userId] || []).forEach((order) => {
+        if (String(order.side || "").toLowerCase() !== "deposit") return;
+        if (String(order.status || "filled").toLowerCase() !== "filled") return;
+        pushDate(order.filledAt || order.filled_at || order.createdAt || order.created_at);
+    });
+
+    (db.fiatFundingRequests?.[userId] || []).forEach((request) => {
+        const status = String(request.status || "").toLowerCase();
+        if (!["settled", "credited", "completed", "succeeded"].includes(status)) return;
+        pushDate(request.settledAt || request.settled_at || request.updatedAt || request.createdAt);
+    });
+
+    (db.depositEvents?.[userId] || []).forEach((event) => {
+        if (String(event.status || "").toLowerCase() !== "credited") return;
+        pushDate(event.creditedAt || event.credited_at || event.createdAt || event.created_at);
+    });
+
+    return dates.length ? new Date(Math.min(...dates)).toISOString() : null;
+}
+
 async function createDatabaseWithdrawalRequest(auth, body = {}) {
     if (!databaseConfigured()) return null;
     const type = normalizeWithdrawalType(body.type || body.withdrawalType || body.mode);
@@ -4481,8 +4557,6 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
     const note = normalizeText(body.note);
     const destination = normalizeText(body.destination || body.address || body.walletAddress);
     const recipientEmail = normalizeEmail(body.recipientEmail || body.email || body.toEmail);
-
-    if (type === "external") assertExternalWithdrawalAgeAllowed(auth.user);
 
     if (type === "external" && !destination) {
         throw demoTradeError(400, "Enter the external wallet address.");
@@ -4500,6 +4574,10 @@ async function createDatabaseWithdrawalRequest(auth, body = {}) {
         await ensureWithdrawalTables(client);
         const context = await getPracticeDbContext(client, auth.profileId, "live");
         assertLiveAccountOperational(context, type === "external" ? "External withdrawals" : "Internal transfers");
+        if (type === "external") {
+            const firstDepositAt = await databaseFirstLiveDepositAt(client, context, auth.profileId);
+            assertExternalWithdrawalDepositAgeAllowed(auth.user, firstDepositAt);
+        }
         const existingForAmount = assetSymbol === "USD" ? null : await readDbHoldingForUpdate(client, context.wallet_id, assetSymbol);
         const amountInfo = await walletAssetInfo(assetSymbol, existingForAmount);
         const amount = withdrawalAssetAmountFromInput(inputAmount, amountMode, assetSymbol, amountInfo);
@@ -4614,10 +4692,16 @@ function jsonDebitWalletAsset(db, userId, symbol, amount) {
     const holding = jsonHoldingForWithdrawal(wallet, symbol);
     const balance = numberValue(holding?.balance ?? holding?.quantity, 0);
     if (balance + 1e-10 < amount) throw demoTradeError(400, `Not enough ${symbol} available for this withdrawal.`);
-    const rawPrice = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+    const marketAsset = liveMarketAssetCache.bySymbol.get(symbol);
+    const rawPrice = firstPositive(marketAsset?.price, holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
     const price = withdrawalUnitPrice(symbol, { price: rawPrice }) || rawPrice;
     holding.balance = Math.max(0, balance - amount);
     holding.valueUsd = price ? holding.balance * price : numberValue(holding.valueUsd, 0);
+    if (holding.balance <= 1e-10 || (price > 0 && holding.valueUsd < WALLET_HOLDING_VALUE_DUST_USD)) {
+        holding.balance = 0;
+        holding.valueUsd = 0;
+        holding.averageCost = null;
+    }
     holding.updatedAt = new Date().toISOString();
     return { symbol, name: holding.name || LIVE_DEPOSIT_ASSETS[symbol]?.name || symbol, assetType: holding.category || "crypto", price, amountUsd: price ? amount * price : null };
 }
@@ -4646,7 +4730,8 @@ function jsonCreditWalletAsset(db, userId, symbol, amount, sourceInfo = {}) {
         };
         wallet.holdings.push(holding);
     }
-    const price = firstPositive(sourceInfo.price, holding.lastPrice) || 0;
+    const marketAsset = liveMarketAssetCache.bySymbol.get(symbol);
+    const price = firstPositive(sourceInfo.price, marketAsset?.price, holding.lastPrice) || 0;
     holding.balance = numberValue(holding.balance ?? holding.quantity, 0) + amount;
     holding.lastPrice = price || holding.lastPrice || null;
     holding.valueUsd = price ? holding.balance * price : numberValue(holding.valueUsd, 0);
@@ -4662,12 +4747,14 @@ function createJsonWithdrawalRequest(auth, body = {}) {
     const network = normalizeWithdrawalNetwork(assetSymbol, type, body.network);
     const destination = normalizeText(body.destination || body.address || body.walletAddress);
     const recipientEmail = normalizeEmail(body.recipientEmail || body.email || body.toEmail);
-    if (type === "external") assertExternalWithdrawalAgeAllowed(auth.user);
     if (type === "external" && !destination) throw demoTradeError(400, "Enter the external wallet address.");
     if (type === "internal" && !recipientEmail) throw demoTradeError(400, "Enter the recipient's Autody email.");
     if (recipientEmail && recipientEmail === normalizeEmail(auth.user?.email)) throw demoTradeError(400, "Choose another Autody account as the recipient.");
 
     const db = loadDemoDb();
+    if (type === "external") {
+        assertExternalWithdrawalDepositAgeAllowed(auth.user, jsonFirstLiveDepositAt(db, auth.userId));
+    }
     const recipient = type === "internal" ? jsonUserByEmail(db, recipientEmail) : null;
     if (type === "internal" && !recipient) throw demoTradeError(404, "Recipient Autody account was not found.");
 
@@ -4677,7 +4764,10 @@ function createJsonWithdrawalRequest(auth, body = {}) {
         : (() => {
             const holding = jsonHoldingForWithdrawal(senderWallet || {}, assetSymbol);
             const balance = numberValue(holding?.balance ?? holding?.quantity, 0);
-            const price = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+            const marketAsset = liveMarketAssetCache.bySymbol.get(assetSymbol);
+            const price = withdrawalUnitPrice(assetSymbol, {
+                price: firstPositive(marketAsset?.price, holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0
+            }) || 0;
             return { symbol: assetSymbol, name: holding?.name || LIVE_DEPOSIT_ASSETS[assetSymbol]?.name || assetSymbol, assetType: holding?.category || "crypto", price };
         })();
     const amount = withdrawalAssetAmountFromInput(inputAmount, amountMode, assetSymbol, amountInfo);
@@ -4694,7 +4784,10 @@ function createJsonWithdrawalRequest(auth, body = {}) {
             : (() => {
                 const holding = jsonHoldingForWithdrawal(wallet || {}, assetSymbol);
                 const balance = numberValue(holding?.balance ?? holding?.quantity, 0);
-                const price = firstPositive(holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0;
+                const marketAsset = liveMarketAssetCache.bySymbol.get(assetSymbol);
+                const price = withdrawalUnitPrice(assetSymbol, {
+                    price: firstPositive(marketAsset?.price, holding?.lastPrice, balance > 0 ? numberValue(holding?.valueUsd, 0) / balance : null) || 0
+                }) || 0;
                 return { balance, price, amountUsd: price ? amount * price : null };
             })();
         if (balanceInfo.balance + 1e-10 < amount) throw demoTradeError(400, `Not enough ${assetSymbol} available for this withdrawal.`);
@@ -7409,7 +7502,11 @@ function tradeAssetType(asset) {
 
 function swapEligibleAsset(asset) {
     const symbol = normalizeTradeSymbol(asset?.symbol);
-    return tradeAssetType(asset) === "crypto" || symbol === "AU";
+    const type = tradeAssetType(asset);
+    return type === "crypto"
+        || type === "currency"
+        || symbol === "AU"
+        || (asset?.customAsset && !["stock", "etf", "commodity"].includes(type));
 }
 
 function assertSwapEligibleAsset(asset, role = "asset") {
@@ -7752,7 +7849,15 @@ async function readDbHoldingForUpdate(client, walletId, symbol) {
 }
 
 async function saveDbHolding(client, walletId, asset, quantity, averageCost, price) {
-    const valueUsd = Math.max(0, quantity * price);
+    let nextQuantity = Math.max(0, numberValue(quantity, 0));
+    let nextAverageCost = averageCost;
+    let nextPrice = Math.max(0, numberValue(price, 0));
+    let valueUsd = Math.max(0, nextQuantity * nextPrice);
+    if (nextQuantity <= 1e-10 || (nextPrice > 0 && valueUsd < WALLET_HOLDING_VALUE_DUST_USD)) {
+        nextQuantity = 0;
+        nextAverageCost = null;
+        valueUsd = 0;
+    }
     await client.query(`
         insert into holdings (wallet_id, symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at)
         values ($1, $2, $3, $4, $5, $6, $7, $8, now())
@@ -7769,9 +7874,9 @@ async function saveDbHolding(client, walletId, asset, quantity, averageCost, pri
         asset.symbol,
         asset.name || asset.assetName || asset.symbol,
         tradeAssetType(asset),
-        quantity,
-        averageCost,
-        price,
+        nextQuantity,
+        nextAverageCost,
+        nextPrice,
         valueUsd
     ]);
 
@@ -7907,7 +8012,6 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
         if (side === "buy") {
             const asset = await resolveTradeAsset(body.symbol);
             const trade = calculateTradeSize(body, asset.price);
-            await assertDatabaseAuFirstPurchaseMinimum(client, context, asset, trade);
             await adjustDbCash(client, context.wallet_id, -trade.notionalUsd);
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
             marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "demo-buy" });
@@ -7955,7 +8059,6 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "demo-swap-out" });
 
             const toQuantity = notionalUsd / toAsset.price;
-            await assertDatabaseAuFirstPurchaseMinimum(client, context, toAsset, { quantity: toQuantity, notionalUsd });
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, notionalUsd);
             marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd, source: "demo-swap-in" });
             order = await insertDbOrder(client, context, {
@@ -7996,15 +8099,24 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
 function upsertJsonHolding(wallet, asset, quantity, averageCost, price) {
     wallet.holdings = wallet.holdings || [];
     const index = wallet.holdings.findIndex((holding) => normalizeTradeSymbol(holding.symbol) === asset.symbol);
+    let nextQuantity = Math.max(0, numberValue(quantity, 0));
+    let nextAverageCost = averageCost;
+    const nextPrice = Math.max(0, numberValue(price, 0));
+    let valueUsd = Math.max(0, nextQuantity * nextPrice);
+    if (nextQuantity <= 1e-10 || (nextPrice > 0 && valueUsd < WALLET_HOLDING_VALUE_DUST_USD)) {
+        nextQuantity = 0;
+        nextAverageCost = null;
+        valueUsd = 0;
+    }
     const nextHolding = {
         symbol: asset.symbol,
         name: asset.name || asset.symbol,
         category: tradeAssetType(asset),
-        balance: quantity,
-        averageCost,
-        lastPrice: price,
-        valueUsd: Math.max(0, quantity * price),
-        status: quantity > 0 ? "Held" : "Ready",
+        balance: nextQuantity,
+        averageCost: nextAverageCost,
+        lastPrice: nextPrice,
+        valueUsd,
+        status: nextQuantity > 0 ? "Held" : "Ready",
         updatedAt: new Date().toISOString()
     };
 
@@ -8068,7 +8180,6 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
     if (side === "buy") {
         const asset = await resolveTradeAsset(body.symbol);
         const trade = calculateTradeSize(body, asset.price);
-        assertJsonAuFirstPurchaseMinimum(db, userId, wallet, asset, trade);
         adjustCash(-trade.notionalUsd);
         buyHolding(asset, trade.quantity, trade.notionalUsd);
         marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "demo-json-buy" });
@@ -8097,7 +8208,6 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         realizedDelta += sellHolding(fromAsset, notionalUsd / fromAsset.price);
         marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "demo-json-swap-out" });
         const toQuantity = notionalUsd / toAsset.price;
-        assertJsonAuFirstPurchaseMinimum(db, userId, wallet, toAsset, { quantity: toQuantity, notionalUsd });
         buyHolding(toAsset, toQuantity, notionalUsd);
         marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd, source: "demo-json-swap-in" });
         order = { symbol: toAsset.symbol, assetType: tradeAssetType(toAsset), side, orderType: "market", status: "filled", quantity: toQuantity, notionalUsd, filledPrice: toAsset.price };

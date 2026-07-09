@@ -24,6 +24,7 @@ let orderStatusTimer = null;
 let orderTradingFee = { bps: 0, rate: 0, percent: 0 };
 const ORDER_REFRESH_MS = 10000;
 const ORDER_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
+const ORDER_HOLDING_DUST_USD = 0.005;
 
 function escapeOrderHtml(value = "") {
   return String(value)
@@ -101,12 +102,13 @@ function orderLogoSrc(asset) {
 function orderLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallback(asset);
   const src = orderLogoSrc(asset);
-  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const autodyClass = asset.symbol === "AU" ? "autody-logo" : "";
+  const customClass = asset.customAsset && asset.symbol !== "AU" ? "custom-logo" : "";
   const img = src
-    ? `<img src="${escapeOrderHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    ? `<span class="asset-logo-fit"><img src="${escapeOrderHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${escapeOrderHtml(extraClass)}" data-symbol="${escapeOrderHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${customClass} ${escapeOrderHtml(extraClass)}" data-symbol="${escapeOrderHtml(fallback)}">
       ${img}
       <b>${escapeOrderHtml(fallback)}</b>
     </span>
@@ -152,7 +154,7 @@ function orderAssetType(asset = {}) {
 function isSwapAsset(asset = {}) {
   const type = orderAssetType(asset);
   const symbol = String(asset.symbol || "").toUpperCase();
-  return type === "crypto" || symbol === "AU";
+  return type === "crypto" || type === "currency" || symbol === "AU";
 }
 
 function holdingForSymbol(symbol) {
@@ -195,7 +197,9 @@ function holdingValueUsd(holding = {}) {
 
 function currentHoldings() {
   return (orderWallet?.holdings || []).filter((holding) => (
-    !ORDER_GROUP_SYMBOLS.has(String(holding.symbol || "").toUpperCase()) && Number(holding.balance) > 0.00000001
+    !ORDER_GROUP_SYMBOLS.has(String(holding.symbol || "").toUpperCase())
+      && Number(holding.balance) > 0.00000001
+      && holdingValueUsd(holding) >= ORDER_HOLDING_DUST_USD
   ));
 }
 
@@ -237,6 +241,7 @@ function auFirstPurchaseMet() {
 }
 
 function auFirstPurchaseValidation(asset, amount) {
+  if (!IS_LIVE_ORDER_PAGE) return null;
   if (String(asset?.symbol || "").toUpperCase() !== "AU" || auFirstPurchaseMet()) return null;
   const price = Number(asset.price);
   if (!Number.isFinite(price) || price <= 0) {
@@ -521,9 +526,10 @@ function renderPreview() {
 function renderWalletSummary() {
   if (!orderWallet) return;
   const usdBalanceLabel = `USD Funds - ${formatOrderMoney(orderWallet.cashBalance)} available`;
-  document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.cashBalance, true)} USD`;
+  const wholeCash = !IS_LIVE_ORDER_PAGE;
+  document.getElementById("orders-sidebar-balance").textContent = `${formatOrderMoney(orderWallet.cashBalance, wholeCash)} USD`;
   document.getElementById("orders-buying-power").textContent = `${formatOrderMoney(orderWallet.cashBalance)} USD`;
-  document.getElementById("orders-cash").textContent = formatOrderMoney(orderWallet.cashBalance, true);
+  document.getElementById("orders-cash").textContent = formatOrderMoney(orderWallet.cashBalance, wholeCash);
   document.getElementById("orders-total").textContent = formatOrderMoney(orderWallet.totalValue, !IS_LIVE_ORDER_PAGE);
   document.getElementById("orders-positions").textContent = String(orderWallet.positionsCount || 0);
   document.getElementById("order-buy-from-usd").value = usdBalanceLabel;
@@ -574,7 +580,7 @@ function renderHoldingList() {
         <a href="${ORDER_PAGE_URL}?side=sell&symbol=${encodeURIComponent(holding.symbol)}">
           ${orderLogoMarkup(asset, "asset-logo-small")}
           <span><b>${escapeOrderHtml(holding.symbol)}</b><em>${escapeOrderHtml(holding.name)}</em></span>
-          <strong>${escapeOrderHtml(formatOrderMoney(holding.valueUsd))}</strong>
+          <strong>${escapeOrderHtml(formatOrderMoney(holdingValueUsd(holding)))}</strong>
           <small>Sell</small>
         </a>
       `;
@@ -648,10 +654,10 @@ async function submitOrder(event) {
     const data = await postOrderJson(IS_LIVE_ORDER_PAGE ? "/api/account/orders" : "/api/demo/orders", payload);
     orderWallet = data.wallet;
     if (IS_LIVE_ORDER_PAGE && data.tradingFee) orderTradingFee = data.tradingFee;
-    setStatus(`${orderSide.toUpperCase()} filled for ${asset.symbol}. Wallet updated.`, "gain");
-    await loadOrdersPage({ silent: true });
     const amountInput = document.getElementById("order-amount");
     if (amountInput) amountInput.value = "";
+    setStatus(`${orderSide.toUpperCase()} filled for ${asset.symbol}. Wallet updated.`, "gain");
+    await loadOrdersPage({ silent: true });
   } catch (err) {
     setStatus(err.message || `${IS_LIVE_ORDER_PAGE ? "Live" : "Demo"} order failed.`, "loss");
   } finally {

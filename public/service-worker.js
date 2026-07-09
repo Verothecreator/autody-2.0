@@ -1,13 +1,9 @@
-const AUTODY_CACHE = "autody-shell-v1";
+const AUTODY_CACHE = "autody-shell-v2";
 const AUTODY_SHELL = [
   "/",
   "/index",
   "/sign-in",
   "/sign-up",
-  "/account",
-  "/account-wallet",
-  "/account-markets",
-  "/account-orders",
   "/styles.css",
   "/Autody-Logo.png"
 ];

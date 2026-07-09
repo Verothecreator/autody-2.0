@@ -7,10 +7,10 @@ const watchMoney = new Intl.NumberFormat("en-US", {
 let watchCatalog = [];
 let watchSymbols = [];
 let watchSearch = "";
-const WATCH_PAGE_NAME = location.pathname.split("/").pop() || "demo-watchlist.html";
-const IS_LIVE_WATCHLIST_PAGE = WATCH_PAGE_NAME === "account-watchlist.html";
+const WATCH_PAGE_NAME = (location.pathname.split("/").pop() || "demo-watchlist.html").replace(/\.html$/i, "");
+const IS_LIVE_WATCHLIST_PAGE = WATCH_PAGE_NAME === "account-watchlist";
 const WATCHLIST_API = IS_LIVE_WATCHLIST_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
-const WATCHLIST_ASSET_PAGE = IS_LIVE_WATCHLIST_PAGE ? "account-asset.html" : "demo-asset.html";
+const WATCHLIST_ASSET_PAGE = IS_LIVE_WATCHLIST_PAGE ? "account-asset" : "demo-asset";
 const WATCH_CRYPTO_ICON_SYMBOLS = {
   BTC: "btc",
   ETH: "eth",
@@ -104,14 +104,15 @@ function watchLogoSrc(asset) {
 function watchLogoMarkup(asset, extraClass = "") {
   const fallback = watchLogoFallback(asset);
   const src = watchLogoSrc(asset);
-  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const autodyClass = asset.symbol === "AU" ? "autody-logo" : "";
+  const customClass = asset.customAsset && asset.symbol !== "AU" ? "custom-logo" : "";
   const typeClass = `logo-type-${String(asset.assetType || asset.category || "market").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const symbolClass = `logo-symbol-${fallback.toLowerCase()}`;
   const img = src
     ? `<span class="asset-logo-fit"><img src="${escapeWatchHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
-    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${typeClass} ${symbolClass} ${escapeWatchHtml(extraClass)}" data-symbol="${escapeWatchHtml(fallback)}">
+    <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${customClass} ${typeClass} ${symbolClass} ${escapeWatchHtml(extraClass)}" data-symbol="${escapeWatchHtml(fallback)}">
       ${img}
       <b>${escapeWatchHtml(fallback)}</b>
     </span>
@@ -219,7 +220,7 @@ async function loadWatchlist() {
     const [catalog, watchlist, wallet] = await Promise.all([
       getWatchJson("/api/markets/catalog?type=all"),
       getWatchJson(WATCHLIST_API),
-      IS_LIVE_WATCHLIST_PAGE ? Promise.resolve(null) : getWatchJson("/api/demo/wallet").catch(() => null)
+      getWatchJson(IS_LIVE_WATCHLIST_PAGE ? "/api/account/wallet" : "/api/demo/wallet").catch(() => null)
     ]);
     watchCatalog = catalog.assets || [];
     watchSymbols = flattenWatchlist(watchlist.watchlist);

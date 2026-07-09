@@ -1,13 +1,13 @@
 const RESEARCH_REFRESH_MS = 30000;
 const RESEARCH_NEWS_SLIDE_MS = 9000;
-const RESEARCH_PAGE_NAME = location.pathname.split("/").pop() || "demo-research.html";
-const IS_LIVE_RESEARCH_PAGE = RESEARCH_PAGE_NAME === "account-research.html";
+const RESEARCH_PAGE_NAME = (location.pathname.split("/").pop() || "demo-research.html").replace(/\.html$/i, "");
+const IS_LIVE_RESEARCH_PAGE = RESEARCH_PAGE_NAME === "account-research";
 const RESEARCH_WALLET_API = IS_LIVE_RESEARCH_PAGE ? "/api/account/wallet" : "/api/demo/wallet";
 const RESEARCH_WATCHLIST_API = IS_LIVE_RESEARCH_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
-const RESEARCH_MARKETS_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-markets.html" : "demo-markets.html";
-const RESEARCH_WALLET_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-wallet.html" : "demo-wallet.html";
-const RESEARCH_ORDERS_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-orders.html" : "demo-orders.html";
-const RESEARCH_WATCHLIST_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-watchlist.html" : "demo-watchlist.html";
+const RESEARCH_MARKETS_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-markets" : "demo-markets";
+const RESEARCH_WALLET_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-wallet" : "demo-wallet";
+const RESEARCH_ORDERS_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-orders" : "demo-orders";
+const RESEARCH_WATCHLIST_PAGE = IS_LIVE_RESEARCH_PAGE ? "account-watchlist" : "demo-watchlist";
 
 let researchArticles = [];
 let activeResearchArticleIndex = 0;
@@ -133,7 +133,12 @@ function renderResearchWallet(wallet = {}, watchSymbols = []) {
   const profitLossPct = starting > 0 ? (profitLoss / starting) * 100 : 0;
   const tone = researchTone(profitLoss);
 
-  document.getElementById("research-cash").textContent = formatResearchMoney(wallet.cashBalance, true);
+  document.getElementById("research-cash").textContent = formatResearchMoney(wallet.cashBalance, !IS_LIVE_RESEARCH_PAGE);
+  if (IS_LIVE_RESEARCH_PAGE) {
+    document.querySelectorAll("[data-live-balance]").forEach((node) => {
+      node.textContent = `${formatResearchMoney(wallet.cashBalance)} USD`;
+    });
+  }
   document.getElementById("research-profit-loss").textContent = formatResearchMoney(profitLoss);
   document.getElementById("research-profit-loss").className = tone;
   document.getElementById("research-return-label").textContent = `${formatResearchMove(profitLossPct)} total return`;
@@ -147,7 +152,7 @@ function renderResearchWallet(wallet = {}, watchSymbols = []) {
   const briefCopy = document.getElementById("research-brief-copy");
   if (wallet.positionsCount) {
     briefTitle.textContent = "Your holdings are now part of the research story.";
-    briefCopy.textContent = `This wallet is tracking ${wallet.positionsCount} held asset${wallet.positionsCount === 1 ? "" : "s"}, ${formatResearchMoney(wallet.cashBalance, true)} in USD funds, and market stories that can affect decisions.`;
+    briefCopy.textContent = `This wallet is tracking ${wallet.positionsCount} held asset${wallet.positionsCount === 1 ? "" : "s"}, ${formatResearchMoney(wallet.cashBalance, !IS_LIVE_RESEARCH_PAGE)} in USD funds, and market stories that can affect decisions.`;
   } else {
     briefTitle.textContent = IS_LIVE_RESEARCH_PAGE ? "Prepare the first live move with context." : "Build the first position with context.";
     briefCopy.textContent = IS_LIVE_RESEARCH_PAGE

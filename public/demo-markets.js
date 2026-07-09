@@ -97,7 +97,7 @@ function marketLogoMarkup(asset, extraClass = "") {
   const autodyClass = asset.symbol === "AU" ? "autody-logo" : "";
   const customClass = asset.customAsset && asset.symbol !== "AU" ? "custom-logo" : "";
   const img = src
-    ? `<img src="${escapeMarketHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    ? `<span class="asset-logo-fit"><img src="${escapeMarketHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
     <span class="asset-token asset-logo ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${customClass} ${escapeMarketHtml(extraClass)}" data-symbol="${escapeMarketHtml(fallback)}">

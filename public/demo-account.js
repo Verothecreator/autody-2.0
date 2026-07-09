@@ -12,12 +12,12 @@ const overviewWholeMoney = new Intl.NumberFormat("en-US", {
 
 const OVERVIEW_REFRESH_MS = 10000;
 const OVERVIEW_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
-const OVERVIEW_PAGE_NAME = location.pathname.split("/").pop() || "demo-account.html";
-const IS_LIVE_OVERVIEW_PAGE = OVERVIEW_PAGE_NAME === "account.html";
+const OVERVIEW_PAGE_NAME = (location.pathname.split("/").pop() || "demo-account.html").replace(/\.html$/i, "");
+const IS_LIVE_OVERVIEW_PAGE = OVERVIEW_PAGE_NAME === "account";
 const OVERVIEW_WALLET_API = IS_LIVE_OVERVIEW_PAGE ? "/api/account/wallet" : "/api/demo/wallet";
 const OVERVIEW_ORDERS_API = IS_LIVE_OVERVIEW_PAGE ? "/api/account/orders" : "/api/demo/orders";
 const OVERVIEW_WATCHLIST_API = IS_LIVE_OVERVIEW_PAGE ? "/api/account/watchlist" : "/api/demo/watchlist";
-const OVERVIEW_ASSET_PAGE = IS_LIVE_OVERVIEW_PAGE ? "account-asset.html" : "demo-asset.html";
+const OVERVIEW_ASSET_PAGE = IS_LIVE_OVERVIEW_PAGE ? "account-asset" : "demo-asset";
 
 function escapeOverviewHtml(value = "") {
   return String(value)
@@ -85,11 +85,13 @@ function overviewLogoFallback(holding = {}) {
 function overviewLogoMarkup(holding = {}) {
   const fallback = overviewLogoFallback(holding);
   const src = holding.logoUrl || "";
+  const autodyClass = holding.symbol === "AU" ? "autody-logo" : "";
+  const customClass = holding.customAsset && holding.symbol !== "AU" ? "custom-logo" : "";
   const img = src
-    ? `<img src="${escapeOverviewHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.classList.add('logo-fallback'); this.remove();">`
+    ? `<span class="asset-logo-fit"><img src="${escapeOverviewHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";
   return `
-    <span class="asset-token asset-logo asset-logo-small ${src ? "has-image" : "logo-fallback"} ${holding.symbol === "AU" ? "autody-logo" : ""}" data-symbol="${escapeOverviewHtml(fallback)}">
+    <span class="asset-token asset-logo asset-logo-small ${src ? "has-image" : "logo-fallback"} ${autodyClass} ${customClass}" data-symbol="${escapeOverviewHtml(fallback)}">
       ${img}
       <b>${escapeOverviewHtml(fallback)}</b>
     </span>
@@ -181,10 +183,11 @@ function renderOverview({ wallet, orders, watchlist }) {
   const cashBalance = Number(wallet.cashBalance ?? 0);
   const positionCount = Number(wallet.positionsCount || 0);
 
-  setOverviewText("overview-sidebar-balance", `${formatOverviewMoney(cashBalance, true)} USD`);
-  setOverviewText("overview-top-balance", `${formatOverviewMoney(cashBalance, true)} USD`);
+  const liveCashWhole = !IS_LIVE_OVERVIEW_PAGE;
+  setOverviewText("overview-sidebar-balance", `${formatOverviewMoney(cashBalance, liveCashWhole)} USD`);
+  setOverviewText("overview-top-balance", `${formatOverviewMoney(cashBalance, liveCashWhole)} USD`);
   setOverviewText("overview-portfolio-value", formatOverviewMoney(totalValue));
-  setOverviewText("overview-buying-power", formatOverviewMoney(cashBalance, true));
+  setOverviewText("overview-buying-power", formatOverviewMoney(cashBalance, liveCashWhole));
   setOverviewText("overview-position-count", String(positionCount));
   setOverviewText("overview-position-label", positionCount ? "Assets currently held" : IS_LIVE_OVERVIEW_PAGE ? "No live assets held yet" : "Choose assets in Markets");
   setOverviewText("overview-watchlist-count", String(watchCount));
