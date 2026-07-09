@@ -4295,7 +4295,7 @@ function normalizeWithdrawalAmountMode(value) {
 
 function withdrawalUnitPrice(symbol, info = {}) {
     const price = firstPositive(info.price, info.lastPrice, info.value);
-    if (TRADE_STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(symbol)) && (!price || (price > 0.95 && price < 1.05))) return 1;
+    if (isStablecoinSymbol(symbol)) return 1;
     return price;
 }
 
@@ -4912,10 +4912,12 @@ function createJsonWithdrawalRequest(auth, body = {}) {
     if (type === "internal" && recipient) {
         const recipientRequest = {
             ...request,
+            userId: recipient.id,
+            email: recipient.email || "",
             direction: "incoming",
-            destination: recipient.email,
-            recipientUserId: recipient.id,
-            recipientEmail: recipient.email
+            destination: auth.user?.email || "",
+            recipientUserId: auth.userId || "",
+            recipientEmail: auth.user?.email || ""
         };
         db.withdrawalRequests[recipient.id] = [recipientRequest, ...(db.withdrawalRequests[recipient.id] || [])].slice(0, 50);
     }
@@ -5524,7 +5526,12 @@ const ERC20_SWEEP_ABI = [
     "function balanceOf(address account) view returns (uint256)",
     "function transfer(address to, uint256 amount) returns (bool)"
 ];
-const STABLE_DEPOSIT_ASSETS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
+const STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD", "USDE", "USD1", "USDD", "FRAX", "USDP", "GUSD", "LUSD"]);
+const STABLE_DEPOSIT_ASSETS = STABLECOIN_SYMBOLS;
+
+function isStablecoinSymbol(symbol) {
+    return STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(symbol));
+}
 
 function getEvmDepositProvider(network) {
     const config = getEvmNetworkConfig(network);
@@ -7604,8 +7611,6 @@ function tradeAssetPrice(asset) {
     return firstPositive(asset?.price, asset?.lastPrice, asset?.value);
 }
 
-const TRADE_STABLECOIN_SYMBOLS = new Set(["USDT", "USDC", "DAI", "PYUSD", "FDUSD", "TUSD"]);
-
 function tradeExecutionPrice(asset) {
     return tradeAssetPrice(asset);
 }
@@ -7797,15 +7802,20 @@ function assertLiveAccountOperational(context = {}, action = "This action") {
     throw demoTradeError(403, `${action} is unavailable while this account is ${status}.`);
 }
 
-async function databaseAdminAccountLimits(profileId) {
+async function databaseAdminAccountLimits(profileId, options = {}) {
     if (!databaseConfigured() || !profileId) return {};
-    await ensureAdminAccountControlTables();
+    if (options.ensure !== false) {
+        await ensureAdminAccountControlTables();
+    }
     const result = await dbPool.query(`
         select max_order_usd, max_withdrawal_usd
         from account_admin_limits
         where profile_id = $1
         limit 1
-    `, [profileId]).catch(() => ({ rows: [] }));
+    `, [profileId]).catch((err) => {
+        if (String(err?.code || "") === "42P01") return { rows: [] };
+        throw err;
+    });
     const row = result.rows[0] || {};
     return {
         maxOrderUsd: row.max_order_usd == null ? null : numberValue(row.max_order_usd, 0),
@@ -7813,15 +7823,25 @@ async function databaseAdminAccountLimits(profileId) {
     };
 }
 
+async function customerAccountLimits(profileId) {
+    try {
+        return await databaseAdminAccountLimits(profileId, { ensure: false });
+    } catch (err) {
+        if (!temporaryDatabaseError(err)) throw err;
+        console.error("Account limit lookup skipped after database timeout:", err.message || err);
+        return {};
+    }
+}
+
 async function assertDatabaseAccountOrderLimit(profileId, notionalUsd) {
-    const limits = await databaseAdminAccountLimits(profileId);
+    const limits = await customerAccountLimits(profileId);
     if (limits.maxOrderUsd == null || limits.maxOrderUsd <= 0) return;
     if (numberValue(notionalUsd, 0) <= limits.maxOrderUsd + 1e-10) return;
     throw demoTradeError(403, `This account is limited to ${formatTradeUsd(limits.maxOrderUsd)} per order.`);
 }
 
 async function assertDatabaseAccountWithdrawalLimit(profileId, amountUsd) {
-    const limits = await databaseAdminAccountLimits(profileId);
+    const limits = await customerAccountLimits(profileId);
     if (limits.maxWithdrawalUsd == null || limits.maxWithdrawalUsd <= 0 || amountUsd == null) return;
     if (numberValue(amountUsd, 0) <= limits.maxWithdrawalUsd + 1e-10) return;
     throw demoTradeError(403, `This account is limited to ${formatTradeUsd(limits.maxWithdrawalUsd)} per withdrawal.`);
@@ -8109,7 +8129,7 @@ async function placeDatabaseDemoOrder(body, auth = {}) {
             });
         } else if (side === "sell") {
             const asset = await resolveTradeAsset(body.symbol);
-            const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+            const proceedsPrice = isStablecoinSymbol(asset.symbol) ? 1 : asset.price;
             const trade = calculateTradeSize(body, proceedsPrice);
             const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity, { proceedsPrice });
             realizedDelta += result.realizedProfitLoss;
@@ -8272,7 +8292,7 @@ async function placeJsonDemoOrder(body, userId = PRACTICE_USER_ID) {
         order = { symbol: asset.symbol, assetType: tradeAssetType(asset), side, orderType: "market", status: "filled", quantity: trade.quantity, notionalUsd: trade.notionalUsd, filledPrice: asset.price };
     } else if (side === "sell") {
         const asset = await resolveTradeAsset(body.symbol);
-        const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+        const proceedsPrice = isStablecoinSymbol(asset.symbol) ? 1 : asset.price;
         const trade = calculateTradeSize(body, proceedsPrice);
         realizedDelta += sellHolding(asset, trade.quantity, { proceedsPrice });
         adjustCash(trade.notionalUsd);
@@ -8486,7 +8506,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd, metadata: { mode: "live", feeSide: "cash" } };
         } else if (side === "sell") {
             const asset = await resolveTradeAsset(body.symbol);
-            const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+            const proceedsPrice = isStablecoinSymbol(asset.symbol) ? 1 : asset.price;
             const trade = calculateTradeSize(body, proceedsPrice);
             await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
@@ -8617,7 +8637,7 @@ async function placeJsonLiveOrder(body, auth = {}) {
         fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd };
     } else if (side === "sell") {
         const asset = await resolveTradeAsset(body.symbol);
-        const proceedsPrice = TRADE_STABLECOIN_SYMBOLS.has(asset.symbol) ? 1 : asset.price;
+        const proceedsPrice = isStablecoinSymbol(asset.symbol) ? 1 : asset.price;
         const trade = calculateTradeSize(body, proceedsPrice);
         const feeUsd = tradingFeeUsd(trade.notionalUsd);
         realizedDelta += sellHolding(asset, trade.quantity, { proceedsPrice }) - feeUsd;
@@ -9246,8 +9266,10 @@ async function authenticatedAccountContext(req) {
     const token = requestSessionToken(req);
     if (!token) throw demoTradeError(401, "Sign in again to open this account data.");
 
+    let databaseSessionError = null;
     if (databaseConfigured()) {
         const profile = await databaseProfileFromSessionToken(token).catch((err) => {
+            databaseSessionError = err;
             console.error("Account session lookup failed:", err.message || err);
             return null;
         });
@@ -9263,6 +9285,9 @@ async function authenticatedAccountContext(req) {
 
     const db = loadDemoDb();
     const user = jsonProfileFromSessionToken(db, token);
+    if (!user && databaseSessionError && temporaryDatabaseError(databaseSessionError)) {
+        throw demoTradeError(503, "Account service is busy. Please try again.");
+    }
     if (!user) throw demoTradeError(401, "Sign in again to open this account data.");
     return {
         source: "json",

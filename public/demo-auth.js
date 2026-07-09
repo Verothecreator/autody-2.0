@@ -44,12 +44,12 @@
   }
 
   async function responseRequiresSignIn(response) {
-    if (response.status === 401) return true;
-    if (response.status !== 403) return false;
+    if (response.status !== 401 && response.status !== 403) return false;
 
     const data = await response.clone().json().catch(() => ({}));
     const message = String(data.error || data.message || "").toLowerCase();
-    return /sign in|session|token|unauthori[sz]ed|expired|invalid/.test(message);
+    const looksLikeAuthFailure = /sign in|session|token|unauthori[sz]ed|expired|invalid/.test(message);
+    return response.status === 401 ? !message || looksLikeAuthFailure : looksLikeAuthFailure;
   }
 
   const rawSession = localStorage.getItem(sessionKey);
