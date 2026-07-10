@@ -7820,6 +7820,141 @@ body.account-body.theme-light .profile-kyc-modal-card {
     justify-self: start;
   }
 
+  .order-workspace {
+    width: 100%;
+    max-width: 100%;
+    gap: 18px;
+    padding-bottom: 42px;
+    overflow: visible;
+  }
+
+  body.account-body:has(.order-workspace) .app-main {
+    padding-bottom: calc(138px + env(safe-area-inset-bottom));
+  }
+
+  .order-workspace > .app-card,
+  .trade-ticket,
+  .order-ticket-form,
+  .order-ticket-form label,
+  .order-preview {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .trade-ticket .card-heading {
+    gap: 12px;
+  }
+
+  .trade-ticket .status-pill {
+    width: fit-content;
+    min-height: 34px;
+    padding-inline: 14px;
+  }
+
+  .order-side-toggle {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .order-side-toggle button {
+    min-width: 0;
+    padding-inline: 8px;
+    white-space: nowrap;
+  }
+
+  .ticket-form input,
+  .ticket-form select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .order-amount-row {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .order-max-button {
+    right: 7px;
+    min-width: 58px;
+    padding-inline: 12px;
+  }
+
+  #orders-table {
+    gap: 10px;
+    overflow-x: hidden;
+  }
+
+  #orders-table .asset-table-row {
+    grid-template-columns: minmax(0, 1fr) minmax(58px, 0.72fr) minmax(78px, 0.9fr) minmax(54px, 0.72fr);
+    gap: 8px;
+    align-items: center;
+    min-height: 54px;
+    padding: 12px;
+  }
+
+  #orders-table .asset-table-row span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #orders-table .asset-table-row span:first-child {
+    font-size: 0.86rem;
+  }
+
+  #orders-table .asset-table-row span:last-child {
+    text-align: right;
+  }
+
+  #order-holdings-list.compact-market-list {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  #order-holdings-list.compact-market-list a {
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+    min-height: 76px;
+    padding: 12px;
+  }
+
+  #order-holdings-list .asset-logo-small {
+    width: 46px;
+    height: 46px;
+  }
+
+  #order-holdings-list.compact-market-list a > span {
+    min-width: 0;
+  }
+
+  #order-holdings-list.compact-market-list span b,
+  #order-holdings-list.compact-market-list span em {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #order-holdings-list.compact-market-list strong,
+  #order-holdings-list.compact-market-list small {
+    justify-self: end;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  #order-holdings-list.compact-market-list small {
+    grid-column: 3;
+    color: var(--muted);
+  }
+
   .balance-card-top {
     flex-direction: column;
   }
