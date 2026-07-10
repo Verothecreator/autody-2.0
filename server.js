@@ -4339,7 +4339,7 @@ function withdrawalIdentityStatus(user = {}) {
 function assertWithdrawalIdentityVerified(user = {}) {
     const status = withdrawalIdentityStatus(user);
     if (["verified", "approved"].includes(status)) return;
-    throw demoTradeError(403, "Verify your identity before requesting a withdrawal or internal transfer. Withdrawals are available after identity review is approved.");
+    throw demoTradeError(403, "Identity verification must be approved before withdrawals or internal transfers are available.");
 }
 
 function withdrawalAccessSnapshot(user = {}, firstDepositAt = null) {
@@ -4364,7 +4364,7 @@ function withdrawalAccessSnapshot(user = {}, firstDepositAt = null) {
             exempt,
             availableAt: availableAtIso,
             title: "Identity verification required",
-            message: "Complete identity verification before withdrawals or internal transfers can continue from this funded account.",
+            message: "Complete identity verification to enable withdrawals and internal transfers on this account.",
             actionLabel: "Open identity verification"
         };
     }
@@ -4381,7 +4381,7 @@ function withdrawalAccessSnapshot(user = {}, firstDepositAt = null) {
             availableAt: availableAtIso,
             holdDays: WITHDRAWAL_HOLD_DAYS,
             title: "Withdrawal hold active",
-            message: `Withdrawals and internal transfers become available ${WITHDRAWAL_HOLD_DAYS} days after the first verified deposit, as stated in Autody's Terms of Service. This account can request withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`,
+            message: `Withdrawals and internal transfers become available ${WITHDRAWAL_HOLD_DAYS} days after the account's first deposit. This account can request withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`,
             actionLabel: "Close"
         };
     }
@@ -4406,10 +4406,10 @@ function assertWithdrawalDepositAgeAllowed(user = {}, firstDepositAt = null) {
     if (WITHDRAWAL_HOLD_EXEMPT_EMAILS.has(email)) return;
     const availableAt = withdrawalHoldAvailableDate(firstDepositAt);
     if (!availableAt) {
-        throw demoTradeError(403, "Withdrawals and internal transfers become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. Add funds or receive crypto to start the withdrawal clock.");
+        throw demoTradeError(403, "Withdrawals and internal transfers become available 90 days after the account's first deposit.");
     }
     if (Date.now() >= availableAt.getTime()) return;
-    throw demoTradeError(403, `Withdrawals and internal transfers become available 90 days after the first verified deposit, as stated in Autody's Terms of Service. This account can request withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`);
+    throw demoTradeError(403, `Withdrawals and internal transfers become available 90 days after the account's first deposit. This account can request withdrawals on ${formatWithdrawalHoldDate(availableAt)}.`);
 }
 
 function normalizeWithdrawalNetwork(assetSymbol, type, value) {

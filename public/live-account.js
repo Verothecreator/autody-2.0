@@ -93,6 +93,9 @@ function supportedLiveCryptoSymbol(symbol) {
 
 function showLiveNotice(message, type = "info") {
   if (!liveNotice) return;
+  if (liveNotice.closest("[hidden]")) {
+    document.body.appendChild(liveNotice);
+  }
   clearTimeout(liveNoticeTimer);
   liveNotice.textContent = message;
   liveNotice.dataset.type = type;
@@ -194,7 +197,7 @@ function updateLiveWithdrawalGate() {
 function handleWithdrawalGateAction() {
   const gateState = activeWithdrawalGate();
   if (gateState?.stage === "identity_required") {
-    window.location.href = "account-settings";
+    window.location.href = "account-profile#identity";
     return;
   }
   closeAutodyLiveTransferModal();
@@ -568,7 +571,11 @@ async function reviewLiveSend() {
       destination,
       recipientEmail
     });
-    showLiveNotice(data.nextStep || "Withdrawal request submitted.", "success");
+    const successMessage = type === "internal"
+      ? `${asset} sent successfully.`
+      : data.nextStep || "Withdrawal request submitted.";
+    closeAutodyLiveTransferModal();
+    showLiveNotice(successMessage, "success");
     document.getElementById("send-amount").value = "";
     document.getElementById("send-address").value = "";
     document.getElementById("send-recipient-email").value = "";

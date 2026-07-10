@@ -232,6 +232,12 @@ function setProfileKycModal(open) {
   if (!open) stopKycCamera();
 }
 
+function openKycFromHash() {
+  if (location.hash === "#identity" || location.hash === "#verification") {
+    setProfileKycModal(true);
+  }
+}
+
 function kycNode(id) {
   return document.getElementById(id);
 }
@@ -664,4 +670,5 @@ document.addEventListener("keydown", (event) => {
 
 document.querySelector("[data-kyc-form]")?.addEventListener("submit", submitKycReview);
 
-loadProfilePage();
+loadProfilePage().then(openKycFromHash);
+window.addEventListener("hashchange", openKycFromHash);
