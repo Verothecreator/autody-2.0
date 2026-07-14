@@ -131,6 +131,7 @@ const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS
 const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CONFIRMATIONS || 3));
 const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 5000);
 const DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS = Number(process.env.DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS || 250);
+const DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS = Math.max(100, Number(process.env.DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS || 5000));
 const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
@@ -3925,7 +3926,37 @@ async function ensureDepositTables(client = dbPool) {
               add constraint orders_side_check
               check (side in ('buy', 'sell', 'swap', 'deposit', 'withdrawal'));
           end if;
-        end $$;
+        end $;
+    `);
+
+    await client.query(`
+        update crypto_deposit_requests
+        set status = 'expired',
+            updated_at = now()
+        where status not in ('credited', 'cancelled', 'expired')
+          and expires_at is not null
+          and expires_at <= now()
+    `);
+
+    await client.query(`
+        with superseded as (
+          select id
+          from (
+            select id,
+                   row_number() over (
+                     partition by profile_id, asset_symbol
+                     order by created_at desc, id desc
+                   ) as request_rank
+            from crypto_deposit_requests
+            where status not in ('credited', 'cancelled', 'expired')
+          ) ranked
+          where request_rank > 1
+        )
+        update crypto_deposit_requests as r
+        set status = 'cancelled',
+            updated_at = now()
+        from superseded
+        where r.id = superseded.id
     `);
 }
 
@@ -3942,6 +3973,17 @@ async function createDatabaseDepositRequest(auth, body = {}) {
         const route = await resolveDatabaseDepositRoute(client, auth.profileId, assetSymbol, network, requestedFresh);
         const expiresAt = new Date(Date.now() + DEPOSIT_ADDRESS_TTL_HOURS * 60 * 60 * 1000).toISOString();
         let addressId = null;
+
+        // A receive flow has one current intent per asset. Opening the modal or
+        // changing networks must not leave every preview looking like an open deposit.
+        await client.query(`
+            update crypto_deposit_requests
+            set status = 'cancelled',
+                updated_at = now()
+            where profile_id = $1
+              and asset_symbol = $2
+              and status not in ('credited', 'cancelled', 'expired')
+        `, [auth.profileId, assetSymbol]);
 
         if (route.address) {
             const addressResult = await client.query(`
@@ -4054,6 +4096,10 @@ function createJsonDepositRequest(auth, body = {}) {
         expiresAt
     };
     db.depositRequests = db.depositRequests || {};
+    db.depositRequests[auth.userId] = (db.depositRequests[auth.userId] || []).map((item) => {
+        if (item.asset !== assetSymbol || ["credited", "cancelled", "expired"].includes(item.status)) return item;
+        return { ...item, status: "cancelled", updatedAt: now };
+    });
     db.depositRequests[auth.userId] = [request, ...(db.depositRequests[auth.userId] || [])].slice(0, 50);
     saveDemoDb(db);
     return request;
@@ -5602,8 +5648,15 @@ async function getDepositScanWindow(client, { scanKey, network, assetSymbol = nu
         ? Math.max(0, lastScanned - Math.max(0, Number(overlapBlocks || 0)) + 1)
         : Math.max(0, safeToBlock - Math.max(1, lookbackBlocks));
 
+    // Public RPCs commonly reject archive-sized eth_getLogs calls. If a watcher
+    // has fallen behind, resume from the recent safety window so new deposits
+    // are credited instead of repeatedly retrying the same unusable range.
+    if (lastScanned > 0 && safeToBlock - lastScanned > Math.max(1, lookbackBlocks)) {
+        fromBlock = Math.max(0, safeToBlock - Math.max(1, lookbackBlocks));
+    }
+
     if (maxBlocks && safeToBlock - fromBlock + 1 > maxBlocks) {
-        fromBlock = safeToBlock - maxBlocks + 1;
+        fromBlock = Math.max(0, safeToBlock - maxBlocks + 1);
     }
 
     if (fromBlock > safeToBlock) return null;
@@ -6641,7 +6694,8 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
         assetSymbol,
         scanner: "evm-token",
         latestBlock,
-        lookbackBlocks: DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS
+        lookbackBlocks: DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS,
+        maxBlocks: DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS
     };
     const window = hasDepositScanBlockOverride(options)
         ? buildDepositScanWindowOverride({ ...windowParams, options })
