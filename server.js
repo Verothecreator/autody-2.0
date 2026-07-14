@@ -3926,7 +3926,7 @@ async function ensureDepositTables(client = dbPool) {
               add constraint orders_side_check
               check (side in ('buy', 'sell', 'swap', 'deposit', 'withdrawal'));
           end if;
-        end $;
+        end $$;
     `);
 
     await client.query(`
