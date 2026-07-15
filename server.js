@@ -6911,7 +6911,7 @@ async function scanEvmTokenDepositsFromBlockscout(client, config, contract, rows
         }
     }
 
-    return detected >= 0;
+    return detected;
 }
 
 async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summary, options = {}) {
@@ -6952,14 +6952,21 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
     const addressTopics = Array.from(rowsByTopic.keys());
     if (!addressTopics.length) return;
 
-    let logs = [];
+    const logsByKey = new Map();
     try {
-        logs = await provider.getLogs({
-            address: contract.address,
-            fromBlock: window.fromBlock,
-            toBlock: window.toBlock,
-            topics: [ERC20_TRANSFER_TOPIC, null, addressTopics]
-        });
+        const topicBatches = chunkItems(addressTopics, DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE);
+        for (const topicBatch of topicBatches) {
+            const batchLogs = await provider.getLogs({
+                address: contract.address,
+                fromBlock: window.fromBlock,
+                toBlock: window.toBlock,
+                topics: [ERC20_TRANSFER_TOPIC, null, topicBatch]
+            });
+            for (const log of batchLogs) {
+                const logKey = `${String(log.transactionHash || "").toLowerCase()}:${Number(log.index ?? log.logIndex ?? 0)}`;
+                logsByKey.set(logKey, log);
+            }
+        }
     } catch (err) {
         if (config.blockscoutApiUrl) {
             try {
@@ -6978,7 +6985,7 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
         throw err;
     }
 
-    for (const log of logs) {
+    for (const log of logsByKey.values()) {
         const parsed = ERC20_TRANSFER_INTERFACE.parseLog(log);
         const topicAddress = evmAddressTopic(parsed.args.to);
         const matchingRows = rowsByTopic.get(topicAddress) || [];
@@ -7002,6 +7009,19 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
                 }
             });
             addDepositScanResult(summary, result);
+        }
+    }
+
+    if (config.blockscoutApiUrl) {
+        try {
+            await scanEvmTokenDepositsFromBlockscout(client, config, contract, rows, summary, window, latestBlock);
+        } catch (fallbackErr) {
+            summary.errors.push({
+                network,
+                asset: assetSymbol,
+                scanner: "blockscout-token",
+                error: fallbackErr.message || String(fallbackErr)
+            });
         }
     }
 
