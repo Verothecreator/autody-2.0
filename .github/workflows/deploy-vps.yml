@@ -51,6 +51,22 @@ jobs:
             git pull --ff-only origin main
             npm install --omit=dev --no-package-lock
 
+            set_env_value() {
+              key="$1"
+              value="$2"
+              touch .env
+              if grep -q "^${key}=" .env; then
+                sed -i "s|^${key}=.*|${key}=${value}|" .env
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> .env
+              fi
+            }
+
+            set_env_value DEPOSIT_MONITOR_ENABLED true
+            set_env_value DEPOSIT_MONITOR_ADDRESS_LIMIT 500
+            set_env_value DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS 5000
+            set_env_value DEPOSIT_ACCOUNT_TX_LIMIT 100
+
             if command -v pm2 >/dev/null 2>&1; then
               if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then
                 systemctl stop autody || true
