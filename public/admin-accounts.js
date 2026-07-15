@@ -141,10 +141,12 @@ async function runAccountCommand(button) {
   if (!profileId || !command) return;
   const account = accountsCache.find((item) => item.id === profileId);
   const accountEmail = (account?.email || "").trim().toLowerCase();
+  let confirmationEmail = "";
 
   if (command === "permanent-delete") {
     const typed = prompt(`Type ${account?.email || "the account email"} to permanently delete this account.`);
-    if ((typed || "").trim().toLowerCase() !== accountEmail) {
+    confirmationEmail = (typed || "").trim();
+    if (confirmationEmail.toLowerCase() !== accountEmail) {
       accountNotice("Permanent delete cancelled.", "neutral");
       return;
     }
@@ -176,6 +178,7 @@ async function runAccountCommand(button) {
     if (command === "permanent-delete") {
       await opsPost("/api/admin/accounts/permanent-delete", {
         profileId,
+        confirmationEmail,
         note: "Admin permanently deleted account from Accounts portal"
       });
       accountNotice(`Account ${account?.email || ""} permanently deleted.`, "success");

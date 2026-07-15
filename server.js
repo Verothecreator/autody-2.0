@@ -1077,6 +1077,97 @@ async function sendPasswordResetEmail(email, token, req) {
     return { delivered: true, provider: "resend" };
 }
 
+function formatDepositUsd(amount) {
+    const number = numberValue(amount, 0);
+    return `$${number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatDepositAssetAmount(amount, symbol = "") {
+    const number = numberValue(amount, 0);
+    const text = number.toLocaleString("en-US", {
+        minimumFractionDigits: number >= 1 ? 2 : 0,
+        maximumFractionDigits: 10
+    });
+    return `${text} ${normalizeTradeSymbol(symbol) || "asset"}`.trim();
+}
+
+async function sendDepositLifecycleEmail(email, options = {}) {
+    if (!email) return { delivered: false, provider: "none", skipped: true };
+    const kind = options.kind === "confirmed" ? "confirmed" : "detected";
+    const symbol = normalizeTradeSymbol(options.symbol);
+    const amountText = formatDepositAssetAmount(options.amount, symbol);
+    const usdText = options.amountUsd != null && Number(options.amountUsd) > 0
+        ? ` (${formatDepositUsd(options.amountUsd)})`
+        : "";
+    const network = normalizeText(options.network) || "selected network";
+    const confirmations = Math.max(0, Number(options.confirmations || 0));
+    const requiredConfirmations = Math.max(1, Number(options.requiredConfirmations || DEPOSIT_MIN_CONFIRMATIONS));
+    const txHash = normalizeText(options.txHash);
+    const detected = kind === "detected";
+    const subject = detected ? "Deposit detected" : "Deposit confirmed";
+    const title = detected ? "Deposit detected" : "Deposit confirmed";
+    const statusCopy = detected
+        ? `Autody detected your ${amountText}${usdText} deposit on ${network}. It will be credited after ${requiredConfirmations} network confirmations.`
+        : `Your ${amountText}${usdText} deposit on ${network} has been confirmed and credited to your Autody account.`;
+    const confirmationCopy = detected
+        ? `${confirmations} of ${requiredConfirmations} confirmations received`
+        : `${Math.max(confirmations, requiredConfirmations)} confirmations received`;
+    const text = `${title}\n\n${statusCopy}\n\nStatus: ${confirmationCopy}${txHash ? `\nTransaction: ${txHash}` : ""}\n\nThe Autody Team`;
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
+          <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:${detected ? "#5b5cf6" : "#16a34a"};font-weight:800">Autody deposit update</div>
+          <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2">${title}</h1>
+          <p>${emailHtmlEscape(statusCopy)}</p>
+          <div style="margin:18px 0;padding:16px;border-radius:12px;background:#f4f6ff;border:1px solid #d7ddf3">
+            <strong>Amount</strong><br>${emailHtmlEscape(`${amountText}${usdText}`)}<br><br>
+            <strong>Network</strong><br>${emailHtmlEscape(network)}<br><br>
+            <strong>Status</strong><br>${emailHtmlEscape(confirmationCopy)}
+            ${txHash ? `<br><br><strong>Transaction</strong><br><span style="word-break:break-all">${emailHtmlEscape(txHash)}</span>` : ""}
+          </div>
+          <p>The Autody Team</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log(`Autody deposit ${kind} email for`, email, amountText, network, txHash);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Deposit email delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+async function markDepositNotificationSent(eventId, kind) {
+    if (!databaseConfigured() || !eventId) return;
+    const key = kind === "confirmed" ? "depositConfirmedEmailSentAt" : "depositDetectedEmailSentAt";
+    await dbPool.query(`
+        update crypto_deposit_events
+        set metadata = coalesce(metadata, '{}'::jsonb) || $2::jsonb,
+            updated_at = now()
+        where id = $1
+    `, [eventId, JSON.stringify({ [key]: new Date().toISOString() })]);
+}
+
+async function deliverDepositNotifications(notifications = []) {
+    for (const notification of notifications || []) {
+        try {
+            await sendDepositLifecycleEmail(notification.email, notification);
+            await markDepositNotificationSent(notification.eventId, notification.kind);
+        } catch (err) {
+            console.error("Deposit notification email failed:", err.message || err);
+        }
+    }
+}
+
 function kycRejectionReasonLabel(value = "") {
     const labels = {
         invalid_document: "Invalid document",
@@ -5708,20 +5799,22 @@ async function getDepositScanWindow(client, { scanKey, network, assetSymbol = nu
         assetSymbol,
         scanner,
         fromBlock,
-        toBlock: safeToBlock,
+        toBlock: latestBlock,
+        saveToBlock: safeToBlock,
         latestBlock
     };
 }
 
 async function saveDepositScanState(client, window) {
-    if (!window?.scanKey || window.toBlock == null) return;
+    const saveToBlock = window?.saveToBlock ?? window?.toBlock;
+    if (!window?.scanKey || saveToBlock == null) return;
     await client.query(`
         insert into crypto_deposit_scan_state (scan_key, network, asset_symbol, scanner, last_scanned_block, updated_at)
         values ($1, $2, $3, $4, $5, now())
         on conflict (scan_key) do update
         set last_scanned_block = greatest(crypto_deposit_scan_state.last_scanned_block, excluded.last_scanned_block),
             updated_at = now()
-    `, [window.scanKey, window.network, window.assetSymbol, window.scanner, window.toBlock]);
+    `, [window.scanKey, window.network, window.assetSymbol, window.scanner, saveToBlock]);
 }
 
 async function resolveDepositCreditAsset(symbol, priceHint = null) {
@@ -5804,6 +5897,37 @@ async function creditDatabaseDepositHolding(client, addressRow, detection) {
         price,
         notionalUsd,
         nextQuantity
+    };
+}
+
+async function depositProfileContact(client, profileId) {
+    if (!profileId) return { email: "", displayName: "" };
+    const result = await client.query(`
+        select email, display_name
+        from profiles
+        where id = $1
+        limit 1
+    `, [profileId]);
+    const row = result.rows[0] || {};
+    return {
+        email: normalizeEmail(row.email || ""),
+        displayName: normalizeText(row.display_name || "")
+    };
+}
+
+function depositNotificationPayload(kind, eventId, contact, addressRow, detection, amountUsd = null) {
+    return {
+        kind,
+        eventId,
+        email: contact?.email || "",
+        displayName: contact?.displayName || "",
+        symbol: addressRow.asset_symbol,
+        network: addressRow.network,
+        amount: detection.amount,
+        amountUsd,
+        confirmations: Math.max(0, Number(detection.confirmations || 0)),
+        requiredConfirmations: DEPOSIT_MIN_CONFIRMATIONS,
+        txHash: detection.txHash
     };
 }
 
@@ -6645,6 +6769,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
     const amountUsd = detection.amountUsd == null ? null : numberValue(detection.amountUsd, 0);
     const logIndex = detection.logIndex == null ? null : Number(detection.logIndex);
     const normalizedDetection = { ...detection, amount, amountUsd };
+    const confirmations = Math.max(0, Number(detection.confirmations || 0));
 
     if (shouldIgnoreAutomaticDepositCredit(addressRow, normalizedDetection)) {
         return {
@@ -6660,6 +6785,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         };
     }
 
+    const contact = await depositProfileContact(client, addressRow.profile_id);
     const eventResult = await client.query(`
         insert into crypto_deposit_events (
           profile_id, address_id, request_id, asset_symbol, network, address, tx_hash, log_index,
@@ -6670,7 +6796,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         set confirmations = greatest(crypto_deposit_events.confirmations, excluded.confirmations),
             amount_usd = coalesce(crypto_deposit_events.amount_usd, excluded.amount_usd),
             updated_at = now()
-        returning id, status, credited_at
+        returning id, status, credited_at, confirmations, metadata
     `, [
         addressRow.profile_id,
         addressRow.id,
@@ -6683,11 +6809,13 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         detection.blockNumber || null,
         amount,
         amountUsd,
-        Math.max(0, Number(detection.confirmations || 0)),
+        confirmations,
         JSON.stringify(detection.metadata || {})
     ]);
 
     const event = eventResult.rows[0];
+    const eventMetadata = event?.metadata || {};
+    const notifications = [];
     if (!event || event.credited_at || event.status === "credited") {
         return {
             credited: false,
@@ -6697,15 +6825,56 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         };
     }
 
+    if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) {
+        if (requestId) {
+            await client.query(`
+                update crypto_deposit_requests
+                set status = 'detected',
+                    amount_received = $2,
+                    amount_usd = coalesce($3, amount_usd),
+                    confirmations = greatest(confirmations, $4),
+                    tx_hash = $5,
+                    updated_at = now()
+                where id = $1
+            `, [
+                requestId,
+                amount,
+                amountUsd,
+                confirmations,
+                detection.txHash
+            ]);
+        }
+
+        if (!eventMetadata.depositDetectedEmailSentAt) {
+            notifications.push(depositNotificationPayload("detected", event.id, contact, addressRow, normalizedDetection, amountUsd));
+        }
+
+        return {
+            credited: false,
+            detected: true,
+            pendingConfirmations: true,
+            eventId: event.id,
+            symbol: addressRow.asset_symbol,
+            network: addressRow.network,
+            amount,
+            amountUsd,
+            txHash: detection.txHash,
+            confirmations,
+            requiredConfirmations: DEPOSIT_MIN_CONFIRMATIONS,
+            notifications
+        };
+    }
+
     const credit = await creditDatabaseDepositHolding(client, addressRow, normalizedDetection);
     await client.query(`
         update crypto_deposit_events
         set status = 'credited',
             amount_usd = $2,
+            confirmations = greatest(confirmations, $3),
             credited_at = now(),
             updated_at = now()
         where id = $1
-    `, [event.id, credit.notionalUsd]);
+    `, [event.id, credit.notionalUsd, confirmations]);
 
     if (requestId) {
         await client.query(`
@@ -6722,9 +6891,13 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
             requestId,
             amount,
             credit.notionalUsd,
-            Math.max(0, Number(detection.confirmations || 0)),
+            confirmations,
             detection.txHash
         ]);
+    }
+
+    if (!eventMetadata.depositConfirmedEmailSentAt) {
+        notifications.push(depositNotificationPayload("confirmed", event.id, contact, addressRow, normalizedDetection, credit.notionalUsd));
     }
 
     return {
@@ -6734,15 +6907,19 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         network: addressRow.network,
         amount,
         amountUsd: credit.notionalUsd,
-        txHash: detection.txHash
+        txHash: detection.txHash,
+        confirmations,
+        notifications
     };
 }
 
 async function creditDetectedDepositWithTransaction(client, addressRow, detection) {
+    let result = null;
     await client.query("begin");
     try {
-        const result = await recordAndCreditDatabaseDeposit(client, addressRow, detection);
+        result = await recordAndCreditDatabaseDeposit(client, addressRow, detection);
         await client.query("commit");
+        await deliverDepositNotifications(result?.notifications || []);
         return result;
     } catch (err) {
         await client.query("rollback").catch(() => {});
@@ -6753,6 +6930,11 @@ async function creditDetectedDepositWithTransaction(client, addressRow, detectio
 function addDepositScanResult(summary, result) {
     if (result?.credited) {
         summary.credited.push(result);
+        return;
+    }
+    if (result?.detected) {
+        summary.detected = Array.isArray(summary.detected) ? summary.detected : [];
+        summary.detected.push(result);
         return;
     }
     if (result?.ignored) {
@@ -7486,6 +7668,7 @@ async function scanDatabaseCryptoDeposits(options = {}) {
         configured: true,
         scannedAddresses: 0,
         credited: [],
+        detected: [],
         duplicates: 0,
         duplicateEvents: [],
         skipped: [],
@@ -13167,6 +13350,67 @@ async function createAdminAccountImpersonation(body = {}) {
     };
 }
 
+async function deleteDatabaseAccountData(client, profileId) {
+    await ensureSignUpTables(client);
+    await ensureDepositTables(client);
+    await ensureFiatFundingTables(client);
+    await ensureWithdrawalTables(client);
+    await ensurePlatformFeeTables(client);
+    await ensureSupportTicketTables(client);
+    await ensureKycTables(client);
+
+    await client.query(`delete from support_tickets where profile_id = $1`, [profileId]);
+    await client.query(`
+        delete from platform_fee_events
+        where profile_id = $1
+           or account_mode_id in (select id from account_modes where profile_id = $1)
+    `, [profileId]);
+    await client.query(`delete from fiat_funding_requests where profile_id = $1`, [profileId]);
+    await client.query(`delete from withdrawal_requests where profile_id = $1`, [profileId]);
+    await client.query(`
+        update withdrawal_requests
+        set recipient_profile_id = null,
+            updated_at = now()
+        where recipient_profile_id = $1
+    `, [profileId]);
+    await client.query(`delete from crypto_deposit_events where profile_id = $1`, [profileId]);
+    await client.query(`delete from crypto_deposit_requests where profile_id = $1`, [profileId]);
+    await client.query(`delete from crypto_deposit_addresses where profile_id = $1`, [profileId]);
+    await client.query(`delete from kyc_submissions where profile_id = $1`, [profileId]);
+    await client.query(`delete from admin_account_events where profile_id = $1`, [profileId]);
+    await client.query(`delete from account_admin_limits where profile_id = $1`, [profileId]);
+    await client.query(`delete from trusted_devices where profile_id = $1`, [profileId]);
+    await client.query(`delete from verification_codes where profile_id = $1`, [profileId]);
+    await client.query(`delete from app_sessions where profile_id = $1`, [profileId]);
+    await client.query(`delete from watchlists where profile_id = $1`, [profileId]);
+    await client.query(`delete from research_preferences where profile_id = $1`, [profileId]);
+    await client.query(`delete from account_settings where profile_id = $1`, [profileId]);
+    await client.query(`delete from profile_credentials where profile_id = $1`, [profileId]);
+    await client.query(`
+        delete from holdings
+        where wallet_id in (
+          select w.id
+          from wallets w
+          join account_modes am on am.id = w.account_mode_id
+          where am.profile_id = $1
+        )
+    `, [profileId]);
+    await client.query(`
+        delete from demo_performance
+        where account_mode_id in (select id from account_modes where profile_id = $1)
+    `, [profileId]);
+    await client.query(`
+        delete from orders
+        where account_mode_id in (select id from account_modes where profile_id = $1)
+    `, [profileId]);
+    await client.query(`
+        delete from wallets
+        where account_mode_id in (select id from account_modes where profile_id = $1)
+    `, [profileId]);
+    await client.query(`delete from account_modes where profile_id = $1`, [profileId]);
+    await client.query(`delete from profile_verifications where profile_id = $1`, [profileId]);
+}
+
 function adminProtectedAccountEmails() {
     return new Set([
         ADMIN_ACCOUNT_EMAIL,
@@ -13184,9 +13428,15 @@ async function permanentlyDeleteAdminAccount(body = {}) {
         await ensureAdminAccountControlTables(client);
         const profile = await adminProfileForControl(body, client);
         const email = normalizeEmail(profile.email);
+        const confirmationEmail = normalizeEmail(body.confirmationEmail || body.confirmEmail || body.typedEmail || "");
+        if (!confirmationEmail || confirmationEmail !== email) {
+            throw demoTradeError(400, "Type the account email exactly to permanently delete this account.");
+        }
         if (adminProtectedAccountEmails().has(email)) {
             throw demoTradeError(403, "This account is protected and cannot be permanently deleted from the portal.");
         }
+
+        await deleteDatabaseAccountData(client, profile.id);
 
         await client.query(`
             insert into admin_account_events (profile_id, action, note, metadata)
