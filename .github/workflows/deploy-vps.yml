@@ -62,10 +62,15 @@ jobs:
               fi
             }
 
+            set_env_value APP_BASE_URL https://autodytraded.com
             set_env_value DEPOSIT_MONITOR_ENABLED true
             set_env_value DEPOSIT_MONITOR_ADDRESS_LIMIT 500
-            set_env_value DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS 5000
             set_env_value DEPOSIT_ACCOUNT_TX_LIMIT 100
+            set_env_value DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS 5000
+            set_env_value DEPOSIT_MIN_AUTO_CREDIT_USD 0.01
+            set_env_value DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT 0.01
+            set_env_value DEPOSIT_DUST_CLEANUP_LIMIT 250
+            set_env_value DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE 80
 
             if command -v pm2 >/dev/null 2>&1; then
               if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then

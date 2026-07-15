@@ -127,14 +127,18 @@ const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
 const DEPOSIT_MONITOR_ENABLED = process.env.DEPOSIT_MONITOR_ENABLED === "true";
 const DEPOSIT_MONITOR_INTERVAL_MS = Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 60 * 1000);
-const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS_LIMIT || 80);
+const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS_LIMIT || 500);
 const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CONFIRMATIONS || 3));
+const DEPOSIT_MIN_AUTO_CREDIT_USD = Math.max(0, Number(process.env.DEPOSIT_MIN_AUTO_CREDIT_USD || 0.01));
+const DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT = Math.max(0, Number(process.env.DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT || 0.01));
+const DEPOSIT_DUST_CLEANUP_LIMIT = Math.max(0, Number(process.env.DEPOSIT_DUST_CLEANUP_LIMIT || 250));
 const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 5000);
 const DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS = Number(process.env.DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS || 250);
 const DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS = Math.max(100, Number(process.env.DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS || 5000));
+const DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE = Math.max(1, Number(process.env.DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE || 80));
 const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
-const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 30);
+const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 100);
 const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
 const FIAT_FUNDING_METHODS = new Set(["card", "ach", "wire"]);
 const FIAT_FUNDING_LABELS = {
@@ -5580,6 +5584,42 @@ function isStablecoinSymbol(symbol) {
     return STABLECOIN_SYMBOLS.has(normalizeTradeSymbol(symbol));
 }
 
+function depositScannerName(metadata = {}) {
+    return normalizeText(metadata?.scanner || "");
+}
+
+function isManualDepositScanner(metadata = {}) {
+    return depositScannerName(metadata) === "manual-admin-credit";
+}
+
+function automaticDepositUsdEstimate(symbol, amount, amountUsd = null) {
+    const suppliedUsd = amountUsd == null ? null : numberValue(amountUsd, null);
+    if (suppliedUsd != null && suppliedUsd > 0) return suppliedUsd;
+    return isStablecoinSymbol(symbol) ? numberValue(amount, 0) : null;
+}
+
+function belowAutomaticDepositMinimum(symbol, amount, amountUsd = null) {
+    const safeAmount = numberValue(amount, 0);
+    const safeSymbol = normalizeTradeSymbol(symbol);
+    if (safeAmount <= 0) return false;
+    if (isStablecoinSymbol(safeSymbol)
+        && DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT > 0
+        && safeAmount < DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT) {
+        return true;
+    }
+    const usdEstimate = automaticDepositUsdEstimate(safeSymbol, safeAmount, amountUsd);
+    return usdEstimate != null
+        && DEPOSIT_MIN_AUTO_CREDIT_USD > 0
+        && usdEstimate < DEPOSIT_MIN_AUTO_CREDIT_USD;
+}
+
+function shouldIgnoreAutomaticDepositCredit(addressRow = {}, detection = {}) {
+    const metadata = detection.metadata || {};
+    const scanner = depositScannerName(metadata);
+    if (!scanner || isManualDepositScanner(metadata)) return false;
+    return belowAutomaticDepositMinimum(addressRow.asset_symbol, detection.amount, detection.amountUsd);
+}
+
 function getEvmDepositProvider(network) {
     const config = getEvmNetworkConfig(network);
     if (!config) return null;
@@ -5843,6 +5883,174 @@ async function duplicateDepositEventDetails(client, eventId) {
         holdingValueUsd: row.holding_value_usd == null ? 0 : numberValue(row.holding_value_usd, 0),
         holdingUpdatedAt: row.holding_updated_at || null
     };
+}
+
+async function repairDepositRequestAfterIgnoredEvent(client, requestId) {
+    if (!requestId) return;
+    const replacement = await client.query(`
+        select amount, amount_usd, confirmations, tx_hash, credited_at, created_at
+        from crypto_deposit_events
+        where request_id = $1
+          and lower(status) = 'credited'
+        order by coalesce(credited_at, created_at) desc
+        limit 1
+    `, [requestId]);
+
+    const row = replacement.rows[0];
+    if (row) {
+        await client.query(`
+            update crypto_deposit_requests
+            set status = 'credited',
+                amount_received = $2,
+                amount_usd = $3,
+                confirmations = greatest(confirmations, $4),
+                tx_hash = $5,
+                credited_at = coalesce($6, credited_at, now()),
+                updated_at = now()
+            where id = $1
+        `, [
+            requestId,
+            numberValue(row.amount, 0),
+            row.amount_usd == null ? null : numberValue(row.amount_usd, 0),
+            Math.max(0, Number(row.confirmations || 0)),
+            row.tx_hash,
+            row.credited_at || row.created_at || null
+        ]);
+        return;
+    }
+
+    await client.query(`
+        update crypto_deposit_requests
+        set status = 'address_issued',
+            amount_received = null,
+            amount_usd = null,
+            confirmations = 0,
+            tx_hash = null,
+            credited_at = null,
+            updated_at = now()
+        where id = $1
+          and lower(status) = 'credited'
+    `, [requestId]);
+}
+
+async function cleanupTinyAutomaticDepositCredits(client) {
+    if (!DEPOSIT_DUST_CLEANUP_LIMIT || (!DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT && !DEPOSIT_MIN_AUTO_CREDIT_USD)) {
+        return { cleaned: 0, skipped: 0 };
+    }
+
+    const candidateResult = await client.query(`
+        select id
+        from crypto_deposit_events
+        where lower(status) = 'credited'
+          and upper(asset_symbol) = any($1::text[])
+          and coalesce(metadata->>'scanner', '') <> 'manual-admin-credit'
+          and (
+            amount < $2::numeric
+            or coalesce(amount_usd, amount) < $3::numeric
+          )
+        order by coalesce(credited_at, created_at) desc
+        limit $4
+    `, [
+        Array.from(STABLECOIN_SYMBOLS),
+        DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT,
+        DEPOSIT_MIN_AUTO_CREDIT_USD,
+        DEPOSIT_DUST_CLEANUP_LIMIT
+    ]);
+
+    let cleaned = 0;
+    let skipped = 0;
+    for (const candidate of candidateResult.rows) {
+        await client.query("begin");
+        try {
+            const lockedResult = await client.query(`
+                select id, profile_id, request_id, asset_symbol, network, address, tx_hash, log_index,
+                       amount, amount_usd, metadata, credited_at, created_at
+                from crypto_deposit_events
+                where id = $1
+                for update
+            `, [candidate.id]);
+            const event = lockedResult.rows[0];
+            const symbol = normalizeTradeSymbol(event?.asset_symbol);
+            const amount = numberValue(event?.amount, 0);
+            const amountUsd = event?.amount_usd == null ? null : numberValue(event.amount_usd, 0);
+            const metadata = event?.metadata || {};
+
+            if (!event
+                || !isStablecoinSymbol(symbol)
+                || isManualDepositScanner(metadata)
+                || !belowAutomaticDepositMinimum(symbol, amount, amountUsd)) {
+                skipped += 1;
+                await client.query("rollback");
+                continue;
+            }
+
+            const context = await getPracticeDbContext(client, event.profile_id, "live");
+            const holding = await readDbHoldingForUpdate(client, context.wallet_id, symbol);
+            if (holding) {
+                const currentQuantity = numberValue(holding.quantity, 0);
+                const nextQuantity = Math.max(0, currentQuantity - amount);
+                const price = firstPositive(
+                    holding.last_price,
+                    amount > 0 && amountUsd != null ? amountUsd / amount : null,
+                    isStablecoinSymbol(symbol) ? 1 : null
+                ) || 0;
+                await saveDbHolding(client, context.wallet_id, {
+                    symbol,
+                    name: holding.asset_name || symbol,
+                    assetType: holding.asset_type || "crypto"
+                }, nextQuantity, nextQuantity > 0 ? holding.average_cost : null, price);
+            }
+
+            await client.query(`
+                delete from orders
+                where account_mode_id = $1
+                  and upper(symbol) = $2
+                  and lower(side) = 'deposit'
+                  and lower(order_type) = 'crypto_deposit'
+                  and abs(coalesce(quantity, 0) - $3::numeric) <= $4::numeric
+                  and abs(coalesce(notional_usd, 0) - coalesce($5::numeric, 0)) <= 0.01
+                  and coalesce(filled_at, created_at) between
+                      coalesce($6::timestamptz, $7::timestamptz, now()) - interval '30 minutes'
+                      and coalesce($6::timestamptz, $7::timestamptz, now()) + interval '30 minutes'
+            `, [
+                context.account_mode_id,
+                symbol,
+                amount,
+                Math.max(1e-10, amount * 0.000001),
+                amountUsd,
+                event.credited_at || null,
+                event.created_at || null
+            ]);
+
+            await client.query(`
+                update crypto_deposit_events
+                set status = 'ignored_dust',
+                    metadata = coalesce(metadata, '{}'::jsonb) || $2::jsonb,
+                    updated_at = now()
+                where id = $1
+            `, [
+                event.id,
+                JSON.stringify({
+                    ignoredDustCredit: true,
+                    ignoredReason: "below_minimum_deposit_credit",
+                    ignoredAt: new Date().toISOString(),
+                    previousStatus: "credited",
+                    reversedAmount: amount,
+                    reversedAmountUsd: amountUsd
+                })
+            ]);
+
+            await repairDepositRequestAfterIgnoredEvent(client, event.request_id);
+            await client.query("commit");
+            cleaned += 1;
+        } catch (err) {
+            await client.query("rollback").catch(() => {});
+            skipped += 1;
+            console.error("Tiny deposit credit cleanup failed:", err);
+        }
+    }
+
+    return { cleaned, skipped };
 }
 
 function formatNativeAmount(value) {
@@ -6436,6 +6644,21 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
     const amount = numberValue(detection.amount, 0);
     const amountUsd = detection.amountUsd == null ? null : numberValue(detection.amountUsd, 0);
     const logIndex = detection.logIndex == null ? null : Number(detection.logIndex);
+    const normalizedDetection = { ...detection, amount, amountUsd };
+
+    if (shouldIgnoreAutomaticDepositCredit(addressRow, normalizedDetection)) {
+        return {
+            credited: false,
+            ignored: true,
+            reason: "below_minimum_deposit_credit",
+            symbol: addressRow.asset_symbol,
+            network: addressRow.network,
+            amount,
+            amountUsd,
+            txHash: detection.txHash,
+            scanner: depositScannerName(detection.metadata || {})
+        };
+    }
 
     const eventResult = await client.query(`
         insert into crypto_deposit_events (
@@ -6474,7 +6697,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         };
     }
 
-    const credit = await creditDatabaseDepositHolding(client, addressRow, { ...detection, amount, amountUsd });
+    const credit = await creditDatabaseDepositHolding(client, addressRow, normalizedDetection);
     await client.query(`
         update crypto_deposit_events
         set status = 'credited',
@@ -6530,6 +6753,18 @@ async function creditDetectedDepositWithTransaction(client, addressRow, detectio
 function addDepositScanResult(summary, result) {
     if (result?.credited) {
         summary.credited.push(result);
+        return;
+    }
+    if (result?.ignored) {
+        summary.skipped.push({
+            asset: result.symbol,
+            network: result.network,
+            reason: result.reason || "ignored",
+            amount: result.amount,
+            amountUsd: result.amountUsd,
+            txHash: result.txHash,
+            scanner: result.scanner
+        });
         return;
     }
     summary.duplicates += 1;
@@ -7239,6 +7474,10 @@ async function scanDatabaseCryptoDeposits(options = {}) {
 
     try {
         await ensureDepositTables(client);
+        const dustCleanup = await cleanupTinyAutomaticDepositCredits(client);
+        if (dustCleanup.cleaned) {
+            summary.cleanedDustCredits = dustCleanup.cleaned;
+        }
         const limit = Math.max(1, Number(options.limit || DEPOSIT_MONITOR_ADDRESS_LIMIT));
         const filters = [
             "status = 'active'",
@@ -7534,7 +7773,7 @@ async function getAdminDepositOverview(body = {}) {
               (select count(*) from crypto_deposit_addresses where route_type = 'self_custody_hd') as generated_addresses,
               (select count(*) from crypto_deposit_addresses where route_type in ('treasury_direct', 'shared_treasury_manual')) as treasury_addresses,
               (select count(*) from crypto_deposit_requests where status not in ('credited', 'cancelled', 'expired')) as open_requests,
-              (select count(*) from crypto_deposit_events) as total_events,
+              (select count(*) from crypto_deposit_events where status <> 'ignored_dust') as total_events,
               (select count(*) from crypto_deposit_events where status = 'credited') as credited_events,
               (select coalesce(sum(amount_usd), 0) from crypto_deposit_events where status = 'credited') as credited_usd,
               (select count(*) from crypto_deposit_scan_state) as scan_states
@@ -7576,6 +7815,7 @@ async function getAdminDepositOverview(body = {}) {
             join profiles p on p.id = e.profile_id
             left join profile_verifications pv on pv.profile_id = p.id
             left join crypto_deposit_addresses a on a.id = e.address_id
+            where e.status <> 'ignored_dust'
             order by e.created_at desc
             limit $1
         `, [limit]);
