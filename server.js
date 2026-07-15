@@ -3963,7 +3963,7 @@ async function ensureDepositTables(client = dbPool) {
 async function createDatabaseDepositRequest(auth, body = {}) {
     const assetSymbol = normalizeDepositAssetSymbol(body.asset);
     const network = normalizeDepositNetwork(assetSymbol, body.network);
-    const requestedFresh = body.fresh !== false;
+    const requestedFresh = truthyFormValue(body.fresh);
     const client = await dbPool.connect();
 
     try {
@@ -4069,7 +4069,7 @@ async function createDatabaseDepositRequest(auth, body = {}) {
 function createJsonDepositRequest(auth, body = {}) {
     const assetSymbol = normalizeDepositAssetSymbol(body.asset);
     const network = normalizeDepositNetwork(assetSymbol, body.network);
-    const requestedFresh = body.fresh !== false;
+    const requestedFresh = truthyFormValue(body.fresh);
     const db = loadDemoDb();
     const route = resolveJsonDepositRoute(db, auth.userId, assetSymbol, network, requestedFresh);
     const now = new Date().toISOString();
