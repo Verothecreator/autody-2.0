@@ -1157,12 +1157,35 @@ async function markDepositNotificationSent(eventId, kind) {
     `, [eventId, JSON.stringify({ [key]: new Date().toISOString() })]);
 }
 
+async function confirmedDepositNotificationReady(eventId) {
+    if (!databaseConfigured() || !eventId) return true;
+    const result = await dbPool.query(`
+        select status, credited_at
+        from crypto_deposit_events
+        where id = $1
+        limit 1
+    `, [eventId]);
+    const row = result.rows[0];
+    return Boolean(row && String(row.status || "").toLowerCase() === "credited" && row.credited_at);
+}
+
 async function deliverDepositNotifications(notifications = []) {
+    const blockedConfirmedEvents = new Set();
     for (const notification of notifications || []) {
+        const eventId = notification?.eventId || "";
+        if (notification.kind === "confirmed" && blockedConfirmedEvents.has(eventId)) {
+            continue;
+        }
         try {
+            if (notification.kind === "confirmed" && !(await confirmedDepositNotificationReady(eventId))) {
+                continue;
+            }
             await sendDepositLifecycleEmail(notification.email, notification);
-            await markDepositNotificationSent(notification.eventId, notification.kind);
+            await markDepositNotificationSent(eventId, notification.kind);
         } catch (err) {
+            if (notification.kind === "detected" && eventId) {
+                blockedConfirmedEvents.add(eventId);
+            }
             console.error("Deposit notification email failed:", err.message || err);
         }
     }
@@ -1877,7 +1900,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     const row = accountResult.rows[0];
     if (!row) return null;
 
-    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult, withdrawalResult, firstLiveDepositAt] = await Promise.all([
+    const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult, withdrawalResult, depositRequestsResult, firstLiveDepositAt] = await Promise.all([
         dbPool.query(`
             select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at
             from holdings
@@ -1942,6 +1965,16 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             limit 20
         `, [row.profile_id]).catch(() => ({ rows: [] })),
         accountMode === "live"
+            ? dbPool.query(`
+                select id, asset_symbol, network, amount_received, amount_usd, confirmations, status, tx_hash, created_at, updated_at
+                from crypto_deposit_requests
+                where profile_id = $1
+                  and lower(status) in ('detected', 'confirming', 'pending_confirmation')
+                order by updated_at desc nulls last, created_at desc
+                limit 20
+            `, [row.profile_id]).catch(() => ({ rows: [] }))
+            : Promise.resolve({ rows: [] }),
+        accountMode === "live"
             ? databaseFirstLiveDepositAt(dbPool, row, row.profile_id).catch(() => null)
             : Promise.resolve(null)
     ]);
@@ -2002,6 +2035,19 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
         wallet: { cash, holdings: nonCashHoldings },
         orders: ordersResult.rows,
         withdrawals: withdrawalResult.rows.map(mapWithdrawalRequestRow),
+        depositRequests: depositRequestsResult.rows.map((item) => ({
+            id: item.id,
+            asset: item.asset_symbol,
+            assetSymbol: item.asset_symbol,
+            network: item.network,
+            amount: numberValue(item.amount_received, 0),
+            amountUsd: item.amount_usd == null ? null : numberValue(item.amount_usd, 0),
+            confirmations: numberValue(item.confirmations, 0),
+            status: item.status || "",
+            txHash: item.tx_hash || "",
+            createdAt: item.created_at || null,
+            updatedAt: item.updated_at || null
+        })),
         firstLiveDepositAt,
         watchlist: reduceWatchlistRows(watchlistResult.rows),
         researchPreferences: researchResult.rows.map((item) => item.topic),
@@ -2060,6 +2106,7 @@ function getJsonAccountByUserId(userId, mode = "live") {
         },
         orders: db.orders?.[userId] || [],
         withdrawals: db.withdrawalRequests?.[userId] || [],
+        depositRequests: db.depositRequests?.[userId] || [],
         firstLiveDepositAt,
         watchlist: jsonWatchlistForMode(db, accountMode, userId),
         researchPreferences: db.researchPreferences?.[userId] || [],
@@ -2106,7 +2153,8 @@ function walletRecordFromOrder(order) {
     const side = String(order.side || "order").toLowerCase();
     const symbol = String(order.symbol || "").toUpperCase();
     const status = order.status || "draft";
-    const valueUsd = numberValue(order.notional_usd ?? order.notionalUsd, 0);
+    const quantity = numberValue(order.quantity ?? order.amount, 0);
+    const valueUsd = stablecoinDisplayValueUsd(symbol, quantity, order.notional_usd ?? order.notionalUsd);
 
     return {
         type: side,
@@ -2117,6 +2165,14 @@ function walletRecordFromOrder(order) {
         status,
         createdAt: order.created_at || order.createdAt || null
     };
+}
+
+function stablecoinDisplayValueUsd(symbol, quantity, fallbackUsd = 0) {
+    const amount = numberValue(quantity, 0);
+    if (isStablecoinSymbol(symbol) && amount > 0) {
+        return Math.round(amount * 100) / 100;
+    }
+    return numberValue(fallbackUsd, 0);
 }
 
 function buildWalletRecords(account) {
@@ -2278,7 +2334,8 @@ function buildLiveWalletRecords(account) {
         const type = request.type || request.request_type || "external";
         const symbol = String(request.asset || request.asset_symbol || "").toUpperCase();
         const status = request.status || "pending_review";
-        const valueUsd = numberValue(request.amountUsd ?? request.amount_usd, 0);
+        const amount = numberValue(request.amount, 0);
+        const valueUsd = stablecoinDisplayValueUsd(symbol, amount, request.amountUsd ?? request.amount_usd);
         const direction = request.direction || (
             String(request.recipientProfileId || request.recipient_profile_id || "") === String(account?.user?.id || "")
                 ? "incoming"
@@ -2416,6 +2473,11 @@ async function buildLiveWalletSnapshot(account) {
         status: balance ? "Tracking" : "Ready",
         detail
     });
+    const pendingWithdrawalReviews = (account.withdrawals || [])
+        .filter((request) => (request.status || "") === "pending_review").length;
+    const pendingDepositConfirmations = (account.depositRequests || [])
+        .filter((request) => ["detected", "confirming", "pending_confirmation"].includes(String(request.status || "").toLowerCase()))
+        .length;
 
     return {
         currency: account.user?.currency || "USD",
@@ -2430,7 +2492,7 @@ async function buildLiveWalletSnapshot(account) {
         unrealizedProfitLoss,
         realizedProfitLoss,
         positionsCount: positions.length + (au.balance > 0 ? 1 : 0),
-        pendingTransfers: (account.withdrawals || []).filter((request) => (request.status || "") === "pending_review").length,
+        pendingTransfers: pendingWithdrawalReviews + pendingDepositConfirmations,
         groups: {
             cashValue: cash.valueUsd,
             auValue,
@@ -5916,6 +5978,7 @@ async function depositProfileContact(client, profileId) {
 }
 
 function depositNotificationPayload(kind, eventId, contact, addressRow, detection, amountUsd = null) {
+    const displayAmountUsd = stablecoinDisplayValueUsd(addressRow.asset_symbol, detection.amount, amountUsd);
     return {
         kind,
         eventId,
@@ -5924,7 +5987,7 @@ function depositNotificationPayload(kind, eventId, contact, addressRow, detectio
         symbol: addressRow.asset_symbol,
         network: addressRow.network,
         amount: detection.amount,
-        amountUsd,
+        amountUsd: displayAmountUsd,
         confirmations: Math.max(0, Number(detection.confirmations || 0)),
         requiredConfirmations: DEPOSIT_MIN_CONFIRMATIONS,
         txHash: detection.txHash
@@ -6796,7 +6859,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         set confirmations = greatest(crypto_deposit_events.confirmations, excluded.confirmations),
             amount_usd = coalesce(crypto_deposit_events.amount_usd, excluded.amount_usd),
             updated_at = now()
-        returning id, status, credited_at, confirmations, metadata
+        returning id, status, credited_at, confirmations, amount_usd, metadata
     `, [
         addressRow.profile_id,
         addressRow.id,
@@ -6817,10 +6880,17 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
     const eventMetadata = event?.metadata || {};
     const notifications = [];
     if (!event || event.credited_at || event.status === "credited") {
+        if (event && !eventMetadata.depositDetectedEmailSentAt) {
+            notifications.push(depositNotificationPayload("detected", event.id, contact, addressRow, normalizedDetection, amountUsd));
+        }
+        if (event && !eventMetadata.depositConfirmedEmailSentAt) {
+            notifications.push(depositNotificationPayload("confirmed", event.id, contact, addressRow, normalizedDetection, event.amount_usd ?? amountUsd));
+        }
         return {
             credited: false,
             reason: "already credited",
             eventId: event?.id || null,
+            notifications,
             duplicate: await duplicateDepositEventDetails(client, event?.id)
         };
     }
@@ -6863,6 +6933,10 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
             requiredConfirmations: DEPOSIT_MIN_CONFIRMATIONS,
             notifications
         };
+    }
+
+    if (!eventMetadata.depositDetectedEmailSentAt) {
+        notifications.push(depositNotificationPayload("detected", event.id, contact, addressRow, normalizedDetection, amountUsd));
     }
 
     const credit = await creditDatabaseDepositHolding(client, addressRow, normalizedDetection);
