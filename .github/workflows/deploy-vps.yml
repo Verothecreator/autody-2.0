@@ -64,7 +64,10 @@ jobs:
 
             set_env_value APP_BASE_URL https://autodytraded.com
             set_env_value DEPOSIT_MONITOR_ENABLED true
+            set_env_value DEPOSIT_MONITOR_INTERVAL_MS 15000
             set_env_value DEPOSIT_MONITOR_ADDRESS_LIMIT 500
+            set_env_value DEPOSIT_MIN_CONFIRMATIONS 3
+            set_env_value DEPOSIT_CONFIRMED_EMAIL_DELAY_MS 90000
             set_env_value DEPOSIT_ACCOUNT_TX_LIMIT 100
             set_env_value DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS 5000
             set_env_value DEPOSIT_MIN_AUTO_CREDIT_USD 0.01

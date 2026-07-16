@@ -126,9 +126,10 @@ const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 10
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
 const DEPOSIT_MONITOR_ENABLED = process.env.DEPOSIT_MONITOR_ENABLED === "true";
-const DEPOSIT_MONITOR_INTERVAL_MS = Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 60 * 1000);
+const DEPOSIT_MONITOR_INTERVAL_MS = Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 15 * 1000);
 const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS_LIMIT || 500);
 const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CONFIRMATIONS || 3));
+const DEPOSIT_CONFIRMED_EMAIL_DELAY_MS = Math.max(0, Number(process.env.DEPOSIT_CONFIRMED_EMAIL_DELAY_MS || 90 * 1000));
 const DEPOSIT_MIN_AUTO_CREDIT_USD = Math.max(0, Number(process.env.DEPOSIT_MIN_AUTO_CREDIT_USD || 0.01));
 const DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT = Math.max(0, Number(process.env.DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT || 0.01));
 const DEPOSIT_DUST_CLEANUP_LIMIT = Math.max(0, Number(process.env.DEPOSIT_DUST_CLEANUP_LIMIT || 250));
@@ -1157,16 +1158,35 @@ async function markDepositNotificationSent(eventId, kind) {
     `, [eventId, JSON.stringify({ [key]: new Date().toISOString() })]);
 }
 
+function depositDetectedEmailSentAt(metadata = {}) {
+    const value = metadata?.depositDetectedEmailSentAt;
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function depositConfirmedEmailDue(metadata = {}) {
+    if (isManualDepositScanner(metadata)) return true;
+    const detectedSentAt = depositDetectedEmailSentAt(metadata);
+    if (!detectedSentAt) return false;
+    return Date.now() - detectedSentAt.getTime() >= DEPOSIT_CONFIRMED_EMAIL_DELAY_MS;
+}
+
 async function confirmedDepositNotificationReady(eventId) {
     if (!databaseConfigured() || !eventId) return true;
     const result = await dbPool.query(`
-        select status, credited_at
+        select status, credited_at, metadata
         from crypto_deposit_events
         where id = $1
         limit 1
     `, [eventId]);
     const row = result.rows[0];
-    return Boolean(row && String(row.status || "").toLowerCase() === "credited" && row.credited_at);
+    return Boolean(
+        row
+        && String(row.status || "").toLowerCase() === "credited"
+        && row.credited_at
+        && depositConfirmedEmailDue(row.metadata || {})
+    );
 }
 
 async function deliverDepositNotifications(notifications = []) {
@@ -6859,7 +6879,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         set confirmations = greatest(crypto_deposit_events.confirmations, excluded.confirmations),
             amount_usd = coalesce(crypto_deposit_events.amount_usd, excluded.amount_usd),
             updated_at = now()
-        returning id, status, credited_at, confirmations, amount_usd, metadata
+        returning id, status, credited_at, confirmations, amount_usd, metadata, (xmax = 0) as inserted
     `, [
         addressRow.profile_id,
         addressRow.id,
@@ -6878,12 +6898,14 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
 
     const event = eventResult.rows[0];
     const eventMetadata = event?.metadata || {};
+    const eventWasInserted = Boolean(event?.inserted);
+    const manualScanner = isManualDepositScanner(detection.metadata || {});
     const notifications = [];
     if (!event || event.credited_at || event.status === "credited") {
         if (event && !eventMetadata.depositDetectedEmailSentAt) {
             notifications.push(depositNotificationPayload("detected", event.id, contact, addressRow, normalizedDetection, amountUsd));
         }
-        if (event && !eventMetadata.depositConfirmedEmailSentAt) {
+        if (event && !eventMetadata.depositConfirmedEmailSentAt && (manualScanner || depositConfirmedEmailDue(eventMetadata))) {
             notifications.push(depositNotificationPayload("confirmed", event.id, contact, addressRow, normalizedDetection, event.amount_usd ?? amountUsd));
         }
         return {
@@ -6895,7 +6917,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         };
     }
 
-    if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) {
+    if (confirmations < DEPOSIT_MIN_CONFIRMATIONS || (eventWasInserted && !manualScanner)) {
         if (requestId) {
             await client.query(`
                 update crypto_deposit_requests
@@ -6922,7 +6944,8 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         return {
             credited: false,
             detected: true,
-            pendingConfirmations: true,
+            pendingConfirmations: confirmations < DEPOSIT_MIN_CONFIRMATIONS,
+            readyForCredit: confirmations >= DEPOSIT_MIN_CONFIRMATIONS,
             eventId: event.id,
             symbol: addressRow.asset_symbol,
             network: addressRow.network,
@@ -6970,7 +6993,7 @@ async function recordAndCreditDatabaseDeposit(client, addressRow, detection) {
         ]);
     }
 
-    if (!eventMetadata.depositConfirmedEmailSentAt) {
+    if (!eventMetadata.depositConfirmedEmailSentAt && (manualScanner || depositConfirmedEmailDue(eventMetadata))) {
         notifications.push(depositNotificationPayload("confirmed", event.id, contact, addressRow, normalizedDetection, credit.notionalUsd));
     }
 
@@ -7397,7 +7420,6 @@ async function scanMempoolUtxoDepositGroup(client, config, rows, summary) {
                 const confirmations = confirmed && Number.isFinite(tipHeight)
                     ? Math.max(0, tipHeight - blockNumber + 1)
                     : 0;
-                if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) continue;
 
                 await creditAccountHistoryDeposit(client, row, {
                     amount: amountSmallestUnit / (10 ** config.decimals),
@@ -7478,7 +7500,6 @@ async function scanSolanaDepositGroup(client, config, rows, summary) {
             const signatures = await connection.getSignaturesForAddress(publicKey, { limit: DEPOSIT_ACCOUNT_TX_LIMIT }, "confirmed");
             for (const signatureInfo of signatures || []) {
                 const confirmations = signatureInfo.confirmationStatus === "finalized" ? DEPOSIT_MIN_CONFIRMATIONS : 1;
-                if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) continue;
                 const parsed = await connection.getParsedTransaction(signatureInfo.signature, { maxSupportedTransactionVersion: 0 });
                 const accountKeys = parsed?.transaction?.message?.accountKeys || [];
                 const addressIndex = accountKeys.findIndex((key) => {
