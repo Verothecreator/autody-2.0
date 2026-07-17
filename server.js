@@ -133,9 +133,10 @@ const DEPOSIT_CONFIRMED_EMAIL_DELAY_MS = Math.max(0, Number(process.env.DEPOSIT_
 const DEPOSIT_MIN_AUTO_CREDIT_USD = Math.max(0, Number(process.env.DEPOSIT_MIN_AUTO_CREDIT_USD || 0.01));
 const DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT = Math.max(0, Number(process.env.DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT || 0.01));
 const DEPOSIT_DUST_CLEANUP_LIMIT = Math.max(0, Number(process.env.DEPOSIT_DUST_CLEANUP_LIMIT || 250));
-const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 5000);
+const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 10000);
 const DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS = Number(process.env.DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS || 5000);
 const DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS = Math.max(100, Number(process.env.DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS || 5000));
+const DEPOSIT_EVM_SCAN_CURSOR_VERSION = String(process.env.DEPOSIT_EVM_SCAN_CURSOR_VERSION || "v2").trim() || "v2";
 const DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE = Math.max(1, Number(process.env.DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE || 80));
 const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
@@ -7360,7 +7361,7 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
         summary.providerFallbacks.push({ network, asset: assetSymbol, errors: providerHealth.errors });
     }
     const windowParams = {
-        scanKey: `evm-token:${config.scannerKey}:${assetSymbol}`,
+        scanKey: `evm-token:${DEPOSIT_EVM_SCAN_CURSOR_VERSION}:${config.scannerKey}:${assetSymbol}`,
         network,
         assetSymbol,
         scanner: "evm-token",
@@ -7494,7 +7495,7 @@ async function scanEvmNativeDepositGroup(client, network, rows, summary, options
         summary.providerFallbacks.push({ network, asset: "native", errors: providerHealth.errors });
     }
     const windowParams = {
-        scanKey: `evm-native:${config.scannerKey}`,
+        scanKey: `evm-native:${DEPOSIT_EVM_SCAN_CURSOR_VERSION}:${config.scannerKey}`,
         network,
         scanner: "evm-native",
         latestBlock,
