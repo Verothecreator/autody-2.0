@@ -141,6 +141,10 @@ const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBAC
 const DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT = Number(process.env.DEPOSIT_NATIVE_BLOCK_SCAN_LIMIT || 40);
 const DEPOSIT_ACCOUNT_TX_LIMIT = Number(process.env.DEPOSIT_ACCOUNT_TX_LIMIT || 100);
 const DEPOSIT_REST_TIMEOUT_MS = Number(process.env.DEPOSIT_REST_TIMEOUT_MS || 12 * 1000);
+const DEPOSIT_REST_RETRY_ATTEMPTS = Math.max(0, Number(process.env.DEPOSIT_REST_RETRY_ATTEMPTS || 2));
+const DEPOSIT_RPC_TIMEOUT_MS = Number(process.env.DEPOSIT_RPC_TIMEOUT_MS || 10 * 1000);
+const DEPOSIT_RPC_RETRY_ATTEMPTS = Math.max(0, Number(process.env.DEPOSIT_RPC_RETRY_ATTEMPTS || 1));
+const DEPOSIT_BLOCKSCOUT_EMPTY_FALLBACK = process.env.DEPOSIT_BLOCKSCOUT_EMPTY_FALLBACK === "true";
 const FIAT_FUNDING_METHODS = new Set(["card", "ach", "wire"]);
 const FIAT_FUNDING_LABELS = {
     card: "Debit card",
@@ -2582,47 +2586,58 @@ const EVM_DEPOSIT_NETWORK_CONFIGS = {
     "Ethereum ERC-20": {
         scannerKey: "ethereum",
         nativeAssets: ["ETH"],
+        rpcListEnv: ["AUTODY_ETHEREUM_RPC_URLS", "ETHEREUM_RPC_URLS", "ETH_RPC_URLS"],
         rpcEnv: ["AUTODY_ETHEREUM_RPC_URL", "ETHEREUM_RPC_URL", "ETH_RPC_URL"],
-        publicRpcUrl: "https://ethereum-rpc.publicnode.com"
+        publicRpcUrls: ["https://ethereum-rpc.publicnode.com", "https://1rpc.io/eth"]
     },
     Base: {
         scannerKey: "base",
         nativeAssets: ["ETH"],
+        rpcListEnv: ["AUTODY_BASE_RPC_URLS", "BASE_RPC_URLS"],
         rpcEnv: ["AUTODY_BASE_RPC_URL", "BASE_RPC_URL"],
-        publicRpcUrl: "https://base-rpc.publicnode.com"
+        publicRpcUrls: ["https://base-rpc.publicnode.com", "https://mainnet.base.org"]
     },
     "Arbitrum One": {
         scannerKey: "arbitrum",
         nativeAssets: ["ETH"],
+        rpcListEnv: ["AUTODY_ARBITRUM_RPC_URLS", "ARBITRUM_RPC_URLS"],
         rpcEnv: ["AUTODY_ARBITRUM_RPC_URL", "ARBITRUM_RPC_URL"],
-        publicRpcUrl: "https://arbitrum-one-rpc.publicnode.com"
+        publicRpcUrls: ["https://arbitrum-one-rpc.publicnode.com", "https://arb1.arbitrum.io/rpc"]
     },
     Optimism: {
         scannerKey: "optimism",
         nativeAssets: ["ETH"],
+        rpcListEnv: ["AUTODY_OPTIMISM_RPC_URLS", "OPTIMISM_RPC_URLS"],
         rpcEnv: ["AUTODY_OPTIMISM_RPC_URL", "OPTIMISM_RPC_URL"],
-        publicRpcUrl: "https://optimism-rpc.publicnode.com"
+        publicRpcUrls: ["https://optimism-rpc.publicnode.com", "https://mainnet.optimism.io"]
     },
     "BNB Smart Chain BEP-20": {
         scannerKey: "bsc",
         nativeAssets: ["BNB"],
+        rpcListEnv: ["AUTODY_BSC_RPC_URLS", "BSC_RPC_URLS", "BNB_RPC_URLS"],
         rpcEnv: ["AUTODY_BSC_RPC_URL", "BSC_RPC_URL", "BNB_RPC_URL"],
-        publicRpcUrl: "https://bsc-rpc.publicnode.com"
+        publicRpcUrls: ["https://bsc-rpc.publicnode.com", "https://bsc-dataseed.binance.org"]
     },
     "Polygon PoS": {
         scannerKey: "polygon",
         nativeAssets: ["POL"],
+        rpcListEnv: ["AUTODY_POLYGON_RPC_URLS", "POLYGON_RPC_URLS", "POLYGON_RPCS"],
         rpcEnv: ["AUTODY_POLYGON_RPC_URL", "POLYGON_RPC_URL", "POLYGON_RPC"],
-        publicRpcUrl: "https://polygon-bor-rpc.publicnode.com",
+        publicRpcUrls: [
+            "https://polygon-bor-rpc.publicnode.com",
+            "https://1rpc.io/matic"
+        ],
         blockscoutApiUrl: "https://polygon.blockscout.com/api/v2"
     },
     "Avalanche C-Chain": {
         scannerKey: "avalanche",
         nativeAssets: ["AVAX"],
+        rpcListEnv: ["AUTODY_AVALANCHE_RPC_URLS", "AVALANCHE_RPC_URLS"],
         rpcEnv: ["AUTODY_AVALANCHE_RPC_URL", "AVALANCHE_RPC_URL"],
-        publicRpcUrl: "https://avalanche-c-chain-rpc.publicnode.com"
+        publicRpcUrls: ["https://avalanche-c-chain-rpc.publicnode.com", "https://api.avax.network/ext/bc/C/rpc"]
     }
 };
+
 
 const EVM_TOKEN_DEPOSIT_CONTRACTS = {
     USDT: {
@@ -2849,51 +2864,100 @@ function depositEnvKeyPart(value = "") {
         .replace(/^_+|_+$/g, "");
 }
 
+function splitDepositEndpoints(value) {
+    return String(value || "")
+        .split(/[\r\n,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function uniqueDepositEndpoints(values = []) {
+    return Array.from(new Set(values.flatMap(splitDepositEndpoints)));
+}
+
+function getDepositRpcUrls(config = {}) {
+    const configured = [
+        ...(config.rpcListEnv || []).flatMap((name) => splitDepositEndpoints(process.env[name])),
+        ...(config.rpcEnv || []).flatMap((name) => splitDepositEndpoints(process.env[name]))
+    ];
+    const publicUrls = config.publicRpcUrls || (config.publicRpcUrl ? [config.publicRpcUrl] : []);
+    return uniqueDepositEndpoints([...configured, ...publicUrls]);
+}
+
 function getDepositRpcUrl(config = {}) {
-    const envName = (config.rpcEnv || []).find((name) => String(process.env[name] || "").trim());
-    return envName ? String(process.env[envName]).trim() : config.publicRpcUrl || "";
+    return getDepositRpcUrls(config)[0] || "";
+}
+
+function getDepositRestBaseUrls(config = {}) {
+    const configured = [
+        ...(config.baseUrlListEnv || []).flatMap((name) => splitDepositEndpoints(process.env[name])),
+        ...(config.baseUrlEnv || []).flatMap((name) => splitDepositEndpoints(process.env[name]))
+    ];
+    const publicUrls = config.publicBaseUrls || (config.publicBaseUrl ? [config.publicBaseUrl] : []);
+    return uniqueDepositEndpoints([...configured, ...publicUrls])
+        .map((url) => url.replace(/\/+$/g, ""));
 }
 
 function getDepositRestBaseUrl(config = {}) {
-    const envName = (config.baseUrlEnv || []).find((name) => String(process.env[name] || "").trim());
-    const rawUrl = envName ? String(process.env[envName]).trim() : config.publicBaseUrl || "";
-    return rawUrl.replace(/\/+$/g, "");
+    return getDepositRestBaseUrls(config)[0] || "";
+}
+
+function depositRetryableError(err) {
+    const status = Number(err?.status || 0);
+    return status === 408 || status === 425 || status === 429 || status >= 500
+        || /aborted|timeout|timed out|fetch failed|ECONN|ETIMEDOUT|ENOTFOUND|socket|network/i.test(String(err?.message || err));
+}
+
+async function waitForDepositRetry(attempt) {
+    const delayMs = Math.min(2500, 250 * (2 ** attempt));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 async function fetchDepositJson(url, options = {}) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DEPOSIT_REST_TIMEOUT_MS);
-    timeout.unref?.();
+    let lastError = null;
+    for (let attempt = 0; attempt <= DEPOSIT_REST_RETRY_ATTEMPTS; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), DEPOSIT_REST_TIMEOUT_MS);
+        timeout.unref?.();
 
-    const headers = {
-        Accept: "application/json",
-        "User-Agent": "Autody/1.0 deposit monitor",
-        ...(options.headers || {})
-    };
-    if (options.body) headers["Content-Type"] = "application/json";
+        const headers = {
+            Accept: "application/json",
+            "User-Agent": "Autody/1.0 deposit monitor",
+            ...(options.headers || {})
+        };
+        if (options.body) headers["Content-Type"] = "application/json";
 
-    try {
-        const response = await fetch(url, {
-            method: options.method || "GET",
-            headers,
-            body: options.body ? JSON.stringify(options.body) : undefined,
-            signal: controller.signal
-        });
-        const text = await response.text();
-        let json = {};
         try {
-            json = text ? JSON.parse(text) : {};
+            const response = await fetch(url, {
+                method: options.method || "GET",
+                headers,
+                body: options.body ? JSON.stringify(options.body) : undefined,
+                signal: controller.signal
+            });
+            const text = await response.text();
+            let json = {};
+            try {
+                json = text ? JSON.parse(text) : {};
+            } catch (err) {
+                json = { raw: text };
+            }
+            if (!response.ok) {
+                const error = new Error(json?.error || json?.message || json?.raw || `Deposit API returned ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            return json;
         } catch (err) {
-            json = { raw: text };
+            lastError = err;
+            if (attempt >= DEPOSIT_REST_RETRY_ATTEMPTS || !depositRetryableError(err)) throw err;
+            await waitForDepositRetry(attempt);
+        } finally {
+            clearTimeout(timeout);
         }
-        if (!response.ok) {
-            throw new Error(json?.error || json?.message || json?.raw || `Deposit API returned ${response.status}`);
-        }
-        return json;
-    } finally {
-        clearTimeout(timeout);
     }
+    throw lastError || new Error("Deposit API request failed.");
 }
+
 
 function getEvmNetworkConfig(network = "") {
     const selected = Object.entries(EVM_DEPOSIT_NETWORK_CONFIGS)
@@ -5793,19 +5857,101 @@ function shouldIgnoreAutomaticDepositCredit(addressRow = {}, detection = {}) {
     return belowAutomaticDepositMinimum(addressRow.asset_symbol, detection.amount, detection.amountUsd);
 }
 
-function getEvmDepositProvider(network) {
+function getEvmDepositProviders(network) {
     const config = getEvmNetworkConfig(network);
-    if (!config) return null;
-    const rpcUrl = getDepositRpcUrl(config);
-    if (!rpcUrl) return null;
-    const cacheKey = `${config.scannerKey}:${rpcUrl}`;
-    if (!evmDepositProviderCache.has(cacheKey)) {
-        evmDepositProviderCache.set(cacheKey, new ethers.JsonRpcProvider(rpcUrl));
+    if (!config) return [];
+
+    return getDepositRpcUrls(config).map((rpcUrl, index) => {
+        const cacheKey = `${config.scannerKey}:${rpcUrl}`;
+        if (!evmDepositProviderCache.has(cacheKey)) {
+            evmDepositProviderCache.set(cacheKey, new ethers.JsonRpcProvider(rpcUrl));
+        }
+        return {
+            provider: evmDepositProviderCache.get(cacheKey),
+            config,
+            rpcUrl,
+            priority: index === 0 ? "primary" : "fallback"
+        };
+    });
+}
+
+function getEvmDepositProvider(network) {
+    return getEvmDepositProviders(network)[0] || null;
+}
+
+async function runEvmRpcWithFailover(providerEntries, operation, label = "EVM deposit RPC") {
+    const errors = [];
+    for (const entry of providerEntries || []) {
+        let lastError = null;
+        for (let attempt = 0; attempt <= DEPOSIT_RPC_RETRY_ATTEMPTS; attempt += 1) {
+            try {
+                const value = await withTimeout(
+                    operation(entry.provider, entry),
+                    DEPOSIT_RPC_TIMEOUT_MS,
+                    `${label} via ${entry.rpcUrl}`
+                );
+                return { value, entry, errors };
+            } catch (err) {
+                lastError = err;
+                if (attempt < DEPOSIT_RPC_RETRY_ATTEMPTS) await waitForDepositRetry(attempt);
+            }
+        }
+        errors.push({ rpcUrl: entry.rpcUrl, error: lastError?.message || String(lastError) });
     }
+
+    const error = new Error(`${label} failed on all configured providers.`);
+    error.providerErrors = errors;
+    throw error;
+}
+
+async function readEvmLatestBlockWithFailover(network) {
+    const providers = getEvmDepositProviders(network);
+    if (!providers.length) return null;
+    let result;
+    try {
+        result = await runEvmRpcWithFailover(
+            providers,
+            (provider) => provider.getBlockNumber(),
+            `${network} block height`
+        );
+    } catch (err) {
+        const config = providers[0]?.config;
+        const blockscoutBaseUrl = String(config?.blockscoutApiUrl || "").replace(/\/+$/g, "");
+        if (!blockscoutBaseUrl) throw err;
+
+        try {
+            const latestJson = await fetchDepositJson(`${blockscoutBaseUrl}/blocks/latest`);
+            const latestBlock = Number(latestJson?.height ?? latestJson?.block_number ?? latestJson?.number ?? latestJson?.raw);
+            if (!Number.isInteger(latestBlock) || latestBlock < 0) throw new Error("Blockscout returned an invalid block height.");
+            return {
+                value: latestBlock,
+                entry: null,
+                errors: [{ provider: "rpc", error: err.message || String(err) }],
+                latestBlock,
+                providers: [],
+                config,
+                indexerOnly: true
+            };
+        } catch (fallbackErr) {
+            err.providerErrors = [
+                ...(err.providerErrors || []),
+                { rpcUrl: blockscoutBaseUrl, error: fallbackErr.message || String(fallbackErr) }
+            ];
+            throw err;
+        }
+    }
+    const latestBlock = Number(result.value);
+    if (!Number.isInteger(latestBlock) || latestBlock < 0) {
+        throw new Error(`${network} returned an invalid block height.`);
+    }
+    const orderedProviders = [
+        result.entry,
+        ...providers.filter((entry) => entry.rpcUrl !== result.entry.rpcUrl)
+    ];
     return {
-        provider: evmDepositProviderCache.get(cacheKey),
-        config,
-        rpcUrl
+        ...result,
+        latestBlock,
+        providers: orderedProviders
     };
 }
 
@@ -5814,6 +5960,7 @@ function numericBlockOption(value) {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : null;
 }
+
 
 function hasDepositScanBlockOverride(options = {}) {
     return numericBlockOption(options.fromBlock) != null || numericBlockOption(options.toBlock) != null;
@@ -5858,22 +6005,23 @@ async function getDepositScanWindow(client, { scanKey, network, assetSymbol = nu
         limit 1
     `, [scanKey]);
     const lastScanned = Number(stateResult.rows[0]?.last_scanned_block || 0);
-    let fromBlock = lastScanned > 0
-        ? Math.max(0, lastScanned - Math.max(0, Number(overlapBlocks || 0)) + 1)
+    const cursor = Math.min(lastScanned, safeToBlock);
+    const configuredOverlap = Math.max(0, Number(overlapBlocks || 0));
+    const effectiveOverlap = maxBlocks
+        ? Math.min(configuredOverlap, Math.max(1, Math.floor(maxBlocks / 5)))
+        : configuredOverlap;
+    let fromBlock = cursor > 0
+        ? Math.max(0, cursor - effectiveOverlap + 1)
         : Math.max(0, safeToBlock - Math.max(1, lookbackBlocks));
 
-    // Public RPCs commonly reject archive-sized eth_getLogs calls. If a watcher
-    // has fallen behind, resume from the recent safety window so new deposits
-    // are credited instead of repeatedly retrying the same unusable range.
-    if (lastScanned > 0 && safeToBlock - lastScanned > Math.max(1, lookbackBlocks)) {
-        fromBlock = Math.max(0, safeToBlock - Math.max(1, lookbackBlocks));
+    let toBlock = safeToBlock;
+    if (maxBlocks && toBlock - fromBlock + 1 > maxBlocks) {
+        // Advance in bounded chunks. Never jump the cursor to the newest block
+        // while leaving an older part of the requested range unscanned.
+        toBlock = Math.min(safeToBlock, fromBlock + maxBlocks - 1);
     }
 
-    if (maxBlocks && safeToBlock - fromBlock + 1 > maxBlocks) {
-        fromBlock = Math.max(0, safeToBlock - maxBlocks + 1);
-    }
-
-    if (fromBlock > safeToBlock) return null;
+    if (fromBlock > toBlock) return null;
 
     return {
         scanKey,
@@ -5881,11 +6029,12 @@ async function getDepositScanWindow(client, { scanKey, network, assetSymbol = nu
         assetSymbol,
         scanner,
         fromBlock,
-        toBlock: latestBlock,
-        saveToBlock: safeToBlock,
+        toBlock,
+        saveToBlock: toBlock,
         latestBlock
     };
 }
+
 
 async function saveDepositScanState(client, window) {
     const saveToBlock = window?.saveToBlock ?? window?.toBlock;
@@ -7195,14 +7344,21 @@ async function scanEvmTokenDepositsFromBlockscout(client, config, contract, rows
 
 async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summary, options = {}) {
     const contract = getEvmTokenDepositContract(assetSymbol, network);
-    const providerConfig = getEvmDepositProvider(network);
-    if (!contract || !providerConfig) {
+    if (!contract) {
+        summary.skipped.push({ network, asset: assetSymbol, reason: "scanner not configured" });
+        return;
+    }
+    const providerHealth = await readEvmLatestBlockWithFailover(network);
+    if (!providerHealth) {
         summary.skipped.push({ network, asset: assetSymbol, reason: "scanner not configured" });
         return;
     }
 
-    const { provider, config } = providerConfig;
-    const latestBlock = await provider.getBlockNumber();
+    const { config, latestBlock, providers } = providerHealth;
+    if (providerHealth.errors?.length) {
+        summary.providerFallbacks = Array.isArray(summary.providerFallbacks) ? summary.providerFallbacks : [];
+        summary.providerFallbacks.push({ network, asset: assetSymbol, errors: providerHealth.errors });
+    }
     const windowParams = {
         scanKey: `evm-token:${config.scannerKey}:${assetSymbol}`,
         network,
@@ -7231,20 +7387,37 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
     const addressTopics = Array.from(rowsByTopic.keys());
     if (!addressTopics.length) return;
 
-    const logsByKey = new Map();
+    let logsByKey = new Map();
     try {
-        const topicBatches = chunkItems(addressTopics, DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE);
-        for (const topicBatch of topicBatches) {
-            const batchLogs = await provider.getLogs({
-                address: contract.address,
-                fromBlock: window.fromBlock,
-                toBlock: window.toBlock,
-                topics: [ERC20_TRANSFER_TOPIC, null, topicBatch]
-            });
-            for (const log of batchLogs) {
-                const logKey = `${String(log.transactionHash || "").toLowerCase()}:${Number(log.index ?? log.logIndex ?? 0)}`;
-                logsByKey.set(logKey, log);
-            }
+        const logResult = await runEvmRpcWithFailover(
+            providers,
+            async (provider) => {
+                const providerLogs = new Map();
+                const topicBatches = chunkItems(addressTopics, DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE);
+                for (const topicBatch of topicBatches) {
+                    const batchLogs = await withTimeout(
+                        provider.getLogs({
+                            address: contract.address,
+                            fromBlock: window.fromBlock,
+                            toBlock: window.toBlock,
+                            topics: [ERC20_TRANSFER_TOPIC, null, topicBatch]
+                        }),
+                        DEPOSIT_RPC_TIMEOUT_MS,
+                        `${network} ${assetSymbol} transfer log scan`
+                    );
+                    for (const log of batchLogs) {
+                        const logKey = `${String(log.transactionHash || "").toLowerCase()}:${Number(log.index ?? log.logIndex ?? 0)}`;
+                        providerLogs.set(logKey, log);
+                    }
+                }
+                return providerLogs;
+            },
+            `${network} ${assetSymbol} transfer logs`
+        );
+        logsByKey = logResult.value;
+        if (logResult.entry.rpcUrl !== providers[0]?.rpcUrl) {
+            summary.providerFallbacks = Array.isArray(summary.providerFallbacks) ? summary.providerFallbacks : [];
+            summary.providerFallbacks.push({ network, asset: assetSymbol, selected: logResult.entry.rpcUrl, errors: logResult.errors });
         }
     } catch (err) {
         if (config.blockscoutApiUrl) {
@@ -7291,7 +7464,7 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
         }
     }
 
-    if (config.blockscoutApiUrl) {
+    if (config.blockscoutApiUrl && !logsByKey.size && DEPOSIT_BLOCKSCOUT_EMPTY_FALLBACK) {
         try {
             await scanEvmTokenDepositsFromBlockscout(client, config, contract, rows, summary, window, latestBlock);
         } catch (fallbackErr) {
@@ -7307,15 +7480,19 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
     if (!window.manualOverride) await saveDepositScanState(client, window);
 }
 
+
 async function scanEvmNativeDepositGroup(client, network, rows, summary, options = {}) {
-    const providerConfig = getEvmDepositProvider(network);
-    if (!providerConfig) {
+    const providerHealth = await readEvmLatestBlockWithFailover(network);
+    if (!providerHealth) {
         summary.skipped.push({ network, asset: "native", reason: "scanner not configured" });
         return;
     }
 
-    const { provider, config } = providerConfig;
-    const latestBlock = await provider.getBlockNumber();
+    const { config, latestBlock, providers } = providerHealth;
+    if (providerHealth.errors?.length) {
+        summary.providerFallbacks = Array.isArray(summary.providerFallbacks) ? summary.providerFallbacks : [];
+        summary.providerFallbacks.push({ network, asset: "native", errors: providerHealth.errors });
+    }
     const windowParams = {
         scanKey: `evm-native:${config.scannerKey}`,
         network,
@@ -7343,7 +7520,20 @@ async function scanEvmNativeDepositGroup(client, network, rows, summary, options
     if (!rowsByAddress.size) return;
 
     for (let blockNumber = window.fromBlock; blockNumber <= window.toBlock; blockNumber += 1) {
-        const block = await provider.getBlock(blockNumber, true);
+        const blockResult = await runEvmRpcWithFailover(
+            providers,
+            async (provider) => {
+                const block = await provider.getBlock(blockNumber, true);
+                if (!block) throw new Error(`Block ${blockNumber} was not returned.`);
+                return block;
+            },
+            `${network} block ${blockNumber}`
+        );
+        const block = blockResult.value;
+        if (blockResult.entry.rpcUrl !== providers[0]?.rpcUrl) {
+            summary.providerFallbacks = Array.isArray(summary.providerFallbacks) ? summary.providerFallbacks : [];
+            summary.providerFallbacks.push({ network, asset: "native", blockNumber, selected: blockResult.entry.rpcUrl, errors: blockResult.errors });
+        }
         const transactions = Array.isArray(block?.prefetchedTransactions)
             ? block.prefetchedTransactions
             : (Array.isArray(block?.transactions) ? block.transactions.filter((tx) => typeof tx === "object") : []);
@@ -7384,6 +7574,7 @@ function normalizeChainAddressForCompare(address = "") {
 function chainAddressMatches(left = "", right = "") {
     return normalizeChainAddressForCompare(left) === normalizeChainAddressForCompare(right);
 }
+
 
 async function creditAccountHistoryDeposit(client, row, detection, summary) {
     const result = await creditDetectedDepositWithTransaction(client, row, detection);
@@ -7766,6 +7957,7 @@ async function scanDatabaseCryptoDeposits(options = {}) {
         detected: [],
         duplicates: 0,
         duplicateEvents: [],
+        providerFallbacks: [],
         skipped: [],
         errors: []
     };
