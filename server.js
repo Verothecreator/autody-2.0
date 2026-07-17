@@ -2740,8 +2740,12 @@ const ACCOUNT_DEPOSIT_SCANNER_CONFIGS = {
         scanner: "utxo-mempool",
         asset: "BTC",
         networks: ["Bitcoin"],
+        baseUrlListEnv: ["AUTODY_BITCOIN_API_URLS", "BITCOIN_API_URLS", "BTC_API_URLS"],
         baseUrlEnv: ["AUTODY_BITCOIN_API_URL", "BITCOIN_API_URL", "BTC_API_URL"],
-        publicBaseUrl: "https://mempool.space/api",
+        publicBaseUrls: [
+            "https://mempool.space/api",
+            "https://blockstream.info/api"
+        ],
         decimals: 8
     },
     "bitcoin-cash": {
@@ -2749,6 +2753,7 @@ const ACCOUNT_DEPOSIT_SCANNER_CONFIGS = {
         asset: "BCH",
         networks: ["Bitcoin Cash"],
         chain: "bitcoin-cash",
+        baseUrlListEnv: ["AUTODY_BCH_API_URLS", "BCH_API_URLS"],
         baseUrlEnv: ["AUTODY_BCH_API_URL", "BCH_API_URL"],
         publicBaseUrl: "https://api.blockchair.com/bitcoin-cash",
         decimals: 8
@@ -2758,6 +2763,7 @@ const ACCOUNT_DEPOSIT_SCANNER_CONFIGS = {
         asset: "DOGE",
         networks: ["Dogecoin"],
         chain: "dogecoin",
+        baseUrlListEnv: ["AUTODY_DOGE_API_URLS", "DOGE_API_URLS"],
         baseUrlEnv: ["AUTODY_DOGE_API_URL", "DOGE_API_URL"],
         publicBaseUrl: "https://api.blockchair.com/dogecoin",
         decimals: 8
@@ -2766,6 +2772,7 @@ const ACCOUNT_DEPOSIT_SCANNER_CONFIGS = {
         scanner: "utxo-mempool",
         asset: "LTC",
         networks: ["Litecoin"],
+        baseUrlListEnv: ["AUTODY_LITECOIN_API_URLS", "LITECOIN_API_URLS", "LTC_API_URLS"],
         baseUrlEnv: ["AUTODY_LITECOIN_API_URL", "LITECOIN_API_URL", "LTC_API_URL"],
         publicBaseUrl: "https://litecoinspace.org/api",
         decimals: 8
@@ -2774,21 +2781,30 @@ const ACCOUNT_DEPOSIT_SCANNER_CONFIGS = {
         scanner: "solana-rpc",
         asset: "SOL",
         networks: ["Solana"],
+        rpcListEnv: ["AUTODY_SOLANA_RPC_URLS", "SOLANA_RPC_URLS"],
         rpcEnv: ["AUTODY_SOLANA_RPC_URL", "SOLANA_RPC_URL"],
-        publicRpcUrl: "https://api.mainnet-beta.solana.com",
+        publicRpcUrls: [
+            "https://api.mainnet-beta.solana.com",
+            "https://solana-rpc.publicnode.com"
+        ],
         decimals: 9
     },
     xrp: {
         scanner: "xrp-rpc",
         asset: "XRP",
         networks: ["XRP Ledger"],
+        rpcListEnv: ["AUTODY_XRP_RPC_URLS", "XRP_RPC_URLS"],
         rpcEnv: ["AUTODY_XRP_RPC_URL", "XRP_RPC_URL"],
-        publicRpcUrl: "https://s1.ripple.com:51234/"
+        publicRpcUrls: [
+            "https://s1.ripple.com:51234/",
+            "https://xrplcluster.com/"
+        ]
     },
     stellar: {
         scanner: "stellar-horizon",
         asset: "XLM",
         networks: ["Stellar"],
+        baseUrlListEnv: ["AUTODY_STELLAR_HORIZON_URLS", "STELLAR_HORIZON_URLS"],
         baseUrlEnv: ["AUTODY_STELLAR_HORIZON_URL", "STELLAR_HORIZON_URL"],
         publicBaseUrl: "https://horizon.stellar.org"
     },
@@ -2796,6 +2812,7 @@ const ACCOUNT_DEPOSIT_SCANNER_CONFIGS = {
         scanner: "tron-grid",
         asset: "TRX",
         networks: ["Tron TRC-20"],
+        baseUrlListEnv: ["AUTODY_TRON_API_URLS", "TRON_API_URLS"],
         baseUrlEnv: ["AUTODY_TRON_API_URL", "TRON_API_URL"],
         publicBaseUrl: "https://api.trongrid.io",
         decimals: 6
@@ -2960,6 +2977,40 @@ async function fetchDepositJson(url, options = {}) {
 }
 
 
+async function runDepositProviderFailover(providers, operation, label = "deposit provider") {
+    const errors = [];
+    for (let index = 0; index < providers.length; index += 1) {
+        try {
+            const result = await operation(providers[index], index);
+            return { result, index, provider: providers[index] };
+        } catch (err) {
+            errors.push(`${index + 1}: ${err.message || String(err)}`);
+        }
+    }
+    throw new Error(`${label} providers failed: ${errors.join(" | ")}`);
+}
+
+async function fetchDepositJsonFromRestBases(config, path, options = {}) {
+    const bases = getDepositRestBaseUrls(config);
+    if (!bases.length) throw new Error("Deposit REST provider is not configured.");
+    const { result } = await runDepositProviderFailover(
+        bases,
+        (baseUrl) => fetchDepositJson(`${baseUrl}${path}`, options),
+        `${config.asset || "deposit"} REST`
+    );
+    return result;
+}
+
+async function fetchDepositJsonFromRpcUrls(config, options = {}) {
+    const urls = getDepositRpcUrls(config);
+    if (!urls.length) throw new Error("Deposit RPC provider is not configured.");
+    const { result } = await runDepositProviderFailover(
+        urls,
+        (rpcUrl) => fetchDepositJson(rpcUrl, options),
+        `${config.asset || "deposit"} RPC`
+    );
+    return result;
+}
 function getEvmNetworkConfig(network = "") {
     const selected = Object.entries(EVM_DEPOSIT_NETWORK_CONFIGS)
         .find(([name]) => name.toLowerCase() === String(network || "").trim().toLowerCase());
@@ -7591,17 +7642,17 @@ function mempoolDepositOutputAmount(tx = {}, address = "") {
 }
 
 async function scanMempoolUtxoDepositGroup(client, config, rows, summary) {
-    const baseUrl = getDepositRestBaseUrl(config);
-    if (!baseUrl) {
+    const baseUrls = getDepositRestBaseUrls(config);
+    if (!baseUrls.length) {
         summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
         return;
     }
 
-    const tipJson = await fetchDepositJson(`${baseUrl}/blocks/tip/height`);
+    const tipJson = await fetchDepositJsonFromRestBases(config, "/blocks/tip/height");
     const tipHeight = Number(tipJson?.raw ?? tipJson);
     for (const row of rows) {
         try {
-            const txs = await fetchDepositJson(`${baseUrl}/address/${encodeURIComponent(row.address)}/txs`);
+            const txs = await fetchDepositJsonFromRestBases(config, `/address/${encodeURIComponent(row.address)}/txs`);
             const transactions = Array.isArray(txs) ? txs : [];
             for (const tx of transactions.slice(0, DEPOSIT_ACCOUNT_TX_LIMIT)) {
                 const txHash = normalizeText(tx.txid || tx.hash);
@@ -7612,6 +7663,7 @@ async function scanMempoolUtxoDepositGroup(client, config, rows, summary) {
                 const confirmations = confirmed && Number.isFinite(tipHeight)
                     ? Math.max(0, tipHeight - blockNumber + 1)
                     : 0;
+                if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) continue;
 
                 await creditAccountHistoryDeposit(client, row, {
                     amount: amountSmallestUnit / (10 ** config.decimals),
@@ -7641,16 +7693,16 @@ function blockchairAddressTransactions(json = {}, address = "") {
 }
 
 async function scanBlockchairUtxoDepositGroup(client, config, rows, summary) {
-    const baseUrl = getDepositRestBaseUrl(config);
-    if (!baseUrl) {
+    const baseUrls = getDepositRestBaseUrls(config);
+    if (!baseUrls.length) {
         summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
         return;
     }
 
     for (const row of rows) {
         try {
-            const url = `${baseUrl}/dashboards/address/${encodeURIComponent(row.address)}?transaction_details=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}`;
-            const json = await fetchDepositJson(url);
+            const path = `/dashboards/address/${encodeURIComponent(row.address)}?transaction_details=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}`;
+            const json = await fetchDepositJsonFromRestBases(config, path);
             const transactions = blockchairAddressTransactions(json, row.address);
             for (const tx of transactions) {
                 const txHash = normalizeText(tx.hash || tx.transaction_hash || tx.tx_hash);
@@ -7679,20 +7731,31 @@ async function scanBlockchairUtxoDepositGroup(client, config, rows, summary) {
 }
 
 async function scanSolanaDepositGroup(client, config, rows, summary) {
-    const rpcUrl = getDepositRpcUrl(config);
-    if (!rpcUrl) {
+    const rpcUrls = getDepositRpcUrls(config);
+    if (!rpcUrls.length) {
         summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
         return;
     }
 
-    const connection = new SolanaConnection(rpcUrl, "confirmed");
+    const connections = rpcUrls.map((rpcUrl) => new SolanaConnection(rpcUrl, "confirmed"));
     for (const row of rows) {
         try {
             const publicKey = new SolanaPublicKey(row.address);
-            const signatures = await connection.getSignaturesForAddress(publicKey, { limit: DEPOSIT_ACCOUNT_TX_LIMIT }, "confirmed");
+            const signaturesResult = await runDepositProviderFailover(
+                connections,
+                (connection) => connection.getSignaturesForAddress(publicKey, { limit: DEPOSIT_ACCOUNT_TX_LIMIT }, "confirmed"),
+                "Solana signatures"
+            );
+            const signatures = signaturesResult.result || [];
             for (const signatureInfo of signatures || []) {
                 const confirmations = signatureInfo.confirmationStatus === "finalized" ? DEPOSIT_MIN_CONFIRMATIONS : 1;
-                const parsed = await connection.getParsedTransaction(signatureInfo.signature, { maxSupportedTransactionVersion: 0 });
+                if (confirmations < DEPOSIT_MIN_CONFIRMATIONS) continue;
+                const parsedResult = await runDepositProviderFailover(
+                    connections,
+                    (connection) => connection.getParsedTransaction(signatureInfo.signature, { maxSupportedTransactionVersion: 0 }),
+                    "Solana transaction"
+                );
+                const parsed = parsedResult.result;
                 const accountKeys = parsed?.transaction?.message?.accountKeys || [];
                 const addressIndex = accountKeys.findIndex((key) => {
                     const account = key.pubkey?.toBase58?.() || key.pubkey || key;
@@ -7727,15 +7790,15 @@ async function scanSolanaDepositGroup(client, config, rows, summary) {
 }
 
 async function scanXrpDepositGroup(client, config, rows, summary) {
-    const rpcUrl = getDepositRpcUrl(config);
-    if (!rpcUrl) {
+    const rpcUrls = getDepositRpcUrls(config);
+    if (!rpcUrls.length) {
         summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
         return;
     }
 
     for (const row of rows) {
         try {
-            const json = await fetchDepositJson(rpcUrl, {
+            const json = await fetchDepositJsonFromRpcUrls(config, {
                 method: "POST",
                 body: {
                     method: "account_tx",
@@ -7779,15 +7842,16 @@ async function scanXrpDepositGroup(client, config, rows, summary) {
 }
 
 async function scanStellarDepositGroup(client, config, rows, summary) {
-    const baseUrl = getDepositRestBaseUrl(config);
-    if (!baseUrl) {
+    const baseUrls = getDepositRestBaseUrls(config);
+    if (!baseUrls.length) {
         summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
         return;
     }
 
     for (const row of rows) {
         try {
-            const json = await fetchDepositJson(`${baseUrl}/accounts/${encodeURIComponent(row.address)}/payments?order=desc&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}`);
+            const path = `/accounts/${encodeURIComponent(row.address)}/payments?order=desc&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}`;
+            const json = await fetchDepositJsonFromRestBases(config, path);
             const records = json?._embedded?.records || [];
             for (const record of records) {
                 let amount = 0;
@@ -7836,16 +7900,16 @@ function tronHexToBase58(value = "") {
 }
 
 async function scanTronNativeDepositGroup(client, config, rows, summary) {
-    const baseUrl = getDepositRestBaseUrl(config);
-    if (!baseUrl) {
+    const baseUrls = getDepositRestBaseUrls(config);
+    if (!baseUrls.length) {
         summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
         return;
     }
 
     for (const row of rows) {
         try {
-            const url = `${baseUrl}/v1/accounts/${encodeURIComponent(row.address)}/transactions?only_confirmed=true&only_to=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}&order_by=block_timestamp,desc`;
-            const json = await fetchDepositJson(url, { headers: tronDepositHeaders() });
+            const path = `/v1/accounts/${encodeURIComponent(row.address)}/transactions?only_confirmed=true&only_to=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}&order_by=block_timestamp,desc`;
+            const json = await fetchDepositJsonFromRestBases(config, path, { headers: tronDepositHeaders() });
             for (const tx of json?.data || []) {
                 const value = tx.raw_data?.contract?.[0]?.parameter?.value || {};
                 const toAddress = tronHexToBase58(value.to_address);
@@ -7876,17 +7940,17 @@ async function scanTronNativeDepositGroup(client, config, rows, summary) {
 }
 
 async function scanTronTrc20DepositGroup(client, config, rows, summary) {
-    const baseUrl = getDepositRestBaseUrl(config);
+    const baseUrls = getDepositRestBaseUrls(config);
     const contract = config.tokenContract;
-    if (!baseUrl || !contract?.address) {
+    if (!baseUrls.length || !contract?.address) {
         summary.skipped.push({ asset: config.asset, network: config.networks?.[0], reason: "scanner endpoint not configured" });
         return;
     }
 
     for (const row of rows) {
         try {
-            const url = `${baseUrl}/v1/accounts/${encodeURIComponent(row.address)}/transactions/trc20?only_confirmed=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}&contract_address=${encodeURIComponent(contract.address)}`;
-            const json = await fetchDepositJson(url, { headers: tronDepositHeaders() });
+            const path = `/v1/accounts/${encodeURIComponent(row.address)}/transactions/trc20?only_confirmed=true&limit=${DEPOSIT_ACCOUNT_TX_LIMIT}&contract_address=${encodeURIComponent(contract.address)}`;
+            const json = await fetchDepositJsonFromRestBases(config, path, { headers: tronDepositHeaders() });
             for (const tx of json?.data || []) {
                 const toAddress = tx.to || tx.to_address || tx.toAddress;
                 const rawValue = String(tx.value || "0");
