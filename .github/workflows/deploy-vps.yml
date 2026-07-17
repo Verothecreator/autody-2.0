@@ -70,6 +70,8 @@ jobs:
             set_env_value DEPOSIT_CONFIRMED_EMAIL_DELAY_MS 90000
             set_env_value DEPOSIT_ACCOUNT_TX_LIMIT 100
             set_env_value DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS 5000
+            set_env_value DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS 10000
+            set_env_value DEPOSIT_EVM_SCAN_CURSOR_VERSION v2
             set_env_value DEPOSIT_MIN_AUTO_CREDIT_USD 0.01
             set_env_value DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT 0.01
             set_env_value DEPOSIT_DUST_CLEANUP_LIMIT 250
