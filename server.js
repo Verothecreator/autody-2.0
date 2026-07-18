@@ -141,6 +141,7 @@ const DEPOSIT_DUST_CLEANUP_LIMIT = Math.max(0, Number(process.env.DEPOSIT_DUST_C
 const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 10000);
 const DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS = Number(process.env.DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS || 5000);
 const DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS = Math.max(100, Number(process.env.DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS || 5000));
+const DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS = Math.max(100, Number(process.env.DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS || 500));
 const DEPOSIT_EVM_SCAN_CURSOR_VERSION = String(process.env.DEPOSIT_EVM_SCAN_CURSOR_VERSION || "v2").trim() || "v2";
 const DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE = Math.max(1, Number(process.env.DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE || 80));
 const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
@@ -7528,23 +7529,40 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
     try {
         const logResult = await runEvmRpcWithFailover(
             providers,
-            async (provider) => {
+            async (provider, entry) => {
                 const providerLogs = new Map();
                 const topicBatches = chunkItems(addressTopics, DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE);
                 for (const topicBatch of topicBatches) {
-                    const batchLogs = await withTimeout(
-                        provider.getLogs({
-                            address: contract.address,
-                            fromBlock: window.fromBlock,
-                            toBlock: window.toBlock,
-                            topics: [ERC20_TRANSFER_TOPIC, null, topicBatch]
-                        }),
-                        DEPOSIT_RPC_TIMEOUT_MS,
-                        `${network} ${assetSymbol} transfer log scan`
-                    );
-                    for (const log of batchLogs) {
-                        const logKey = `${String(log.transactionHash || "").toLowerCase()}:${Number(log.index ?? log.logIndex ?? 0)}`;
-                        providerLogs.set(logKey, log);
+                    for (
+                        let fromBlock = window.fromBlock;
+                        fromBlock <= window.toBlock;
+                        fromBlock += DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS
+                    ) {
+                        const toBlock = Math.min(
+                            window.toBlock,
+                            fromBlock + DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS - 1
+                        );
+                        await waitForDepositProviderSlot(entry.rpcUrl);
+                        try {
+                            const batchLogs = await withTimeout(
+                                provider.getLogs({
+                                    address: contract.address,
+                                    fromBlock,
+                                    toBlock,
+                                    topics: [ERC20_TRANSFER_TOPIC, null, topicBatch]
+                                }),
+                                DEPOSIT_RPC_TIMEOUT_MS,
+                                `${network} ${assetSymbol} transfer log scan`
+                            );
+                            noteDepositProviderSuccess(entry.rpcUrl);
+                            for (const log of batchLogs) {
+                                const logKey = `${String(log.transactionHash || "").toLowerCase()}:${Number(log.index ?? log.logIndex ?? 0)}`;
+                                providerLogs.set(logKey, log);
+                            }
+                        } catch (err) {
+                            noteDepositProviderFailure(entry.rpcUrl, err);
+                            throw err;
+                        }
                     }
                 }
                 return providerLogs;
