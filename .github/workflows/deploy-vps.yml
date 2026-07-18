@@ -83,6 +83,7 @@ jobs:
             set_env_value DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT 0.01
             set_env_value DEPOSIT_DUST_CLEANUP_LIMIT 250
             set_env_value DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE 80
+            set_env_value DEPOSIT_REST_TIMEOUT_MS 30000
             set_env_value DEPOSIT_REST_RETRY_ATTEMPTS 2
             set_env_value DEPOSIT_RPC_RETRY_ATTEMPTS 1
             set_env_value DEPOSIT_BLOCKSCOUT_EMPTY_FALLBACK false
