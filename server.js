@@ -16148,6 +16148,14 @@ function startDepositMonitorLoop() {
           detected: Array.isArray(result?.detected) ? result.detected.length : 0,
           credited: Array.isArray(result?.credited) ? result.credited.length : 0,
           errors: Array.isArray(result?.errors) ? result.errors.length : 0,
+          errorSummary: Array.isArray(result?.errors)
+            ? result.errors.slice(0, 20).map((item) => ({
+                network: item?.network || null,
+                asset: item?.asset || null,
+                scanner: item?.scanner || null,
+                error: String(item?.error || "unknown error").replace(/https?:\\/\\/\\S+/g, "[provider]")
+              }))
+            : [],
           providerFallbacks: Array.isArray(result?.providerFallbacks) ? result.providerFallbacks.length : 0
         };
         if (result?.credited?.length) {
