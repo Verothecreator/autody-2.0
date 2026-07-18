@@ -16153,7 +16153,7 @@ function startDepositMonitorLoop() {
                 network: item?.network || null,
                 asset: item?.asset || null,
                 scanner: item?.scanner || null,
-                error: String(item?.error || "unknown error").replace(/https?:\\/\\/\\S+/g, "[provider]")
+                error: String(item?.error || "unknown error").replace(/https?:\/\/[^\s]+/g, "[provider]").slice(0, 240)
               }))
             : [],
           providerFallbacks: Array.isArray(result?.providerFallbacks) ? result.providerFallbacks.length : 0
