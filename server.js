@@ -2602,7 +2602,8 @@ const EVM_DEPOSIT_NETWORK_CONFIGS = {
         nativeAssets: ["ETH"],
         rpcListEnv: ["AUTODY_ETHEREUM_RPC_URLS", "ETHEREUM_RPC_URLS", "ETH_RPC_URLS"],
         rpcEnv: ["AUTODY_ETHEREUM_RPC_URL", "ETHEREUM_RPC_URL", "ETH_RPC_URL"],
-        publicRpcUrls: ["https://ethereum-rpc.publicnode.com", "https://1rpc.io/eth"]
+        publicRpcUrls: ["https://ethereum-rpc.publicnode.com", "https://1rpc.io/eth"],
+        blockscoutApiUrl: "https://eth.blockscout.com/api/v2"
     },
     Base: {
         scannerKey: "base",
