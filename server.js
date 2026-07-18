@@ -6087,7 +6087,8 @@ async function readEvmLatestBlockWithFailover(network) {
     return {
         ...result,
         latestBlock,
-        providers: orderedProviders
+        providers: orderedProviders,
+        config: result.entry?.config || providers[0]?.config || null
     };
 }
 
