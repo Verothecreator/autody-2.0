@@ -126,7 +126,12 @@ const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 10
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
 const DEPOSIT_MONITOR_ENABLED = process.env.DEPOSIT_MONITOR_ENABLED === "true";
-const DEPOSIT_MONITOR_INTERVAL_MS = Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 15 * 1000);
+const AUTODY_BUILD_ID = process.env.AUTODY_BUILD_ID || "dev";
+const DEPOSIT_MONITOR_INTERVAL_MS = Math.max(15 * 1000, Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 60 * 1000));
+const DEPOSIT_PROVIDER_MIN_INTERVAL_MS = Math.max(0, Number(process.env.DEPOSIT_PROVIDER_MIN_INTERVAL_MS || 1200));
+const DEPOSIT_PROVIDER_COOLDOWN_MS = Math.max(10 * 1000, Number(process.env.DEPOSIT_PROVIDER_COOLDOWN_MS || 60 * 1000));
+const DEPOSIT_PROVIDER_MAX_COOLDOWN_MS = Math.max(DEPOSIT_PROVIDER_COOLDOWN_MS, Number(process.env.DEPOSIT_PROVIDER_MAX_COOLDOWN_MS || 10 * 60 * 1000));
+const DEPOSIT_MONITOR_JITTER_MS = Math.max(0, Number(process.env.DEPOSIT_MONITOR_JITTER_MS || 5000));
 const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS_LIMIT || 500);
 const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CONFIRMATIONS || 3));
 const DEPOSIT_CONFIRMED_EMAIL_DELAY_MS = Math.max(0, Number(process.env.DEPOSIT_CONFIRMED_EMAIL_DELAY_MS || 90 * 1000));
@@ -175,6 +180,9 @@ let chartRefreshInFlight = null;
 let lastChartRefresh = null;
 let depositMonitorTimer = null;
 let depositMonitorInFlight = null;
+let depositMonitorLoopStarted = false;
+let lastDepositMonitor = null;
+const depositProviderStates = new Map();
 const adminLoginChallenges = new Map();
 let liveMarketAssetCache = { assets: [], bySymbol: new Map(), updatedAt: 0 };
 const marketCatalogCache = new Map();
@@ -1205,7 +1213,11 @@ async function deliverDepositNotifications(notifications = []) {
             if (notification.kind === "confirmed" && !(await confirmedDepositNotificationReady(eventId))) {
                 continue;
             }
-            await sendDepositLifecycleEmail(notification.email, notification);
+            const delivery = await sendDepositLifecycleEmail(notification.email, notification);
+            if (!delivery?.delivered) {
+                console.error("Deposit notification was not delivered; it will be retried:", delivery?.provider || "unknown provider");
+                continue;
+            }
             await markDepositNotificationSent(eventId, notification.kind);
         } catch (err) {
             if (notification.kind === "detected" && eventId) {
@@ -2926,14 +2938,75 @@ function depositRetryableError(err) {
         || /aborted|timeout|timed out|fetch failed|ECONN|ETIMEDOUT|ENOTFOUND|socket|network/i.test(String(err?.message || err));
 }
 
-async function waitForDepositRetry(attempt) {
-    const delayMs = Math.min(2500, 250 * (2 ** attempt));
+function depositProviderKey(url = "") {
+    try {
+        const parsed = new URL(String(url));
+        return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\\/+$/g, "")}`;
+    } catch (err) {
+        return String(url || "");
+    }
+}
+
+function depositProviderState(url = "") {
+    const key = depositProviderKey(url);
+    if (!depositProviderStates.has(key)) {
+        depositProviderStates.set(key, {
+            nextAllowedAt: 0,
+            cooldownUntil: 0,
+            consecutiveFailures: 0,
+            lastStatus: 0,
+            lastErrorAt: 0
+        });
+    }
+    return depositProviderStates.get(key);
+}
+
+async function waitForDepositProviderSlot(url) {
+    const state = depositProviderState(url);
+    const waitMs = Math.max(state.nextAllowedAt, state.cooldownUntil) - Date.now();
+    if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+}
+
+function depositRetryAfterMs(err) {
+    const retryAfter = Number(err?.retryAfterMs || 0);
+    return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 0;
+}
+
+function noteDepositProviderSuccess(url) {
+    const state = depositProviderState(url);
+    state.nextAllowedAt = Date.now() + DEPOSIT_PROVIDER_MIN_INTERVAL_MS;
+    state.cooldownUntil = 0;
+    state.consecutiveFailures = 0;
+    state.lastStatus = 200;
+}
+
+function noteDepositProviderFailure(url, err) {
+    if (!depositRetryableError(err)) return;
+    const state = depositProviderState(url);
+    state.consecutiveFailures += 1;
+    state.lastStatus = Number(err?.status || 0);
+    state.lastErrorAt = Date.now();
+    const exponentialCooldown = Math.min(
+        DEPOSIT_PROVIDER_MAX_COOLDOWN_MS,
+        DEPOSIT_PROVIDER_COOLDOWN_MS * (2 ** Math.max(0, state.consecutiveFailures - 1))
+    );
+    state.cooldownUntil = Date.now() + Math.max(depositRetryAfterMs(err), exponentialCooldown);
+}
+
+async function waitForDepositRetry(attempt, err = null) {
+    const retryAfterMs = depositRetryAfterMs(err);
+    const delayMs = retryAfterMs > 0
+        ? Math.min(DEPOSIT_PROVIDER_MAX_COOLDOWN_MS, retryAfterMs)
+        : Math.min(2500, 250 * (2 ** attempt));
     await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 async function fetchDepositJson(url, options = {}) {
     let lastError = null;
     for (let attempt = 0; attempt <= DEPOSIT_REST_RETRY_ATTEMPTS; attempt += 1) {
+        await waitForDepositProviderSlot(url);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), DEPOSIT_REST_TIMEOUT_MS);
         timeout.unref?.();
@@ -2962,20 +3035,31 @@ async function fetchDepositJson(url, options = {}) {
             if (!response.ok) {
                 const error = new Error(json?.error || json?.message || json?.raw || `Deposit API returned ${response.status}`);
                 error.status = response.status;
+                const retryAfter = response.headers.get("retry-after");
+                if (retryAfter) {
+                    const retryAfterSeconds = Number(retryAfter);
+                    error.retryAfterMs = Number.isFinite(retryAfterSeconds)
+                        ? retryAfterSeconds * 1000
+                        : 0;
+                }
                 throw error;
             }
+            noteDepositProviderSuccess(url);
             return json;
         } catch (err) {
             lastError = err;
-            if (attempt >= DEPOSIT_REST_RETRY_ATTEMPTS || !depositRetryableError(err)) throw err;
-            await waitForDepositRetry(attempt);
+            noteDepositProviderFailure(url, err);
+            const isRateLimited = Number(err?.status || 0) === 429;
+            if (attempt >= DEPOSIT_REST_RETRY_ATTEMPTS || isRateLimited || !depositRetryableError(err)) {
+                throw err;
+            }
+            await waitForDepositRetry(attempt, err);
         } finally {
             clearTimeout(timeout);
         }
     }
     throw lastError || new Error("Deposit API request failed.");
 }
-
 
 async function runDepositProviderFailover(providers, operation, label = "deposit provider") {
     const errors = [];
@@ -16046,19 +16130,44 @@ function startLiveDataRefreshLoop() {
 function startDepositMonitorLoop() {
   if (!databaseConfigured()) return;
   if (!DEPOSIT_MONITOR_ENABLED) return;
-  if (depositMonitorTimer) return;
+  if (depositMonitorLoopStarted) return;
+
+  depositMonitorLoopStarted = true;
 
   const runMonitor = (reason = "deposit-monitor") => {
     if (depositMonitorInFlight) return depositMonitorInFlight;
+    const startedAt = new Date();
     depositMonitorInFlight = scanDatabaseCryptoDeposits({ reason })
       .then((result) => {
+        lastDepositMonitor = {
+          success: true,
+          reason,
+          startedAt: startedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          scannedAddresses: Number(result?.scannedAddresses || 0),
+          detected: Array.isArray(result?.detected) ? result.detected.length : 0,
+          credited: Array.isArray(result?.credited) ? result.credited.length : 0,
+          errors: Array.isArray(result?.errors) ? result.errors.length : 0,
+          providerFallbacks: Array.isArray(result?.providerFallbacks) ? result.providerFallbacks.length : 0
+        };
         if (result?.credited?.length) {
           console.log(`Deposit monitor credited ${result.credited.length} deposit(s).`);
+        }
+        if (result?.errors?.length) {
+          console.error(`Deposit monitor completed with ${result.errors.length} provider/scanner error(s).`);
         }
         return result;
       })
       .catch((err) => {
+        lastDepositMonitor = {
+          success: false,
+          reason,
+          startedAt: startedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          error: err.message || String(err)
+        };
         console.error("Deposit monitor failed:", err);
+        return { success: false, error: err.message || String(err) };
       })
       .finally(() => {
         depositMonitorInFlight = null;
@@ -16066,12 +16175,35 @@ function startDepositMonitorLoop() {
     return depositMonitorInFlight;
   };
 
-  const startupTimer = setTimeout(() => runMonitor("startup-deposit-monitor"), 15 * 1000);
-  startupTimer.unref?.();
+  const scheduleNext = (baseDelayMs, reason) => {
+    const jitter = DEPOSIT_MONITOR_JITTER_MS > 0
+      ? Math.floor(Math.random() * (DEPOSIT_MONITOR_JITTER_MS + 1))
+      : 0;
+    depositMonitorTimer = setTimeout(async () => {
+      depositMonitorTimer = null;
+      await runMonitor(reason);
+      if (DEPOSIT_MONITOR_ENABLED) {
+        scheduleNext(DEPOSIT_MONITOR_INTERVAL_MS, "deposit-monitor-interval");
+      }
+    }, Math.max(1000, baseDelayMs + jitter));
+    depositMonitorTimer.unref?.();
+  };
 
-  depositMonitorTimer = setInterval(() => runMonitor("deposit-monitor-interval"), DEPOSIT_MONITOR_INTERVAL_MS);
-  depositMonitorTimer.unref?.();
+  scheduleNext(15 * 1000, "startup-deposit-monitor");
 }
+
+app.get("/api/build-info", (req, res) => {
+  return res.json({
+    success: true,
+    buildId: AUTODY_BUILD_ID,
+    databaseConfigured: databaseConfigured(),
+    emailConfigured: Boolean(RESEND_API_KEY),
+    depositMonitorEnabled: DEPOSIT_MONITOR_ENABLED,
+    depositMonitorIntervalMs: DEPOSIT_MONITOR_INTERVAL_MS,
+    depositProviderMinIntervalMs: DEPOSIT_PROVIDER_MIN_INTERVAL_MS,
+    lastDepositMonitor
+  });
+});
 
 app.get("/api/db/status", async (req, res) => {
   if (!databaseConfigured()) {
