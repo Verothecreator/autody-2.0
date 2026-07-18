@@ -119,16 +119,14 @@ jobs:
 
             if ! printf '%s' "$BUILD_INFO" | grep -q '"buildId":"${{ github.sha }}"'; then
               echo "Deployment verification failed: the local Autody process is not serving commit ${{ github.sha }}."
-              printf '%s
-' "$BUILD_INFO"
+              printf '%s\n' "$BUILD_INFO"
               exit 1
             fi
 
             for marker in '"databaseConfigured":true' '"emailConfigured":true' '"depositMonitorEnabled":true'; do
               if ! printf '%s' "$BUILD_INFO" | grep -q "$marker"; then
                 echo "Deployment verification failed: missing runtime marker $marker."
-                printf '%s
-' "$BUILD_INFO"
+                printf '%s\n' "$BUILD_INFO"
                 exit 1
               fi
             done
@@ -136,7 +134,6 @@ jobs:
             PUBLIC_BUILD_INFO="$(curl -fsS --max-time 20 https://autodytraded.com/api/build-info 2>/dev/null || true)"
             if ! printf '%s' "$PUBLIC_BUILD_INFO" | grep -q '"buildId":"${{ github.sha }}"'; then
               echo "Deployment verification failed: autodytraded.com is not serving commit ${{ github.sha }}."
-              printf '%s
-' "$PUBLIC_BUILD_INFO"
+              printf '%s\n' "$PUBLIC_BUILD_INFO"
               exit 1
             fi
