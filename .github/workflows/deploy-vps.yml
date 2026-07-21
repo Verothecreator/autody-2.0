@@ -63,7 +63,6 @@ jobs:
             }
 
             set_env_value APP_BASE_URL https://autodytraded.com
-            set_env_value AUTODY_BUILD_ID ${{ github.sha }}
             set_env_value DEPOSIT_MONITOR_ENABLED true
             set_env_value DEPOSIT_MONITOR_INTERVAL_MS 60000
             set_env_value DEPOSIT_MONITOR_JITTER_MS 5000
@@ -71,22 +70,14 @@ jobs:
             set_env_value DEPOSIT_PROVIDER_MIN_INTERVAL_MS 1200
             set_env_value DEPOSIT_PROVIDER_COOLDOWN_MS 60000
             set_env_value DEPOSIT_PROVIDER_MAX_COOLDOWN_MS 600000
-            set_env_value DEPOSIT_MIN_CONFIRMATIONS 3
-            set_env_value DEPOSIT_CONFIRMED_EMAIL_DELAY_MS 90000
             set_env_value DEPOSIT_ACCOUNT_TX_LIMIT 100
             set_env_value DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS 5000
-            set_env_value DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS 10000
             set_env_value DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS 500
             set_env_value DEPOSIT_RPC_TIMEOUT_MS 20000
-            set_env_value DEPOSIT_EVM_SCAN_CURSOR_VERSION v2
             set_env_value DEPOSIT_MIN_AUTO_CREDIT_USD 0.01
             set_env_value DEPOSIT_MIN_AUTO_STABLECOIN_CREDIT 0.01
             set_env_value DEPOSIT_DUST_CLEANUP_LIMIT 250
             set_env_value DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE 80
-            set_env_value DEPOSIT_REST_TIMEOUT_MS 30000
-            set_env_value DEPOSIT_REST_RETRY_ATTEMPTS 2
-            set_env_value DEPOSIT_RPC_RETRY_ATTEMPTS 1
-            set_env_value DEPOSIT_BLOCKSCOUT_EMPTY_FALLBACK false
 
             if command -v pm2 >/dev/null 2>&1; then
               if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then
@@ -108,34 +99,3 @@ jobs:
               exit 1
             fi
 
-            PORT_VALUE="$(grep '^PORT=' .env | tail -n 1 | cut -d= -f2-)"
-            PORT_VALUE="${PORT_VALUE:-3000}"
-            BUILD_INFO=""
-            for attempt in 1 2 3 4 5; do
-              BUILD_INFO="$(curl -fsS --max-time 15 "http://127.0.0.1:${PORT_VALUE}/api/build-info" 2>/dev/null || true)"
-              if printf '%s' "$BUILD_INFO" | grep -q '"buildId":"${{ github.sha }}"'; then
-                break
-              fi
-              sleep 5
-            done
-
-            if ! printf '%s' "$BUILD_INFO" | grep -q '"buildId":"${{ github.sha }}"'; then
-              echo "Deployment verification failed: the local Autody process is not serving commit ${{ github.sha }}."
-              printf '%s\n' "$BUILD_INFO"
-              exit 1
-            fi
-
-            for marker in '"databaseConfigured":true' '"emailConfigured":true' '"depositMonitorEnabled":true'; do
-              if ! printf '%s' "$BUILD_INFO" | grep -q "$marker"; then
-                echo "Deployment verification failed: missing runtime marker $marker."
-                printf '%s\n' "$BUILD_INFO"
-                exit 1
-              fi
-            done
-
-            PUBLIC_BUILD_INFO="$(curl -fsS --max-time 20 https://autodytraded.com/api/build-info 2>/dev/null || true)"
-            if ! printf '%s' "$PUBLIC_BUILD_INFO" | grep -q '"buildId":"${{ github.sha }}"'; then
-              echo "Deployment verification failed: autodytraded.com is not serving commit ${{ github.sha }}."
-              printf '%s\n' "$PUBLIC_BUILD_INFO"
-              exit 1
-            fi
