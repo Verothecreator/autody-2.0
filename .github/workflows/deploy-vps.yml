@@ -85,11 +85,8 @@ jobs:
                 systemctl disable autody || true
               fi
 
-              if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
-                pm2 restart "$APP_NAME" --update-env
-              else
-                pm2 start server.js --name "$APP_NAME"
-              fi
+              pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+              pm2 start server.js --name "$APP_NAME" --update-env
               pm2 save
             elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then
               systemctl restart autody
