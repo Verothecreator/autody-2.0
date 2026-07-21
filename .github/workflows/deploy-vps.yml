@@ -101,5 +101,5 @@ jobs:
               pm2 status
               pm2 logs "$APP_NAME" --lines 80 --nostream || true
             fi
-            curl --fail --silent --show-error http://127.0.0.1:3000/api/build-info
+            curl --fail --silent --show-error http://127.0.0.1:3000/api/live/status
 
