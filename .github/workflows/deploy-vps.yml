@@ -99,3 +99,10 @@ jobs:
               exit 1
             fi
 
+            sleep 3
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 status
+              pm2 logs "$APP_NAME" --lines 80 --nostream || true
+            fi
+            curl --fail --silent --show-error http://127.0.0.1:3000/api/build-info
+
