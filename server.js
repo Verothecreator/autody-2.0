@@ -126,7 +126,11 @@ const LOGIN_EMAIL_CODE_TTL_MS = Number(process.env.LOGIN_EMAIL_CODE_TTL_MS || 10
 const UNVERIFIED_ACCOUNT_RETENTION_DAYS = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS || 30);
 const DEPOSIT_ADDRESS_TTL_HOURS = Number(process.env.DEPOSIT_ADDRESS_TTL_HOURS || 24);
 const DEPOSIT_MONITOR_ENABLED = process.env.DEPOSIT_MONITOR_ENABLED === "true";
-const DEPOSIT_MONITOR_INTERVAL_MS = Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 60 * 1000);
+const DEPOSIT_MONITOR_INTERVAL_MS = Math.max(15 * 1000, Number(process.env.DEPOSIT_MONITOR_INTERVAL_MS || 60 * 1000));
+const DEPOSIT_PROVIDER_MIN_INTERVAL_MS = Math.max(0, Number(process.env.DEPOSIT_PROVIDER_MIN_INTERVAL_MS || 1200));
+const DEPOSIT_PROVIDER_COOLDOWN_MS = Math.max(10 * 1000, Number(process.env.DEPOSIT_PROVIDER_COOLDOWN_MS || 60 * 1000));
+const DEPOSIT_PROVIDER_MAX_COOLDOWN_MS = Math.max(DEPOSIT_PROVIDER_COOLDOWN_MS, Number(process.env.DEPOSIT_PROVIDER_MAX_COOLDOWN_MS || 10 * 60 * 1000));
+const DEPOSIT_MONITOR_JITTER_MS = Math.max(0, Number(process.env.DEPOSIT_MONITOR_JITTER_MS || 5000));
 const DEPOSIT_MONITOR_ADDRESS_LIMIT = Number(process.env.DEPOSIT_MONITOR_ADDRESS_LIMIT || 500);
 const DEPOSIT_MIN_CONFIRMATIONS = Math.max(1, Number(process.env.DEPOSIT_MIN_CONFIRMATIONS || 3));
 const DEPOSIT_MIN_AUTO_CREDIT_USD = Math.max(0, Number(process.env.DEPOSIT_MIN_AUTO_CREDIT_USD || 0.01));
@@ -135,6 +139,7 @@ const DEPOSIT_DUST_CLEANUP_LIMIT = Math.max(0, Number(process.env.DEPOSIT_DUST_C
 const DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_EVM_LOG_LOOKBACK_BLOCKS || 10000);
 const DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS = Number(process.env.DEPOSIT_EVM_SCAN_OVERLAP_BLOCKS || 5000);
 const DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS = Math.max(100, Number(process.env.DEPOSIT_EVM_LOG_SCAN_CHUNK_BLOCKS || 5000));
+const DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS = Math.max(100, Number(process.env.DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS || 500));
 const DEPOSIT_EVM_SCAN_CURSOR_VERSION = String(process.env.DEPOSIT_EVM_SCAN_CURSOR_VERSION || "v2").trim() || "v2";
 const DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE = Math.max(1, Number(process.env.DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE || 80));
 const DEPOSIT_NATIVE_LOOKBACK_BLOCKS = Number(process.env.DEPOSIT_NATIVE_LOOKBACK_BLOCKS || 120);
@@ -174,6 +179,8 @@ let chartRefreshInFlight = null;
 let lastChartRefresh = null;
 let depositMonitorTimer = null;
 let depositMonitorInFlight = null;
+let lastDepositMonitor = null;
+const depositProviderStates = new Map();
 const adminLoginChallenges = new Map();
 let liveMarketAssetCache = { assets: [], bySymbol: new Map(), updatedAt: 0 };
 const marketCatalogCache = new Map();
@@ -1165,12 +1172,67 @@ async function markDepositNotificationSent(eventId, kind) {
 async function deliverDepositNotifications(notifications = []) {
     for (const notification of notifications || []) {
         try {
-            await sendDepositLifecycleEmail(notification.email, notification);
+            const delivery = await sendDepositLifecycleEmail(notification.email, notification);
+            if (!delivery?.delivered) {
+                console.error("Deposit notification was not delivered; it will be retried:", delivery?.provider || "unknown provider");
+                continue;
+            }
             await markDepositNotificationSent(notification.eventId, notification.kind);
         } catch (err) {
             console.error("Deposit notification email failed:", err.message || err);
         }
     }
+}
+
+async function sendWithdrawalLifecycleEmail(email, request = {}) {
+    if (!email) return { delivered: false, provider: "none", skipped: true };
+
+    const internal = request.type === "internal";
+    const symbol = normalizeTradeSymbol(request.asset || request.symbol);
+    const amountText = formatDepositAssetAmount(request.amount, symbol);
+    const usdText = request.amountUsd != null && Number(request.amountUsd) > 0
+        ? ` (${formatDepositUsd(request.amountUsd)})`
+        : "";
+    const network = normalizeText(request.network) || "selected network";
+    const destination = internal
+        ? normalizeText(request.recipientEmail) || "another Autody account"
+        : normalizeText(request.destination) || "external wallet";
+    const subject = internal ? "Transfer completed" : "Withdrawal request received";
+    const title = internal ? "Transfer completed" : "Withdrawal request received";
+    const statusCopy = internal
+        ? `Your ${amountText}${usdText} transfer to ${destination} is complete.`
+        : `Your ${amountText}${usdText} withdrawal request has been received and is being processed. You will receive another update when it is completed.`;
+    const text = `${title}\n\n${statusCopy}\n\nNetwork: ${network}\nDestination: ${destination}\n\nThe Autody Team`;
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
+          <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody account update</div>
+          <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2">${title}</h1>
+          <p>${emailHtmlEscape(statusCopy)}</p>
+          <div style="margin:18px 0;padding:16px;border-radius:12px;background:#f4f6ff;border:1px solid #d7ddf3">
+            <strong>Amount</strong><br>${emailHtmlEscape(`${amountText}${usdText}`)}<br><br>
+            <strong>Network</strong><br>${emailHtmlEscape(network)}<br><br>
+            <strong>${internal ? "Recipient" : "Destination"}</strong><br><span style="word-break:break-all">${emailHtmlEscape(destination)}</span>
+          </div>
+          <p>The Autody Team</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log(`Autody ${internal ? "transfer" : "withdrawal"} email for`, email, amountText, network, destination);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Withdrawal email delivery failed.");
+    return { delivered: true, provider: "resend" };
 }
 
 function kycRejectionReasonLabel(value = "") {
@@ -7382,23 +7444,40 @@ async function scanEvmTokenDepositGroup(client, network, assetSymbol, rows, summ
     try {
         const logResult = await runEvmRpcWithFailover(
             providers,
-            async (provider) => {
+            async (provider, entry) => {
                 const providerLogs = new Map();
                 const topicBatches = chunkItems(addressTopics, DEPOSIT_EVM_TOPIC_ADDRESS_BATCH_SIZE);
                 for (const topicBatch of topicBatches) {
-                    const batchLogs = await withTimeout(
-                        provider.getLogs({
-                            address: contract.address,
-                            fromBlock: window.fromBlock,
-                            toBlock: window.toBlock,
-                            topics: [ERC20_TRANSFER_TOPIC, null, topicBatch]
-                        }),
-                        DEPOSIT_RPC_TIMEOUT_MS,
-                        `${network} ${assetSymbol} transfer log scan`
-                    );
-                    for (const log of batchLogs) {
-                        const logKey = `${String(log.transactionHash || "").toLowerCase()}:${Number(log.index ?? log.logIndex ?? 0)}`;
-                        providerLogs.set(logKey, log);
+                    for (
+                        let fromBlock = window.fromBlock;
+                        fromBlock <= window.toBlock;
+                        fromBlock += DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS
+                    ) {
+                        const toBlock = Math.min(
+                            window.toBlock,
+                            fromBlock + DEPOSIT_EVM_LOG_REQUEST_CHUNK_BLOCKS - 1
+                        );
+                        await waitForDepositProviderSlot(entry.rpcUrl);
+                        try {
+                            const batchLogs = await withTimeout(
+                                provider.getLogs({
+                                    address: contract.address,
+                                    fromBlock,
+                                    toBlock,
+                                    topics: [ERC20_TRANSFER_TOPIC, null, topicBatch]
+                                }),
+                                DEPOSIT_RPC_TIMEOUT_MS,
+                                `${network} ${assetSymbol} transfer log scan`
+                            );
+                            noteDepositProviderSuccess(entry.rpcUrl);
+                            for (const log of batchLogs) {
+                                const logKey = `${String(log.transactionHash || "").toLowerCase()}:${Number(log.index ?? log.logIndex ?? 0)}`;
+                                providerLogs.set(logKey, log);
+                            }
+                        } catch (err) {
+                            noteDepositProviderFailure(entry.rpcUrl, err);
+                            throw err;
+                        }
                     }
                 }
                 return providerLogs;
@@ -17692,12 +17771,17 @@ app.post("/api/account/withdrawals/request", async (req, res) => {
     const body = parseJsonBody(req);
     const auth = await authenticatedAccountContext(req);
     const request = await createLiveWithdrawalRequest(auth, body);
+    const emailDelivery = await sendWithdrawalLifecycleEmail(auth.user?.email, request).catch((err) => {
+      console.error("Withdrawal notification email failed:", err.message || err);
+      return { delivered: false, provider: "error" };
+    });
     return res.json({
       success: true,
       request,
       nextStep: request.type === "internal"
-        ? "Internal transfer completed."
-        : "External withdrawal request submitted for admin review."
+        ? "Transfer completed."
+        : "Your withdrawal request has been received. You will receive an update when it is completed.",
+      emailDelivered: Boolean(emailDelivery?.delivered)
     });
   } catch (err) {
     console.error("Live withdrawal request error:", err);
