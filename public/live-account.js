@@ -323,8 +323,8 @@ function updateWithdrawalTypeFields() {
   const reviewCopy = document.getElementById("send-review-copy");
   if (reviewCopy) {
     reviewCopy.textContent = type === "external"
-      ? "External wallet withdrawals are reviewed before release for account protection."
-      : "Internal transfers are processed inside Autody.";
+      ? "External wallet withdrawals are processed securely. You will receive an update when the transfer is completed."
+      : "Internal transfers are sent to another Autody account.";
   }
   const reviewButton = document.getElementById("review-send");
   if (reviewButton) {
@@ -573,7 +573,7 @@ async function reviewLiveSend() {
     });
     const successMessage = type === "internal"
       ? `${asset} sent successfully.`
-      : data.nextStep || "Withdrawal request submitted.";
+      : data.nextStep || "Your withdrawal request has been received. You will receive an update when it is completed.";
     closeAutodyLiveTransferModal();
     showLiveNotice(successMessage, "success");
     document.getElementById("send-amount").value = "";
@@ -742,3 +742,4 @@ if (location.hash === "#live-crypto") {
 if (location.hash === "#live-funding") {
   openAutodyLiveFundingModal("card");
 }
+
