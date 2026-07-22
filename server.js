@@ -18263,6 +18263,10 @@ app.get("/config", (req, res) => {
 
 
 
+app.get(["/research", "/research.html"], (req, res) => {
+  res.status(410).type("text").send("This page is no longer available.");
+});
+
 app.use((req, res, next) => {
   if (req.method === "GET" && /\.html$/i.test(req.path)) {
     const queryIndex = req.url.indexOf("?");
