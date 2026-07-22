@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /ops-
+Disallow: /account
+Disallow: /demo-
+Disallow: /sign-in
+Disallow: /sign-up
+Disallow: /forgot-password
+Disallow: /verify-
+
+Sitemap: https://autodytraded.com/sitemap.xml
+
