@@ -12,3 +12,4 @@ Disallow: /verify-
 
 Sitemap: https://autodytraded.com/sitemap.xml
 
+# Autody public crawl policy
