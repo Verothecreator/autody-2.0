@@ -2371,7 +2371,9 @@ function liveWalletHoldingUrl(holding) {
     return `account-asset.html?symbol=${encodeURIComponent(symbol)}`;
 }
 
-const LIVE_WALLET_GROUP_SYMBOLS = new Set(["USD", "AU", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
+// AU is a real holding whose value must come from the live market catalog.
+// The group set contains display-only aggregate rows, not individual assets.
+const LIVE_WALLET_GROUP_SYMBOLS = new Set(["USD", "CRYPTO", "STOCKS", "ETFS", "OILMETALS"]);
 
 function buildLiveWalletRecords(account) {
     const orderRecords = (account.orders || []).map(walletRecordFromOrder);
@@ -2483,7 +2485,7 @@ async function buildLiveWalletSnapshot(account) {
     const au = enrichHolding(holdingsBySymbol.get("AU") || walletDefaultHolding("AU", "Autody AU", "currency", "Not held"));
     const rawPositionHoldings = rawHoldings.filter((holding) => {
         const symbol = String(holding.symbol || "").toUpperCase();
-        return !LIVE_WALLET_GROUP_SYMBOLS.has(symbol);
+        return symbol !== "AU" && !LIVE_WALLET_GROUP_SYMBOLS.has(symbol);
     });
     const positions = rawPositionHoldings
         .map(enrichHolding)
