@@ -65,8 +65,8 @@
         <small class="admin-help-text">Rescan a chain when a payment was sent but the automatic watcher missed it. Use the receiving address, asset, network, and block range from the transaction.</small>
         <label>Address<input name="address" placeholder="Optional generated address" /></label>
         <div class="admin-form-row">
-          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" /></label>
-          <label>Network<input name="network" list="admin-network-options" placeholder="Polygon PoS" /></label>
+          <label>Asset<input name="asset" list="admin-asset-options" data-platform-picker-list="admin-asset-options" placeholder="USDT" /></label>
+          <label>Network<input name="network" list="admin-network-options" data-platform-picker-list="admin-network-options" placeholder="Polygon PoS" /></label>
         </div>
         <div class="admin-form-row">
           <label>From block<input name="fromBlock" type="number" inputmode="numeric" /></label>
@@ -86,8 +86,8 @@
         <small class="admin-help-text">Sweep generated self-custody deposit addresses into the treasury. Leave amount blank to sweep the available balance after network fees.</small>
         <label>Generated address<input name="address" placeholder="Generated deposit address" required /></label>
         <div class="admin-form-row">
-          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USDT" required /></label>
-          <label>Network<input name="network" list="admin-network-options" placeholder="Polygon PoS" required /></label>
+          <label>Asset<input name="asset" list="admin-asset-options" data-platform-picker-list="admin-asset-options" placeholder="USDT" required /></label>
+          <label>Network<input name="network" list="admin-network-options" data-platform-picker-list="admin-network-options" placeholder="Polygon PoS" required /></label>
         </div>
         <label>Destination<input name="destination" placeholder="Optional treasury destination" /></label>
         <div class="admin-form-row admin-form-row-tight">
@@ -110,8 +110,8 @@
           <label>Profile ID<input name="profileId" placeholder="Optional uuid" /></label>
         </div>
         <div class="admin-form-row">
-          <label>Asset<input name="asset" list="admin-asset-options" placeholder="USD or USDT" required /></label>
-          <label>Network / note<input name="network" list="admin-network-options" placeholder="Optional ledger note" /></label>
+          <label>Asset<input name="asset" list="admin-asset-options" data-platform-picker-list="admin-asset-options" placeholder="USD or USDT" required /></label>
+          <label>Network / note<input name="network" list="admin-network-options" data-platform-picker-list="admin-network-options" placeholder="Optional ledger note" /></label>
         </div>
         <label>Reference<input name="address" placeholder="Deposit address, bank trace, or manual note" /></label>
         <label>Transaction hash<input name="txHash" placeholder="tx hash or blank for manual id" /></label>
@@ -188,6 +188,7 @@
   <datalist id="admin-asset-options"></datalist>
   <datalist id="admin-network-options"></datalist>
   <script src="ops-auth.js"></script>
+  <script src="asset-picker.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

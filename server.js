@@ -2241,7 +2241,7 @@ async function buildDemoWalletSnapshot(account) {
     const rawHoldings = account.wallet.holdings || [];
     const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
     const symbolsForMarket = [...holdingsBySymbol.keys()]
-        .filter((symbol) => symbol !== "AU" && !WALLET_GROUP_SYMBOLS.has(symbol));
+        .filter((symbol) => !WALLET_GROUP_SYMBOLS.has(symbol));
     const marketAssets = symbolsForMarket.length
         ? (await Promise.all(symbolsForMarket.map((symbol) => findMarketAssetBySymbol(symbol).catch(() => null)))).filter(Boolean)
         : [];
@@ -2418,7 +2418,7 @@ async function buildLiveWalletSnapshot(account) {
     const rawHoldings = account.wallet?.holdings || [];
     const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
     const symbolsForMarket = [...holdingsBySymbol.keys()]
-        .filter((symbol) => symbol !== "AU" && !LIVE_WALLET_GROUP_SYMBOLS.has(symbol));
+        .filter((symbol) => !LIVE_WALLET_GROUP_SYMBOLS.has(symbol));
     const marketAssets = symbolsForMarket.length
         ? (await Promise.all(symbolsForMarket.map((symbol) => findMarketAssetBySymbol(symbol).catch(() => null)))).filter(Boolean)
         : [];
@@ -13953,6 +13953,26 @@ async function buildMarketCatalog(type = "all") {
         : [];
     const stockCatalog = includeStocks ? TRADE_STOCK_ASSETS.map(assetCatalogEntry) : [];
     let catalog = [...cryptoCatalog, ...stockCatalog];
+    const controlledAssets = (databaseConfigured()
+        ? await listAdminMarketControls().catch((err) => {
+            console.error("Admin controlled market catalog load failed:", err.message || err);
+            return [];
+        })
+        : [])
+        .filter((control) => control?.enabled !== false)
+        .map((control) => adminMarketAssetFromControl(control))
+        .filter((asset) => {
+            if (type === "crypto") return asset.assetType === "crypto";
+            if (type === "stocks") return asset.assetType !== "crypto";
+            return true;
+        });
+    if (controlledAssets.length) {
+        const controlledSymbols = new Set(controlledAssets.map((asset) => String(asset.symbol || "").toUpperCase()));
+        catalog = [
+            ...catalog.filter((asset) => !controlledSymbols.has(String(asset.symbol || "").toUpperCase())),
+            ...controlledAssets
+        ];
+    }
     const snapshotTypes = type === "crypto"
         ? ["crypto"]
         : type === "stocks"

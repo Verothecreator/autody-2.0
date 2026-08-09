@@ -360,6 +360,7 @@ function renderAssetSelect() {
 
   const preferred = assetsForSide.find((asset) => asset.symbol === requestedSymbol) || assetsForSide[0];
   if (preferred) symbolSelect.value = preferred.symbol;
+  window.PlatformAssetPicker?.refreshAll();
 }
 
 function renderSideState() {

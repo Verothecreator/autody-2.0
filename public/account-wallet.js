@@ -920,6 +920,9 @@ document.addEventListener("click", (event) => {
     closeLiveWalletMenus();
     history.replaceState(null, "", `account-wallet?asset=${encodeURIComponent(selectedLiveWalletSymbol)}`);
     renderLiveWallet();
+    if (window.matchMedia?.("(max-width: 640px)").matches) {
+      document.querySelector(".wallet-detail-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     return;
   }
 

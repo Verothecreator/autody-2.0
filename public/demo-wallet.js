@@ -733,6 +733,9 @@ document.addEventListener("click", (event) => {
     closeWalletMenus();
     history.replaceState(null, "", `demo-wallet?asset=${encodeURIComponent(selectedSymbol)}`);
     renderWallet(walletState);
+    if (window.matchMedia?.("(max-width: 640px)").matches) {
+      document.querySelector(".wallet-detail-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     return;
   }
 

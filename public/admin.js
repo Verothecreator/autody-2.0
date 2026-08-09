@@ -143,6 +143,7 @@ function populateDatalists(assets = []) {
       .map((network) => `<option value="${adminEscape(network)}"></option>`)
       .join("");
   }
+  window.PlatformAssetPicker?.refreshAll();
 }
 
 function renderKpis(overview) {
