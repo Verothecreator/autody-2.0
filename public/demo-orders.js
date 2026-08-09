@@ -321,6 +321,42 @@ function sortAssetsAlphabetically(assets = []) {
   });
 }
 
+function syncOrderSelectOptions(select, entries, emptyLabel, preferredValue = "") {
+  if (!select) return "";
+  const nextEntries = entries.length
+    ? entries.map((entry) => ({
+      value: String(entry.value || "").toUpperCase(),
+      label: String(entry.label || "")
+    }))
+    : [{ value: "", label: emptyLabel }];
+  const currentValues = Array.from(select.options).map((option) => option.value);
+  const nextValues = nextEntries.map((entry) => entry.value);
+  const structureChanged = currentValues.length !== nextValues.length
+    || currentValues.some((value, index) => value !== nextValues[index]);
+
+  if (structureChanged) {
+    const fragment = document.createDocumentFragment();
+    nextEntries.forEach((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.value;
+      option.textContent = entry.label;
+      fragment.append(option);
+    });
+    select.replaceChildren(fragment);
+  } else {
+    nextEntries.forEach((entry, index) => {
+      const option = select.options[index];
+      if (option && option.textContent !== entry.label) option.textContent = entry.label;
+    });
+  }
+
+  const nextValue = nextEntries.some((entry) => entry.value === preferredValue)
+    ? preferredValue
+    : nextEntries[0]?.value || "";
+  if (select.value !== nextValue) select.value = nextValue;
+  return nextValue;
+}
+
 function swapSources() {
   return currentHoldings()
     .map(assetForHolding)
@@ -337,13 +373,15 @@ function renderAssetSelect() {
   const sellSymbols = new Set(holdings.map((holding) => holding.symbol));
 
   const sources = swapSources();
-  fromSelect.innerHTML = sources.length ? sources.map((asset) => {
-    const suffix = ` - ${formatOrderMoney(holdingValueUsd(holdingForSymbol(asset.symbol)))}`;
-    return `<option value="${escapeOrderHtml(asset.symbol)}">${escapeOrderHtml(asset.symbol)} / ${escapeOrderHtml(asset.name)}${escapeOrderHtml(suffix)}</option>`;
-  }).join("") : `<option value="">Buy crypto first</option>`;
-  if (sources.length) {
-    fromSelect.value = sources.some((asset) => asset.symbol === requestedFrom) ? requestedFrom : sources[0].symbol;
-  }
+  syncOrderSelectOptions(
+    fromSelect,
+    sources.map((asset) => ({
+      value: asset.symbol,
+      label: String(asset.symbol) + " / " + String(asset.name) + " - " + formatOrderMoney(holdingValueUsd(holdingForSymbol(asset.symbol)))
+    })),
+    "Buy crypto first",
+    requestedFrom
+  );
 
   const tradableAssets = orderAssets.filter((asset) => Number(asset.price) > 0);
   const assetsForSide = orderSide === "sell"
@@ -354,13 +392,17 @@ function renderAssetSelect() {
       )
       : sortAssetsAlphabetically(tradableAssets);
 
-  symbolSelect.innerHTML = assetsForSide.length
-    ? assetsForSide.map((asset) => orderSide === "sell" ? sellAssetOption(asset) : assetOption(asset)).join("")
-    : `<option value="">${orderSide === "sell" ? "No held assets to sell" : orderSide === "swap" ? "No crypto assets available" : "Market data loading"}</option>`;
-
-  const preferred = assetsForSide.find((asset) => asset.symbol === requestedSymbol) || assetsForSide[0];
-  if (preferred) symbolSelect.value = preferred.symbol;
-  window.PlatformAssetPicker?.refreshAll();
+  syncOrderSelectOptions(
+    symbolSelect,
+    assetsForSide.map((asset) => ({
+      value: asset.symbol,
+      label: orderSide === "sell"
+        ? String(asset.symbol) + " / " + String(asset.name) + " - " + formatOrderMoney(holdingValueUsd(holdingForSymbol(asset.symbol), { faceStablecoin: true }))
+        : String(asset.symbol) + " / " + String(asset.name) + " - " + formatAssetPrice(asset.price, asset.currency || "USD")
+    })),
+    orderSide === "sell" ? "No held assets to sell" : orderSide === "swap" ? "No crypto assets available" : "Market data loading",
+    String(requestedSymbol).toUpperCase()
+  );
 }
 
 function renderSideState() {
