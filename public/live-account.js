@@ -218,11 +218,11 @@ function liveSendValueForSymbol(wallet = {}, symbol = "") {
   const lookup = String(symbol || "").trim().toUpperCase();
   if (lookup === "USD") return Number(wallet.cashBalance || 0);
   const holding = liveSendHoldingForSymbol(wallet, lookup);
-  const direct = Number(holding?.valueUsd);
-  if (Number.isFinite(direct) && direct > 0) return direct;
   const balance = Number(holding?.balance || 0);
-  const price = Number(holding?.lastPrice || holding?.price || 0);
-  return Number.isFinite(balance) && Number.isFinite(price) ? balance * price : 0;
+  const price = Number(holding?.price ?? holding?.lastPrice ?? 0);
+  if (Number.isFinite(balance) && balance > 0 && Number.isFinite(price) && price > 0) return balance * price;
+  const direct = Number(holding?.valueUsd);
+  return Number.isFinite(direct) && direct > 0 ? direct : 0;
 }
 
 function currentSendAmountMode() {

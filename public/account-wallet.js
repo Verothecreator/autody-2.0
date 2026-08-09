@@ -224,6 +224,35 @@ function liveWalletHoldings() {
     .filter(Boolean);
 }
 
+function liveWalletValuation() {
+  const holdings = liveWalletHoldings();
+  const cash = holdings.find((holding) => holding.symbol === "USD");
+  const au = holdings.find((holding) => holding.symbol === "AU");
+  const positions = holdings.filter((holding) => (
+    !LIVE_GROUP_SYMBOLS.has(holding.symbol)
+      && holding.symbol !== "AU"
+      && liveWalletNumber(holding.balance, 0) > 0.00000001
+      && liveWalletNumber(holding.valueUsd, 0) >= LIVE_WALLET_DUST_USD
+  ));
+  const cashValue = liveWalletNumber(cash?.valueUsd, liveWalletState.cashBalance);
+  const auValue = liveWalletNumber(au?.valueUsd, 0);
+  const positionsValue = positions.reduce((sum, holding) => sum + liveWalletNumber(holding.valueUsd, 0), 0);
+  return {
+    cashValue,
+    auValue,
+    positionsValue,
+    totalValue: cashValue + auValue + positionsValue,
+    positionsCount: positions.length + (liveWalletNumber(au?.balance, 0) > 0.00000001 ? 1 : 0)
+  };
+}
+
+function syncLiveWalletValuation() {
+  const valuation = liveWalletValuation();
+  liveWalletState.totalValue = valuation.totalValue;
+  liveWalletState.positionsCount = valuation.positionsCount;
+  return valuation;
+}
+
 function liveWalletHoldingForSymbol(symbol) {
   const lookup = String(symbol || "").toUpperCase();
   return liveWalletHoldings().find((holding) => holding.symbol === lookup) || null;
@@ -307,6 +336,12 @@ function liveWalletLogoElement(asset, extraClass = "") {
 
 function liveWalletGroupRow(group) {
   const saved = liveWalletHoldingForSymbol(group.symbol);
+  const groupAssets = group.defaults.length ? liveGroupAssets(group) : [];
+  const groupValue = groupAssets.reduce((sum, asset) => sum + liveWalletNumber(asset.valueUsd, 0), 0);
+  const heldGroupAssets = groupAssets.filter((asset) => (
+    liveWalletNumber(asset.balance, 0) > 0.00000001
+      && liveWalletNumber(asset.valueUsd, 0) >= LIVE_WALLET_DUST_USD
+  ));
   if (saved) {
     return {
       ...group,
@@ -315,6 +350,8 @@ function liveWalletGroupRow(group) {
       defaults: group.defaults,
       detail: saved.detail || group.detail,
       isGroup: Boolean(group.defaults.length),
+      balance: group.defaults.length ? heldGroupAssets.length : saved.balance,
+      valueUsd: group.defaults.length ? groupValue : saved.valueUsd,
       customAsset: group.symbol === "AU" || saved.customAsset
     };
   }
@@ -344,8 +381,8 @@ function liveWalletGroupRow(group) {
   }
   return {
     ...group,
-    balance: 0,
-    valueUsd: 0,
+    balance: heldGroupAssets.length,
+    valueUsd: groupValue,
     status: "Ready",
     isGroup: true
   };
@@ -668,6 +705,7 @@ function liveSelectedAsset(rows) {
 }
 
 function renderLiveWallet() {
+  syncLiveWalletValuation();
   const rows = liveWalletRows();
   if (!expandedLiveWalletGroupKey) {
     const key = liveGroupKeyForSymbol(selectedLiveWalletSymbol);

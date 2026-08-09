@@ -177,7 +177,7 @@ function assetForHolding(holding = {}) {
     name: holding.name || marketAsset?.name || holding.symbol,
     assetType: marketAsset?.assetType || holding.assetType || holding.category,
     category: holding.category || marketAsset?.assetType,
-    price: marketAsset?.price ?? holding.price ?? holding.lastPrice ?? null,
+    price: holding.price ?? holding.lastPrice ?? marketAsset?.price ?? null,
     changePct: marketAsset?.changePct ?? holding.changePct ?? null,
     logoUrl: marketAsset?.logoUrl || holding.logoUrl || null
   };
@@ -189,11 +189,11 @@ function holdingValueUsd(holding = {}, options = {}) {
   if (options.faceStablecoin && ORDER_STABLECOIN_SYMBOLS.has(symbol) && Number.isFinite(balance)) {
     return balance;
   }
-  const direct = Number(holding.valueUsd);
-  if (Number.isFinite(direct)) return direct;
   const asset = assetForHolding(holding);
   const price = Number(asset.price);
-  return Number.isFinite(balance) && Number.isFinite(price) ? balance * price : 0;
+  if (Number.isFinite(balance) && balance > 0 && Number.isFinite(price)) return balance * price;
+  const direct = Number(holding.valueUsd);
+  return Number.isFinite(direct) ? direct : 0;
 }
 
 function currentHoldings() {

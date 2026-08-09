@@ -2242,9 +2242,10 @@ async function buildDemoWalletSnapshot(account) {
     const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
     const symbolsForMarket = [...holdingsBySymbol.keys()]
         .filter((symbol) => !WALLET_GROUP_SYMBOLS.has(symbol));
-    const marketAssets = symbolsForMarket.length
-        ? (await Promise.all(symbolsForMarket.map((symbol) => findMarketAssetBySymbol(symbol).catch(() => null)))).filter(Boolean)
-        : [];
+    const marketCatalog = await buildMarketCatalog("all");
+    const marketAssets = symbolsForMarket
+        .map((symbol) => marketCatalog.find((asset) => String(asset.symbol || "").toUpperCase() === symbol))
+        .filter(Boolean);
     const marketMap = new Map(marketAssets.map((asset) => [String(asset.symbol || "").toUpperCase(), asset]));
 
     const cash = {
@@ -2419,9 +2420,10 @@ async function buildLiveWalletSnapshot(account) {
     const holdingsBySymbol = new Map(rawHoldings.map((holding) => [String(holding.symbol || "").toUpperCase(), holding]));
     const symbolsForMarket = [...holdingsBySymbol.keys()]
         .filter((symbol) => !LIVE_WALLET_GROUP_SYMBOLS.has(symbol));
-    const marketAssets = symbolsForMarket.length
-        ? (await Promise.all(symbolsForMarket.map((symbol) => findMarketAssetBySymbol(symbol).catch(() => null)))).filter(Boolean)
-        : [];
+    const marketCatalog = await buildMarketCatalog("all");
+    const marketAssets = symbolsForMarket
+        .map((symbol) => marketCatalog.find((asset) => String(asset.symbol || "").toUpperCase() === symbol))
+        .filter(Boolean);
     const marketMap = new Map(marketAssets.map((asset) => [String(asset.symbol || "").toUpperCase(), asset]));
 
     const cash = {
