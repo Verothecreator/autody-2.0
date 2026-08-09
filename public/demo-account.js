@@ -84,9 +84,10 @@ function overviewLogoFallback(holding = {}) {
 
 function overviewLogoMarkup(holding = {}) {
   const fallback = overviewLogoFallback(holding);
-  const src = holding.logoUrl || "";
-  const autodyClass = holding.symbol === "AU" ? "autody-logo" : "";
-  const customClass = holding.customAsset && holding.symbol !== "AU" ? "custom-logo" : "";
+  const symbol = String(holding.symbol || "").toUpperCase();
+  const src = symbol === "AU" ? "/Autody-Logo.png" : holding.logoUrl || "";
+  const autodyClass = symbol === "AU" ? "autody-logo" : "";
+  const customClass = holding.customAsset && symbol !== "AU" ? "custom-logo" : "";
   const img = src
     ? `<span class="asset-logo-fit"><img src="${escapeOverviewHtml(src)}" alt="" loading="lazy" onerror="this.closest('.asset-logo').classList.add('logo-fallback'); this.closest('.asset-logo-fit')?.remove();"></span>`
     : "";

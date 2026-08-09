@@ -1640,8 +1640,8 @@ function cryptoLogoSymbol(asset) {
 }
 
 function assetLogoUrl(asset) {
+    if (String(asset.symbol || "").toUpperCase() === "AU") return "/Autody-Logo.png";
     if (asset.logoUrl || asset.image) return asset.logoUrl || asset.image;
-    if (String(asset.symbol || "").toUpperCase() === "AU") return "Autody-Logo.png";
     if (asset.assetType === "crypto") {
         const symbol = cryptoLogoSymbol(asset);
         return symbol ? `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(symbol)}.png` : null;
@@ -16251,8 +16251,12 @@ async function findMarketAssetBySymbol(symbol) {
   if (!lookup) return null;
 
   const controlledLookup = lookup === "AUTODY-AU" || lookup === "AUTODY" ? "AU" : lookup;
-  const controlledAsset = await controlledMarketAssetForLookup(controlledLookup);
-  if (controlledAsset) return controlledAsset;
+  const controlledRecord = await readAdminMarketControl(controlledLookup).catch(() => null);
+  if (controlledRecord || controlledLookup === "AU") {
+    const controlledCatalog = await buildMarketCatalog("all");
+    const currentControlledAsset = controlledCatalog.find((item) => marketAssetMatchesLookup(item, lookup));
+    if (currentControlledAsset) return currentControlledAsset;
+  }
 
   const cached = marketCatalogCache.get("all");
   if (cached && cached.expiresAt > Date.now()) {

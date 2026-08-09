@@ -238,8 +238,10 @@ function logoFallbackText(asset) {
 }
 
 function walletLogoSrc(asset) {
+  const symbol = String(asset.symbol || "").toUpperCase();
+  if (symbol === "AU") return "/Autody-Logo.png";
   if (asset.logoUrl) return asset.logoUrl;
-  if (asset.customAsset || asset.symbol === "AU") return "Autody-Logo.png";
+  if (asset.customAsset) return "/Autody-Logo.png";
   if (asset.assetType === "crypto" || asset.category === "crypto") {
     const symbol = CRYPTO_ICON_SYMBOLS[String(asset.symbol || "").toUpperCase()] || logoFallbackText(asset).toLowerCase();
     return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(symbol)}.png`;
@@ -250,7 +252,8 @@ function walletLogoSrc(asset) {
 function walletLogoMarkup(asset, extraClass = "") {
   const fallback = logoFallbackText(asset);
   const src = walletLogoSrc(asset);
-  const autodyClass = asset.symbol === "AU" || asset.customAsset ? "autody-logo" : "";
+  const symbol = String(asset.symbol || "").toUpperCase();
+  const autodyClass = symbol === "AU" || asset.customAsset ? "autody-logo" : "";
   const typeClass = `logo-type-${String(asset.assetType || asset.category || "market").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const symbolClass = `logo-symbol-${fallback.toLowerCase()}`;
   const img = src
@@ -283,15 +286,23 @@ function groupRow(group) {
     };
   }
   if (group.symbol === "AU") {
+    const market = catalogAsset("AU");
+    const balance = Number(baseHolding?.balance || 0);
+    const price = hasNumber(market?.price)
+      ? Number(market.price)
+      : hasNumber(baseHolding?.price)
+        ? Number(baseHolding.price)
+        : null;
     return {
       ...group,
       ...baseHolding,
       symbol: "AU",
       name: "Autody AU",
       category: "currency",
-      balance: Number(baseHolding?.balance || 0),
-      valueUsd: Number(baseHolding?.valueUsd || 0),
-      status: Number(baseHolding?.balance || 0) > 0 ? "Held" : "Not held",
+      balance,
+      price,
+      valueUsd: balance > 0 && price != null ? balance * price : Number(baseHolding?.valueUsd || 0),
+      status: balance > 0 ? "Held" : "Not held",
       isGroup: false
     };
   }
@@ -336,6 +347,8 @@ function groupAssets(group) {
   return symbols.map((symbol) => {
     const holding = walletHolding(symbol);
     const market = catalogAsset(symbol);
+    const balance = Number(holding?.balance || 0);
+    const price = market?.price ?? holding?.price ?? holding?.lastPrice ?? null;
     return {
       ...market,
       ...holding,
@@ -343,11 +356,11 @@ function groupAssets(group) {
       name: holding?.name || market?.name || symbol,
       category: holding?.category || market?.assetType || group.category,
       assetType: holding?.assetType || market?.assetType || group.category,
-      price: market?.price ?? holding?.price ?? holding?.lastPrice ?? null,
+      price,
       changePct: market?.changePct ?? holding?.changePct ?? null,
       logoUrl: market?.logoUrl || holding?.logoUrl || null,
-      valueUsd: Number(holding?.valueUsd || 0),
-      balance: Number(holding?.balance || 0),
+      valueUsd: balance > 0 && hasNumber(price) ? balance * Number(price) : Number(holding?.valueUsd || 0),
+      balance,
       currency: market?.currency || "USD",
       status: Number(holding?.balance || 0) > 0 ? "Held" : "Not held",
       url: `demo-asset?symbol=${encodeURIComponent(symbol)}`
@@ -590,6 +603,8 @@ function walletAssetForSymbol(symbol) {
   if (!holding && !market) return null;
   const groupKey = groupKeyForSymbol(lookup);
   const group = groupByKey(groupKey);
+  const balance = Number(holding?.balance || 0);
+  const price = market?.price ?? holding?.price ?? holding?.lastPrice ?? null;
   return {
     ...market,
     ...holding,
@@ -597,11 +612,11 @@ function walletAssetForSymbol(symbol) {
     name: holding?.name || market?.name || lookup,
     category: holding?.category || market?.assetType || group.category,
     assetType: holding?.assetType || market?.assetType || group.category,
-    price: market?.price ?? holding?.price ?? holding?.lastPrice ?? null,
+    price,
     changePct: market?.changePct ?? holding?.changePct ?? null,
     logoUrl: market?.logoUrl || holding?.logoUrl || null,
-    valueUsd: Number(holding?.valueUsd || 0),
-    balance: Number(holding?.balance || 0),
+    valueUsd: balance > 0 && hasNumber(price) ? balance * Number(price) : Number(holding?.valueUsd || 0),
+    balance,
     currency: market?.currency || "USD",
     status: Number(holding?.balance || 0) > 0 ? "Held" : "Not held",
     detail: Number(holding?.balance || 0) > 0 ? "Wallet position" : "Available to trade",

@@ -3818,6 +3818,8 @@ body.account-body.theme-light .profile-kyc-modal-card {
   color: var(--text) !important;
   padding: 0 12px !important;
   font: inherit;
+  font-size: 16px !important;
+  -webkit-text-size-adjust: 100%;
 }
 
 .platform-picker-input::placeholder {
@@ -8128,5 +8130,9 @@ body.account-body.theme-light .profile-kyc-modal-card {
 
   .platform-picker-list {
     max-height: min(240px, 42vh);
+  }
+
+  .platform-picker-input {
+    font-size: 16px !important;
   }
 }

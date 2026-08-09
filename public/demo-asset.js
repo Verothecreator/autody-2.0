@@ -118,8 +118,8 @@ function logoFallbackText(asset) {
 }
 
 function assetLogoSrc(asset) {
+  if (String(asset.symbol || "").toUpperCase() === "AU") return "/Autody-Logo.png";
   if (asset.logoUrl) return asset.logoUrl;
-  if (String(asset.symbol || "").toUpperCase() === "AU") return "Autody-Logo.png";
   if (asset.assetType === "crypto") return `https://assets.coincap.io/assets/icons/${encodeURIComponent(logoFallbackText(asset).toLowerCase())}@2x.png`;
   return "";
 }

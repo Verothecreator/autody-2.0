@@ -178,14 +178,20 @@ function normalizeLiveWalletHolding(holding = {}) {
   if (!symbol) return null;
   const market = liveCatalogAsset(symbol) || {};
   const category = holding.assetType || holding.category || market.assetType || (symbol === "USD" ? "cash" : "market");
-  const price = hasLiveWalletNumber(holding.price)
-    ? Number(holding.price)
-    : hasLiveWalletNumber(holding.lastPrice)
-      ? Number(holding.lastPrice)
-      : market.price ?? null;
+  const price = hasLiveWalletNumber(market.price)
+    ? Number(market.price)
+    : hasLiveWalletNumber(holding.price)
+      ? Number(holding.price)
+      : hasLiveWalletNumber(holding.lastPrice)
+        ? Number(holding.lastPrice)
+        : null;
 
   let balance = liveWalletNumber(holding.balance, 0);
-  let valueUsd = liveWalletNumber(holding.valueUsd, 0);
+  let valueUsd = symbol === "USD"
+    ? liveWalletNumber(holding.valueUsd, 0)
+    : hasLiveWalletNumber(price) && balance > 0
+      ? balance * Number(price)
+      : liveWalletNumber(holding.valueUsd, 0);
   if (balance <= 0.00000001 || valueUsd < LIVE_WALLET_DUST_USD) {
     if (symbol !== "USD" && symbol !== "AU" && !LIVE_GROUP_SYMBOLS.has(symbol)) {
       balance = 0;
@@ -265,8 +271,8 @@ function liveLogoFallbackText(asset) {
 function liveWalletLogoSrc(asset) {
   const symbol = String(asset.symbol || "").toUpperCase();
   const assetType = String(asset.assetType || asset.category || "").toLowerCase();
+  if (symbol === "AU") return "/Autody-Logo.png";
   if (asset.logoUrl) return asset.logoUrl;
-  if (symbol === "AU") return "Autody-Logo.png";
   if (assetType === "crypto") {
     const icon = LIVE_CRYPTO_ICONS[symbol] || liveLogoFallbackText(asset).toLowerCase();
     return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${encodeURIComponent(icon)}.png`;
@@ -277,8 +283,9 @@ function liveWalletLogoSrc(asset) {
 function liveWalletLogoMarkup(asset, extraClass = "") {
   const fallback = liveLogoFallbackText(asset);
   const src = liveWalletLogoSrc(asset);
-  const autodyClass = asset.symbol === "AU" ? "autody-logo" : "";
-  const customClass = asset.customAsset && asset.symbol !== "AU" ? "custom-logo" : "";
+  const symbol = String(asset.symbol || "").toUpperCase();
+  const autodyClass = symbol === "AU" ? "autody-logo" : "";
+  const customClass = asset.customAsset && symbol !== "AU" ? "custom-logo" : "";
   const typeClass = `logo-type-${String(asset.assetType || asset.category || "market").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const symbolClass = `logo-symbol-${fallback.toLowerCase()}`;
   const img = src
