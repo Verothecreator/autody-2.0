@@ -4549,8 +4549,8 @@ body.account-body.theme-light .profile-kyc-modal-card {
 }
 
 .asset-logo.custom-logo.has-image {
-  background: transparent;
-  border-color: transparent;
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .asset-logo-fit {
@@ -4574,13 +4574,14 @@ body.account-body.theme-light .profile-kyc-modal-card {
 }
 
 .asset-logo.custom-logo .asset-logo-fit {
-  inset: 0;
-  border-radius: inherit;
+  inset: 4px;
+  border-radius: 4px;
 }
 
 .asset-logo.custom-logo img {
-  border-radius: inherit;
-  object-fit: cover;
+  border-radius: 4px;
+  object-fit: contain;
+  object-position: center;
 }
 
 .asset-logo.logo-type-stock .asset-logo-fit,
