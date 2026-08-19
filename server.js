@@ -1441,7 +1441,95 @@ async function ensureMarketingLeadTables(client = dbPool) {
           on marketing_leads (campaign, source, created_at desc);
         create index if not exists marketing_leads_status_idx
           on marketing_leads (status, created_at desc);
+
+        create table if not exists marketing_events (
+          id uuid primary key,
+          visitor_id text not null default '',
+          lead_id uuid null,
+          event_name text not null,
+          source text not null default '',
+          medium text not null default '',
+          campaign text not null default '',
+          content text not null default '',
+          term text not null default '',
+          landing_path text not null default '',
+          referrer text not null default '',
+          country_code text not null default '',
+          metadata jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now()
+        );
+        create index if not exists marketing_events_campaign_idx
+          on marketing_events (campaign, source, event_name, created_at desc);
+        create index if not exists marketing_events_visitor_idx
+          on marketing_events (visitor_id, created_at desc);
     `);
+}
+
+async function recordMarketingEvent(body = {}, req) {
+    const allowedEvents = new Set(["page_view", "briefing_submit", "briefing_created", "signup_click"]);
+    const eventName = normalizeText(body.eventName).toLowerCase();
+    if (!allowedEvents.has(eventName)) throw demoTradeError(400, "Unknown marketing event.");
+    const attribution = normalizeMarketingAttribution(body);
+    const event = {
+        id: crypto.randomUUID(),
+        visitorId: normalizeText(body.visitorId).slice(0, 80),
+        leadId: /^[0-9a-f-]{36}$/i.test(normalizeText(body.leadId)) ? normalizeText(body.leadId) : null,
+        eventName,
+        countryCode: normalizeText(req?.get?.("cf-ipcountry") || req?.get?.("x-vercel-ip-country")).slice(0, 8).toUpperCase(),
+        metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
+        ...attribution,
+        createdAt: new Date().toISOString()
+    };
+    if (databaseConfigured()) {
+        await ensureMarketingLeadTables();
+        await dbPool.query(`
+          insert into marketing_events (
+            id, visitor_id, lead_id, event_name, source, medium, campaign, content, term,
+            landing_path, referrer, country_code, metadata, created_at
+          ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,now())
+        `, [event.id, event.visitorId, event.leadId, event.eventName, event.source, event.medium,
+            event.campaign, event.content, event.term, event.landingPath, event.referrer,
+            event.countryCode, JSON.stringify(event.metadata)]);
+        return event;
+    }
+    const db = loadDemoDb();
+    db.marketingEvents = Array.isArray(db.marketingEvents) ? db.marketingEvents : [];
+    db.marketingEvents.unshift(event);
+    db.marketingEvents = db.marketingEvents.slice(0, 20000);
+    saveDemoDb(db);
+    return event;
+}
+
+async function marketingAnalyticsOverview(days = 30) {
+    const safeDays = Math.min(365, Math.max(1, Number(days) || 30));
+    if (!databaseConfigured()) {
+        const cutoff = Date.now() - safeDays * 86400000;
+        const db = loadDemoDb();
+        const events = (db.marketingEvents || []).filter((item) => Date.parse(item.createdAt) >= cutoff);
+        const leads = (db.marketingLeads || []).filter((item) => Date.parse(item.createdAt) >= cutoff);
+        return { days: safeDays, views: events.filter((e) => e.eventName === "page_view").length, leads: leads.length,
+            conversions: leads.filter((lead) => lead.status === "converted").length, campaigns: [] };
+    }
+    await ensureMarketingLeadTables();
+    const [summaryResult, campaignResult] = await Promise.all([
+        dbPool.query(`
+          select
+            (select count(*)::int from marketing_events where event_name = 'page_view' and created_at >= now() - ($1 || ' days')::interval) as views,
+            (select count(*)::int from marketing_leads where created_at >= now() - ($1 || ' days')::interval) as leads,
+            (select count(*)::int from marketing_leads where status = 'converted' and converted_at >= now() - ($1 || ' days')::interval) as conversions
+        `, [safeDays]),
+        dbPool.query(`
+          select coalesce(nullif(source, ''), 'direct') as source,
+                 coalesce(nullif(medium, ''), 'none') as medium,
+                 coalesce(nullif(campaign, ''), 'uncategorized') as campaign,
+                 count(*)::int as leads,
+                 count(*) filter (where status = 'converted')::int as conversions
+          from marketing_leads
+          where created_at >= now() - ($1 || ' days')::interval
+          group by 1,2,3 order by leads desc, conversions desc limit 100
+        `, [safeDays])
+    ]);
+    return { days: safeDays, ...summaryResult.rows[0], campaigns: campaignResult.rows };
 }
 
 function normalizeMarketingAttribution(body = {}) {
@@ -17053,6 +17141,26 @@ app.post("/api/admin/news/publish", async (req, res) => {
   }
 });
 
+app.post("/api/admin/marketing/overview", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) {
+      return res.status(403).json({ success: false, error: "Admin marketing overview is not authorized." });
+    }
+    const overview = await marketingAnalyticsOverview(body.days);
+    const views = Number(overview.views || 0);
+    const leads = Number(overview.leads || 0);
+    const conversions = Number(overview.conversions || 0);
+    return res.json({ success: true, ...overview,
+      leadRate: views ? Number(((leads / views) * 100).toFixed(2)) : 0,
+      conversionRate: leads ? Number(((conversions / leads) * 100).toFixed(2)) : 0,
+      generatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error("Admin marketing overview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Marketing overview failed." });
+  }
+});
+
 app.post("/api/admin/accounts/overview", async (req, res) => {
   try {
     let body = {};
@@ -18178,10 +18286,23 @@ app.post("/api/support/tickets", async (req, res) => {
   }
 });
 
+app.post("/api/marketing/events", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    await recordMarketingEvent(body, req);
+    return res.status(202).json({ success: true });
+  } catch (err) {
+    return sendDemoError(res, err, "Marketing event could not be recorded");
+  }
+});
+
 app.post("/api/marketing/leads", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     const lead = await createMarketingLead(body);
+    await recordMarketingEvent({ ...body, eventName: "briefing_created", leadId: lead.id }, req).catch((err) => {
+      console.error("Marketing lead event failed:", err.message || err);
+    });
     const delivery = await sendMarketLeadWelcomeEmail(lead, req).catch((err) => {
       console.error("Market lead welcome email failed:", err.message || err);
       return { delivered: false, provider: "error" };
@@ -18561,4 +18682,3 @@ startServer().catch((err) => {
   console.error("Autody startup failed:", err);
   process.exit(1);
 });
-
