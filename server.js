@@ -1462,8 +1462,6 @@ async function createMarketingLead(body = {}) {
     if (!truthyFormValue(body.consent)) throw demoTradeError(400, "Confirm that Autody may send the requested market briefings.");
     const email = normalizeEmail(body.email);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw demoTradeError(400, "Enter a valid email address.");
-    const currency = String(body.currency || "USD").trim().toUpperCase();
-    const supportedCurrencies = new Set(["USD", "GBP", "EUR", "CAD", "AUD"]);
     const interests = Array.from(new Set((Array.isArray(body.interests) ? body.interests : [body.interests])
         .flatMap((value) => String(value || "").split(","))
         .map((value) => value.trim().toLowerCase())
@@ -1472,7 +1470,7 @@ async function createMarketingLead(body = {}) {
     const lead = {
         id: crypto.randomUUID(),
         email,
-        currency: supportedCurrencies.has(currency) ? currency : "USD",
+        currency: "USD",
         interests: interests.length ? interests : ["stocks", "crypto"],
         ...attribution,
         consentVersion: MARKETING_CONSENT_VERSION,
@@ -1541,13 +1539,13 @@ async function sendMarketLeadWelcomeEmail(lead = {}, req) {
     if (!email) return { delivered: false, provider: "none", skipped: true };
     const accountUrl = `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id)}`;
     const interests = (lead.interests || []).map((value) => value.charAt(0).toUpperCase() + value.slice(1)).join(", ");
-    const subject = `Your ${lead.currency} Autody market briefing is ready`;
-    const text = `Your Autody market briefing preferences are saved.\n\nMarkets: ${interests}\nDisplay currency: ${lead.currency}\n\nCreate your free account to build a personal watchlist:\n${accountUrl}\n\nMarket information is educational and does not guarantee investment results.`;
+    const subject = "Your Autody market briefing is ready";
+    const text = `Your Autody market briefing preferences are saved.\n\nMarkets: ${interests}\nAccount currency: USD\n\nCreate your free account to build a personal watchlist:\n${accountUrl}\n\nMarket information is educational and does not guarantee investment results.`;
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
         <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
         <h1 style="margin:16px 0 10px">Your market briefing is ready</h1>
-        <p>We saved your preferences for <strong>${emailHtmlEscape(interests)}</strong>, displayed in <strong>${emailHtmlEscape(lead.currency)}</strong>.</p>
+        <p>We saved your preferences for <strong>${emailHtmlEscape(interests)}</strong>. Autody account values are displayed in <strong>USD</strong>.</p>
         <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">Build your free watchlist</a></p>
         <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results.</p>
       </div>`;
