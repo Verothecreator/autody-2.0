@@ -45,6 +45,11 @@
 .campaign-status { min-height: 22px; margin: 0; color: #aab1c6; font-size: 14px; }
 .campaign-status[data-type="success"] { color: #59d9b2; }
 .campaign-status[data-type="error"] { color: #ff8f9c; }
+.marketing-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
+.marketing-kpis article { display: grid; gap: 8px; }
+.marketing-kpis span { color: #9fa8be; font-size: 13px; }
+.marketing-kpis strong { font-size: clamp(24px, 3vw, 38px); }
+@media (max-width: 900px) { .marketing-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .campaign-fine-print { margin: 15px 0 0 !important; font-size: 12px; color: #7f879f !important; }
 @media (max-width: 960px) { .campaign-grid { grid-template-columns: 1fr; } .campaign-value-grid { grid-template-columns: 1fr; } .campaign-value-grid article { min-height: auto; } }
 @media (max-width: 560px) { .campaign-hero { padding: 58px 0 72px; } .campaign-copy h1 { font-size: 46px; } .campaign-interest-grid { grid-template-columns: 1fr; } }
@@ -8170,4 +8175,3 @@ body.account-body.theme-light .profile-kyc-modal-card {
     font-size: 16px !important;
   }
 }
-

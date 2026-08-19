@@ -1,6 +1,16 @@
 const form = document.getElementById("market-lead-form");
 const statusNode = document.getElementById("market-lead-status");
 const query = new URLSearchParams(window.location.search);
+const VISITOR_KEY = "autodyMarketingVisitor";
+
+function marketingVisitorId() {
+  let id = localStorage.getItem(VISITOR_KEY);
+  if (!id) {
+    id = globalThis.crypto?.randomUUID?.() || `visitor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    localStorage.setItem(VISITOR_KEY, id);
+  }
+  return id;
+}
 
 function attributionPayload() {
   return {
@@ -13,6 +23,17 @@ function attributionPayload() {
     referrer: document.referrer.slice(0, 500)
   };
 }
+
+function trackMarketingEvent(eventName, extra = {}) {
+  const payload = JSON.stringify({ eventName, visitorId: marketingVisitorId(), ...attributionPayload(), ...extra });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon("/api/marketing/events", new Blob([payload], { type: "application/json" }));
+    return;
+  }
+  fetch("/api/marketing/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: payload, keepalive: true }).catch(() => {});
+}
+
+trackMarketingEvent("page_view");
 
 function setStatus(message, type = "") {
   statusNode.textContent = message;
@@ -31,6 +52,7 @@ form?.addEventListener("submit", async (event) => {
 
   submit.disabled = true;
   setStatus("Saving your preferences...");
+  trackMarketingEvent("briefing_submit", { metadata: { interests } });
   try {
     const response = await fetch("/api/marketing/leads", {
       method: "POST",
@@ -49,10 +71,12 @@ form?.addEventListener("submit", async (event) => {
     setStatus("Your briefing is ready. Check your inbox or continue to your free account.", "success");
     submit.textContent = "Continue to Autody";
     submit.disabled = false;
-    submit.onclick = () => { window.location.href = result.next || "/sign-up"; };
+    submit.onclick = () => {
+      trackMarketingEvent("signup_click", { leadId: result.leadId });
+      window.location.href = result.next || "/sign-up";
+    };
   } catch (error) {
     setStatus(error.message || "Your briefing could not be saved.", "error");
     submit.disabled = false;
   }
 });
-
