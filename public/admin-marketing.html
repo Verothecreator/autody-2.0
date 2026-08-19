@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Admin | Marketing</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="account-body admin-body">
+  <main class="admin-shell">
+    <header class="admin-hero">
+      <a href="index.html" class="brand app-brand"><img src="Autody-Logo.png" alt="" class="brand-mark" /><span>Autody</span></a>
+      <div><p class="eyebrow">Growth control</p><h1>Campaign analytics</h1><p>See which bulk-acquisition campaigns turn visitors into leads and registered users.</p></div>
+      <div class="admin-key-card ops-session-card">
+        <span class="muted-label">Reporting window</span>
+        <select id="marketing-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select>
+        <div class="admin-key-actions"><a class="btn" href="ops-console.html">Console</a><button class="btn btn-ghost" id="marketing-refresh">Refresh</button></div>
+      </div>
+    </header>
+    <p class="admin-notice" id="marketing-notice">Checking admin session...</p>
+    <section class="marketing-kpis">
+      <article class="app-card"><span>Campaign visits</span><strong id="marketing-views">0</strong></article>
+      <article class="app-card"><span>Leads</span><strong id="marketing-leads">0</strong></article>
+      <article class="app-card"><span>Registered users</span><strong id="marketing-conversions">0</strong></article>
+      <article class="app-card"><span>Visit to lead</span><strong id="marketing-lead-rate">0%</strong></article>
+      <article class="app-card"><span>Lead to signup</span><strong id="marketing-conversion-rate">0%</strong></article>
+    </section>
+    <section class="app-card admin-table-card">
+      <div class="card-heading"><div><span class="muted-label">Attribution</span><h2>Campaign performance</h2></div></div>
+      <div class="admin-table" id="marketing-table"></div>
+    </section>
+  </main>
+  <script src="ops-auth.js"></script>
+  <script src="admin-marketing.js"></script>
+</body>
+</html>
+
