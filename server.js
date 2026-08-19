@@ -103,6 +103,7 @@ const EMAIL_SECURITY_FROM = process.env.EMAIL_SECURITY_FROM || "Autody Security 
 const EMAIL_NOTIFICATIONS_FROM = process.env.EMAIL_NOTIFICATIONS_FROM || "Autody Notifications <notifications@autodytraded.com>";
 const EMAIL_MARKETS_FROM = process.env.EMAIL_MARKETS_FROM || "Autody Markets <markets@autodytraded.com>";
 const EMAIL_SUPPORT_FROM = process.env.EMAIL_SUPPORT_FROM || "Autody Support <support@autodytraded.com>";
+const MARKETING_CONSENT_VERSION = "2026-08-19";
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL || "").replace(/\/+$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
 const KYC_STORAGE_BUCKET = process.env.KYC_STORAGE_BUCKET || "autody-kyc";
@@ -1411,6 +1412,153 @@ async function sendSupportTicketConfirmationEmail(ticket = {}) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Support confirmation email delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+async function ensureMarketingLeadTables(client = dbPool) {
+    await client.query(`
+        create table if not exists marketing_leads (
+          id uuid primary key,
+          email text not null unique,
+          currency text not null default 'USD',
+          interests jsonb not null default '[]'::jsonb,
+          source text not null default '',
+          medium text not null default '',
+          campaign text not null default '',
+          content text not null default '',
+          term text not null default '',
+          landing_path text not null default '',
+          referrer text not null default '',
+          consent_version text not null,
+          consent_at timestamptz not null default now(),
+          status text not null default 'subscribed',
+          converted_at timestamptz,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        );
+
+        create index if not exists marketing_leads_campaign_idx
+          on marketing_leads (campaign, source, created_at desc);
+        create index if not exists marketing_leads_status_idx
+          on marketing_leads (status, created_at desc);
+    `);
+}
+
+function normalizeMarketingAttribution(body = {}) {
+    const clean = (value, limit = 120) => normalizeText(value).slice(0, limit);
+    return {
+        source: clean(body.utmSource || body.source),
+        medium: clean(body.utmMedium || body.medium),
+        campaign: clean(body.utmCampaign || body.campaign),
+        content: clean(body.utmContent || body.content),
+        term: clean(body.utmTerm || body.term),
+        landingPath: clean(body.landingPath, 240),
+        referrer: clean(body.referrer, 500)
+    };
+}
+
+async function createMarketingLead(body = {}) {
+    if (normalizeText(body.company)) throw demoTradeError(400, "Lead request could not be accepted.");
+    if (!truthyFormValue(body.consent)) throw demoTradeError(400, "Confirm that Autody may send the requested market briefings.");
+    const email = normalizeEmail(body.email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw demoTradeError(400, "Enter a valid email address.");
+    const currency = String(body.currency || "USD").trim().toUpperCase();
+    const supportedCurrencies = new Set(["USD", "GBP", "EUR", "CAD", "AUD"]);
+    const interests = Array.from(new Set((Array.isArray(body.interests) ? body.interests : [body.interests])
+        .flatMap((value) => String(value || "").split(","))
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => ["stocks", "crypto", "etfs", "commodities", "economy"].includes(value))));
+    const attribution = normalizeMarketingAttribution(body);
+    const lead = {
+        id: crypto.randomUUID(),
+        email,
+        currency: supportedCurrencies.has(currency) ? currency : "USD",
+        interests: interests.length ? interests : ["stocks", "crypto"],
+        ...attribution,
+        consentVersion: MARKETING_CONSENT_VERSION,
+        consentAt: new Date().toISOString(),
+        status: "subscribed",
+        createdAt: new Date().toISOString()
+    };
+
+    if (databaseConfigured()) {
+        await ensureMarketingLeadTables();
+        const result = await dbPool.query(`
+            insert into marketing_leads (
+              id, email, currency, interests, source, medium, campaign, content, term,
+              landing_path, referrer, consent_version, consent_at, status, created_at, updated_at
+            ) values ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,now(),'subscribed',now(),now())
+            on conflict (email) do update set
+              currency = excluded.currency,
+              interests = excluded.interests,
+              source = case when excluded.source <> '' then excluded.source else marketing_leads.source end,
+              medium = case when excluded.medium <> '' then excluded.medium else marketing_leads.medium end,
+              campaign = case when excluded.campaign <> '' then excluded.campaign else marketing_leads.campaign end,
+              content = case when excluded.content <> '' then excluded.content else marketing_leads.content end,
+              term = case when excluded.term <> '' then excluded.term else marketing_leads.term end,
+              landing_path = excluded.landing_path,
+              referrer = excluded.referrer,
+              consent_version = excluded.consent_version,
+              consent_at = now(), status = 'subscribed', updated_at = now()
+            returning id, created_at
+        `, [lead.id, email, lead.currency, JSON.stringify(lead.interests), lead.source, lead.medium,
+            lead.campaign, lead.content, lead.term, lead.landingPath, lead.referrer, lead.consentVersion]);
+        lead.id = result.rows[0].id;
+        lead.createdAt = result.rows[0].created_at;
+        return lead;
+    }
+
+    const db = loadDemoDb();
+    db.marketingLeads = Array.isArray(db.marketingLeads) ? db.marketingLeads : [];
+    const existing = db.marketingLeads.find((item) => normalizeEmail(item.email) === email);
+    if (existing) Object.assign(existing, lead, { id: existing.id || lead.id, updatedAt: new Date().toISOString() });
+    else db.marketingLeads.unshift(lead);
+    db.marketingLeads = db.marketingLeads.slice(0, 5000);
+    saveDemoDb(db);
+    return existing || lead;
+}
+
+async function markMarketingLeadConverted(email) {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return;
+    if (databaseConfigured()) {
+        await ensureMarketingLeadTables();
+        await dbPool.query(`update marketing_leads set status = 'converted', converted_at = coalesce(converted_at, now()), updated_at = now() where email = $1`, [normalized]);
+        return;
+    }
+    const db = loadDemoDb();
+    const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
+    if (lead) {
+        lead.status = "converted";
+        lead.convertedAt = lead.convertedAt || new Date().toISOString();
+        lead.updatedAt = new Date().toISOString();
+        saveDemoDb(db);
+    }
+}
+
+async function sendMarketLeadWelcomeEmail(lead = {}, req) {
+    const email = normalizeEmail(lead.email);
+    if (!email) return { delivered: false, provider: "none", skipped: true };
+    const accountUrl = `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id)}`;
+    const interests = (lead.interests || []).map((value) => value.charAt(0).toUpperCase() + value.slice(1)).join(", ");
+    const subject = `Your ${lead.currency} Autody market briefing is ready`;
+    const text = `Your Autody market briefing preferences are saved.\n\nMarkets: ${interests}\nDisplay currency: ${lead.currency}\n\nCreate your free account to build a personal watchlist:\n${accountUrl}\n\nMarket information is educational and does not guarantee investment results.`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
+        <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
+        <h1 style="margin:16px 0 10px">Your market briefing is ready</h1>
+        <p>We saved your preferences for <strong>${emailHtmlEscape(interests)}</strong>, displayed in <strong>${emailHtmlEscape(lead.currency)}</strong>.</p>
+        <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">Build your free watchlist</a></p>
+        <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results.</p>
+      </div>`;
+    if (!RESEND_API_KEY) return { delivered: false, provider: "console" };
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: EMAIL_MARKETS_FROM, to: email, subject, html, text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Market welcome email delivery failed.");
     return { delivered: true, provider: "resend" };
 }
 
@@ -14237,13 +14385,13 @@ app.post("/webhook/transak", async (req, res) => {
         }
 
         if (!validTransakSignature(req)) {
-            console.log("❌ Invalid Transak signature");
+            console.log("âŒ Invalid Transak signature");
             return res.status(401).send("Invalid signature");
         }
 
         const data = JSON.parse(req.body.toString());
 
-        console.log("🟢 Webhook received:", data);
+        console.log("ðŸŸ¢ Webhook received:", data);
 
         const orderId = data?.id;
         const status = data?.status;
@@ -14252,7 +14400,7 @@ app.post("/webhook/transak", async (req, res) => {
         const auAmount = Number(metadata.au_amount);
 
         if (!orderId || !buyerWallet || !auAmount) {
-            console.log("❌ Missing required metadata");
+            console.log("âŒ Missing required metadata");
             return res.status(400).send("Missing metadata");
         }
 
@@ -14260,13 +14408,13 @@ app.post("/webhook/transak", async (req, res) => {
 
         // Prevent double-credit
         if (orders[orderId]) {
-            console.log("⚠ Order already processed:", orderId);
+            console.log("âš  Order already processed:", orderId);
             return res.status(200).send("Already processed");
         }
 
         // Only credit AU after Transak confirms success
         if (status !== "COMPLETED") {
-            console.log("⌛ Order not completed yet:", orderId, status);
+            console.log("âŒ› Order not completed yet:", orderId, status);
             return res.status(200).send("Waiting for completion");
         }
 
@@ -14282,12 +14430,12 @@ app.post("/webhook/transak", async (req, res) => {
             backendWallet
         );
 
-        console.log("📤 Sending AU:", auAmount, "to", buyerWallet);
+        console.log("ðŸ“¤ Sending AU:", auAmount, "to", buyerWallet);
 
         const tx = await contract.buyForBuyer(buyerWallet, auAmount);
         const receipt = await tx.wait();
 
-        console.log("✅ AU credited:", receipt.transactionHash);
+        console.log("âœ… AU credited:", receipt.transactionHash);
 
         // Save order to prevent re-credit
         orders[orderId] = {
@@ -14300,7 +14448,7 @@ app.post("/webhook/transak", async (req, res) => {
 
         return res.status(200).send("Success");
     } catch (err) {
-        console.error("❌ Webhook error:", err);
+        console.error("âŒ Webhook error:", err);
         return res.status(500).send("Server error");
     }
 });
@@ -17278,6 +17426,10 @@ app.post("/api/auth/sign-up", async (req, res) => {
       created = createJsonAccount(signUp);
     }
 
+    await markMarketingLeadConverted(signUp.email).catch((err) => {
+      console.error("Marketing lead conversion tracking failed:", err.message || err);
+    });
+
     const emailDelivery = await sendVerificationEmail(signUp.email, created.verificationDelivery?.emailToken || "", req)
       .catch((err) => {
         console.error("Verification email delivery failed:", err.message || err);
@@ -18028,6 +18180,26 @@ app.post("/api/support/tickets", async (req, res) => {
   }
 });
 
+app.post("/api/marketing/leads", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    const lead = await createMarketingLead(body);
+    const delivery = await sendMarketLeadWelcomeEmail(lead, req).catch((err) => {
+      console.error("Market lead welcome email failed:", err.message || err);
+      return { delivered: false, provider: "error" };
+    });
+    return res.status(201).json({
+      success: true,
+      leadId: lead.id,
+      next: `/sign-up?lead=${encodeURIComponent(lead.id)}`,
+      delivery: delivery.delivered ? "sent" : "pending"
+    });
+  } catch (err) {
+    console.error("Marketing lead capture error:", err);
+    return sendDemoError(res, err, "Market briefing request could not be saved");
+  }
+});
+
 app.post("/api/public/support/tickets", async (req, res) => {
   try {
     const body = parseJsonBody(req);
@@ -18391,3 +18563,4 @@ startServer().catch((err) => {
   console.error("Autody startup failed:", err);
   process.exit(1);
 });
+
