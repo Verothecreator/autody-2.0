@@ -98,7 +98,11 @@ const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
 const CAPTCHA_REQUIRED = process.env.CAPTCHA_REQUIRED !== "false";
 const APP_BASE_URL = process.env.APP_BASE_URL || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-const EMAIL_FROM = process.env.EMAIL_FROM || "Autody <onboarding@resend.dev>";
+const EMAIL_VERIFY_FROM = process.env.EMAIL_VERIFY_FROM || "Autody Verification <verify@autodytraded.com>";
+const EMAIL_SECURITY_FROM = process.env.EMAIL_SECURITY_FROM || "Autody Security <security@autodytraded.com>";
+const EMAIL_NOTIFICATIONS_FROM = process.env.EMAIL_NOTIFICATIONS_FROM || "Autody Notifications <notifications@autodytraded.com>";
+const EMAIL_MARKETS_FROM = process.env.EMAIL_MARKETS_FROM || "Autody Markets <markets@autodytraded.com>";
+const EMAIL_SUPPORT_FROM = process.env.EMAIL_SUPPORT_FROM || "Autody Support <support@autodytraded.com>";
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL || "").replace(/\/+$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
 const KYC_STORAGE_BUCKET = process.env.KYC_STORAGE_BUCKET || "autody-kyc";
@@ -870,7 +874,7 @@ async function sendVerificationEmail(email, token, req) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            from: EMAIL_FROM,
+            from: EMAIL_VERIFY_FROM,
             to: email,
             subject,
             html,
@@ -909,7 +913,7 @@ async function sendWelcomeEmail(email, req) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            from: EMAIL_FROM,
+            from: EMAIL_NOTIFICATIONS_FROM,
             to: email,
             subject,
             html,
@@ -950,7 +954,7 @@ async function sendLoginCodeEmail(email, code) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            from: EMAIL_FROM,
+            from: EMAIL_SECURITY_FROM,
             to: email,
             subject,
             html,
@@ -991,7 +995,7 @@ async function sendAdminLoginCodeEmail(email, code) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            from: EMAIL_FROM,
+            from: EMAIL_SECURITY_FROM,
             to: email,
             subject,
             html,
@@ -1032,7 +1036,7 @@ async function sendPasswordChangeCodeEmail(email, code) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            from: EMAIL_FROM,
+            from: EMAIL_SECURITY_FROM,
             to: email,
             subject,
             html,
@@ -1077,7 +1081,7 @@ async function sendPasswordResetEmail(email, token, req) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            from: EMAIL_FROM,
+            from: EMAIL_SECURITY_FROM,
             to: email,
             subject,
             html,
@@ -1151,7 +1155,7 @@ async function sendDepositLifecycleEmail(email, options = {}) {
             Authorization: `Bearer ${RESEND_API_KEY}`,
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+        body: JSON.stringify({ from: EMAIL_NOTIFICATIONS_FROM, to: email, subject, html, text })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Deposit email delivery failed.");
@@ -1228,7 +1232,7 @@ async function sendWithdrawalLifecycleEmail(email, request = {}) {
             Authorization: `Bearer ${RESEND_API_KEY}`,
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+        body: JSON.stringify({ from: EMAIL_NOTIFICATIONS_FROM, to: email, subject, html, text })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Withdrawal email delivery failed.");
@@ -1299,7 +1303,7 @@ async function sendKycSubmittedEmail(email, displayName = "") {
             Authorization: `Bearer ${RESEND_API_KEY}`,
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+        body: JSON.stringify({ from: EMAIL_NOTIFICATIONS_FROM, to: email, subject, html, text })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "KYC received email delivery failed.");
@@ -1357,10 +1361,56 @@ async function sendKycDecisionEmail(email, options = {}) {
             Authorization: `Bearer ${RESEND_API_KEY}`,
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({ from: EMAIL_FROM, to: email, subject, html, text })
+        body: JSON.stringify({ from: EMAIL_NOTIFICATIONS_FROM, to: email, subject, html, text })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "KYC decision email delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+async function sendSupportTicketConfirmationEmail(ticket = {}) {
+    const email = normalizeEmail(ticket.email || "");
+    if (!email) return { delivered: false, provider: "none", skipped: true };
+
+    const ticketId = normalizeText(ticket.id);
+    const topic = normalizeText(ticket.topic) || normalizeText(ticket.category) || "Support request";
+    const subject = `Autody support request received${ticketId ? ` (${ticketId.slice(0, 8)})` : ""}`;
+    const text = `We received your Autody support request.\n\nTopic: ${topic}${ticketId ? `\nTicket: ${ticketId}` : ""}\n\nOur support team will follow up using this email address.\n\nThe Autody Support Team`;
+    const html = `
+        <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
+          <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody support</div>
+          <h1 style="margin:16px 0 10px;font-size:28px;line-height:1.2">Request received</h1>
+          <p>We received your Autody support request.</p>
+          <div style="margin:18px 0;padding:16px;border-radius:12px;background:#f4f6ff;border:1px solid #d7ddf3">
+            <strong>Topic</strong><br>${emailHtmlEscape(topic)}
+            ${ticketId ? `<br><br><strong>Ticket</strong><br>${emailHtmlEscape(ticketId)}` : ""}
+          </div>
+          <p>Our support team will follow up using this email address.</p>
+          <p>The Autody Support Team</p>
+        </div>
+    `;
+
+    if (!RESEND_API_KEY) {
+        console.log("Autody support confirmation email for", email, ticketId);
+        return { delivered: false, provider: "console" };
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: EMAIL_SUPPORT_FROM,
+            to: email,
+            subject,
+            html,
+            text
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Support confirmation email delivery failed.");
     return { delivered: true, provider: "resend" };
 }
 
@@ -17965,6 +18015,9 @@ app.post("/api/support/tickets", async (req, res) => {
     const body = parseJsonBody(req);
     const auth = await authenticatedAccountContext(req);
     const ticket = await createSupportTicket(auth, body);
+    await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
+      console.error("Support confirmation email failed:", err.message || err);
+    });
     return res.json({
       success: true,
       ticket
@@ -17979,6 +18032,9 @@ app.post("/api/public/support/tickets", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     const ticket = await createSupportTicket({ source: "public", profileId: null, userId: null, user: null }, body);
+    await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
+      console.error("Public support confirmation email failed:", err.message || err);
+    });
     return res.json({
       success: true,
       ticket
