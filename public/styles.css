@@ -15,6 +15,40 @@
   --shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
 }
 
+/* Global market acquisition campaign */
+.campaign-body { background: #080b18; color: #f7f8ff; }
+.campaign-header { background: rgba(8, 11, 24, 0.88); backdrop-filter: blur(18px); }
+.campaign-hero { min-height: calc(100vh - 80px); padding: 88px 0 96px; background: radial-gradient(circle at 12% 15%, rgba(91, 95, 239, .24), transparent 34%), radial-gradient(circle at 88% 20%, rgba(27, 185, 153, .13), transparent 28%), #080b18; }
+.campaign-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(340px, .75fr); gap: clamp(42px, 7vw, 100px); align-items: center; }
+.campaign-copy h1 { max-width: 790px; margin: 10px 0 22px; font-size: clamp(48px, 7vw, 86px); line-height: .98; letter-spacing: -.055em; }
+.campaign-lead { max-width: 680px; color: #b9bfd3; font-size: clamp(18px, 2vw, 22px); line-height: 1.6; }
+.campaign-proof { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 38px; }
+.campaign-proof span { border: 1px solid #303753; background: rgba(21, 26, 48, .72); border-radius: 999px; padding: 9px 13px; color: #d9dcff; font-size: 13px; }
+.campaign-value-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.campaign-value-grid article { min-height: 150px; padding: 20px; background: rgba(16, 21, 42, .72); border: 1px solid #242c4a; border-radius: 18px; }
+.campaign-value-grid strong, .campaign-value-grid span { display: block; }
+.campaign-value-grid strong { margin-bottom: 10px; color: #fff; }
+.campaign-value-grid span { color: #9fa7bd; font-size: 14px; line-height: 1.55; }
+.campaign-form-card { padding: clamp(25px, 4vw, 38px); border: 1px solid #343d63; border-radius: 26px; background: linear-gradient(160deg, rgba(24, 30, 58, .98), rgba(12, 16, 34, .98)); box-shadow: 0 32px 80px rgba(0,0,0,.38); }
+.campaign-form-card h2 { margin: 8px 0 8px; font-size: 34px; }
+.campaign-form-card > p { color: #aab1c6; line-height: 1.55; }
+.campaign-form { display: grid; gap: 17px; margin-top: 25px; }
+.campaign-form > label:not(.campaign-consent) { display: grid; gap: 8px; font-weight: 700; }
+.campaign-form input[type="email"], .campaign-form select { width: 100%; min-height: 50px; padding: 0 14px; color: #f7f8ff; background: #0a0f23; border: 1px solid #3b456c; border-radius: 11px; font: inherit; }
+.campaign-form fieldset { margin: 0; padding: 0; border: 0; }
+.campaign-form legend { margin-bottom: 10px; font-weight: 700; }
+.campaign-interest-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.campaign-interest-grid label { display: flex; gap: 9px; align-items: center; padding: 11px; color: #cfd4e7; background: #0b1024; border: 1px solid #2b3457; border-radius: 10px; }
+.campaign-consent { display: flex; align-items: flex-start; gap: 10px; color: #aab1c6; font-size: 13px; line-height: 1.5; }
+.campaign-consent input { margin-top: 3px; }
+.campaign-honeypot { position: absolute !important; left: -10000px !important; width: 1px !important; height: 1px !important; overflow: hidden !important; }
+.campaign-status { min-height: 22px; margin: 0; color: #aab1c6; font-size: 14px; }
+.campaign-status[data-type="success"] { color: #59d9b2; }
+.campaign-status[data-type="error"] { color: #ff8f9c; }
+.campaign-fine-print { margin: 15px 0 0 !important; font-size: 12px; color: #7f879f !important; }
+@media (max-width: 960px) { .campaign-grid { grid-template-columns: 1fr; } .campaign-value-grid { grid-template-columns: 1fr; } .campaign-value-grid article { min-height: auto; } }
+@media (max-width: 560px) { .campaign-hero { padding: 58px 0 72px; } .campaign-copy h1 { font-size: 46px; } .campaign-interest-grid { grid-template-columns: 1fr; } }
+
 * {
   box-sizing: border-box;
 }
@@ -8136,3 +8170,4 @@ body.account-body.theme-light .profile-kyc-modal-card {
     font-size: 16px !important;
   }
 }
+
