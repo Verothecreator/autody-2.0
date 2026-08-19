@@ -30,14 +30,14 @@ form?.addEventListener("submit", async (event) => {
   }
 
   submit.disabled = true;
-  setStatus("Saving your preferencesâ€¦");
+  setStatus("Saving your preferences...");
   try {
     const response = await fetch("/api/marketing/leads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email: data.get("email"),
-        currency: data.get("currency"),
+        currency: "USD",
         interests,
         consent: data.get("consent") === "on",
         company: data.get("company"),
