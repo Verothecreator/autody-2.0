@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody Global Market Briefing</title>
+  <meta name="description" content="Get a personalized global market briefing for stocks, crypto, ETFs, commodities, and economic events." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://autodytraded.com/global-markets" />
+  <link rel="icon" type="image/png" href="Autody-Logo.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="campaign-body">
+  <header class="site-header campaign-header">
+    <nav class="nav container" aria-label="Campaign navigation">
+      <a href="/" class="brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="Autody" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <div class="nav-actions">
+        <a href="sign-in" class="btn btn-ghost">Sign In</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="campaign-hero">
+      <div class="container campaign-grid">
+        <div class="campaign-copy">
+          <p class="eyebrow">Every market. One account.</p>
+          <h1>Your global markets, organized before the opening bell.</h1>
+          <p class="campaign-lead">Choose the markets and currency you care about. Autody will prepare a focused briefing and help you turn it into a personal watchlist.</p>
+          <div class="campaign-proof" aria-label="Autody market coverage">
+            <span>Global stocks</span><span>Crypto</span><span>ETFs</span><span>Commodities</span><span>Economic signals</span>
+          </div>
+          <div class="campaign-value-grid">
+            <article><strong>One useful view</strong><span>Follow several asset classes without jumping between disconnected feeds.</span></article>
+            <article><strong>Your currency</strong><span>Start with USD, GBP, EUR, CAD, or AUD preferences.</span></article>
+            <article><strong>No profit promises</strong><span>Research and market context designed to support informed decisions.</span></article>
+          </div>
+        </div>
+
+        <aside class="campaign-form-card" id="briefing">
+          <p class="muted-label">Free market briefing</p>
+          <h2>Build your briefing</h2>
+          <p>Select your interests. Weâ€™ll email your starting link and save your preferences.</p>
+          <form id="market-lead-form" class="campaign-form">
+            <label>Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required /></label>
+            <label>Display currency
+              <select name="currency" required>
+                <option value="USD">USD â€” US Dollar</option>
+                <option value="GBP">GBP â€” British Pound</option>
+                <option value="EUR">EUR â€” Euro</option>
+                <option value="CAD">CAD â€” Canadian Dollar</option>
+                <option value="AUD">AUD â€” Australian Dollar</option>
+              </select>
+            </label>
+            <fieldset>
+              <legend>Markets you follow</legend>
+              <div class="campaign-interest-grid">
+                <label><input type="checkbox" name="interests" value="stocks" checked /> Stocks</label>
+                <label><input type="checkbox" name="interests" value="crypto" checked /> Crypto</label>
+                <label><input type="checkbox" name="interests" value="etfs" /> ETFs</label>
+                <label><input type="checkbox" name="interests" value="commodities" /> Commodities</label>
+                <label><input type="checkbox" name="interests" value="economy" /> Economy</label>
+              </div>
+            </fieldset>
+            <label class="campaign-consent"><input name="consent" type="checkbox" required /><span>Email me the requested Autody market briefing and related product updates. I can unsubscribe later.</span></label>
+            <label class="campaign-honeypot" aria-hidden="true">Company<input name="company" type="text" tabindex="-1" autocomplete="off" /></label>
+            <p id="market-lead-status" class="campaign-status" role="status" aria-live="polite"></p>
+            <button class="btn btn-large" type="submit">Get My Briefing</button>
+          </form>
+          <p class="campaign-fine-print">Market information is educational and does not guarantee investment results.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="container footer-grid"><strong>Autody</strong><p>&copy; 2026 Autody. All rights reserved.</p></div></footer>
+  <script src="global-markets.js"></script>
+</body>
+</html>
+
