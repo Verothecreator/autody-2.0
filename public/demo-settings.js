@@ -318,7 +318,9 @@ document.addEventListener("submit", async (event) => {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) throw new Error(data.error || "Ticket could not be submitted.");
     form.reset();
-    showSettingsNotice("Ticket submitted. Autody can review it from the support queue.", "success");
+    const reference = data.ticket?.reference || "your ticket number";
+    const deliveryText = data.delivery === "sent" ? "A confirmation email has been sent." : "Your confirmation email is being processed.";
+    showSettingsNotice(`Ticket ${reference} received. ${deliveryText}`, "success");
   } catch (err) {
     showSettingsNotice(err.message || "Ticket could not be submitted. Sign in again and retry.", "error");
   } finally {
@@ -491,3 +493,4 @@ setActiveSettingsSection("account");
 setSecurityView("menu");
 applySettingsTheme();
 loadSettingsPage();
+
