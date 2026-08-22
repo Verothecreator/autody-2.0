@@ -103,6 +103,10 @@ const EMAIL_SECURITY_FROM = process.env.EMAIL_SECURITY_FROM || "Autody Security 
 const EMAIL_NOTIFICATIONS_FROM = process.env.EMAIL_NOTIFICATIONS_FROM || "Autody Notifications <notifications@autodytraded.com>";
 const EMAIL_MARKETS_FROM = process.env.EMAIL_MARKETS_FROM || "Autody Markets <markets@autodytraded.com>";
 const EMAIL_SUPPORT_FROM = process.env.EMAIL_SUPPORT_FROM || "Autody Support <support@autodytraded.com>";
+const META_PIXEL_ID = normalizeText(process.env.META_PIXEL_ID || process.env.META_DATASET_ID || "");
+const META_CONVERSIONS_ACCESS_TOKEN = process.env.META_CONVERSIONS_ACCESS_TOKEN || "";
+const META_TEST_EVENT_CODE = normalizeText(process.env.META_TEST_EVENT_CODE || "");
+const META_GRAPH_API_VERSION = normalizeText(process.env.META_GRAPH_API_VERSION || "v23.0");
 const MARKETING_CONSENT_VERSION = "2026-08-19";
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL || "").replace(/\/+$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
@@ -1375,8 +1379,9 @@ async function sendSupportTicketConfirmationEmail(ticket = {}) {
 
     const ticketId = normalizeText(ticket.id);
     const topic = normalizeText(ticket.topic) || normalizeText(ticket.category) || "Support request";
-    const subject = `Autody support request received${ticketId ? ` (${ticketId.slice(0, 8)})` : ""}`;
-    const text = `We received your Autody support request.\n\nTopic: ${topic}${ticketId ? `\nTicket: ${ticketId}` : ""}\n\nOur support team will follow up using this email address.\n\nThe Autody Support Team`;
+    const reference = ticketId ? `AUT-${ticketId.replace(/-/g, "").slice(0, 10).toUpperCase()}` : "";
+    const subject = `Autody support request received${reference ? ` (${reference})` : ""}`;
+    const text = `We received your Autody support request.\n\nTopic: ${topic}${reference ? `\nTicket number: ${reference}` : ""}\n\nKeep this ticket number for future replies. Our support team will get back to you using this email address.\n\nThe Autody Support Team`;
     const html = `
         <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
           <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody support</div>
@@ -1384,9 +1389,9 @@ async function sendSupportTicketConfirmationEmail(ticket = {}) {
           <p>We received your Autody support request.</p>
           <div style="margin:18px 0;padding:16px;border-radius:12px;background:#f4f6ff;border:1px solid #d7ddf3">
             <strong>Topic</strong><br>${emailHtmlEscape(topic)}
-            ${ticketId ? `<br><br><strong>Ticket</strong><br>${emailHtmlEscape(ticketId)}` : ""}
+            ${reference ? `<br><br><strong>Ticket number</strong><br>${emailHtmlEscape(reference)}` : ""}
           </div>
-          <p>Our support team will follow up using this email address.</p>
+          <p>Keep this ticket number for future replies. Our support team will get back to you using this email address.</p>
           <p>The Autody Support Team</p>
         </div>
     `;
@@ -1647,6 +1652,40 @@ async function sendMarketLeadWelcomeEmail(lead = {}, req) {
     if (!response.ok) throw new Error(result?.message || "Market welcome email delivery failed.");
     return { delivered: true, provider: "resend" };
 }
+
+async function sendMetaConversionEvent(eventName, details = {}, req) {
+    if (!META_PIXEL_ID || !META_CONVERSIONS_ACCESS_TOKEN || details.metaConsent !== true) {
+        return { delivered: false, provider: "meta", skipped: true };
+    }
+    const email = normalizeEmail(details.email || "");
+    const forwarded = normalizeText(req?.get?.("x-forwarded-for")).split(",")[0].trim();
+    const userData = {
+        ...(email ? { em: [crypto.createHash("sha256").update(email).digest("hex")] } : {}),
+        ...(forwarded || req?.ip ? { client_ip_address: forwarded || req.ip } : {}),
+        ...(req?.get?.("user-agent") ? { client_user_agent: req.get("user-agent") } : {}),
+        ...(normalizeText(details.fbp) ? { fbp: normalizeText(details.fbp) } : {}),
+        ...(normalizeText(details.fbc) ? { fbc: normalizeText(details.fbc) } : {})
+    };
+    const event = {
+        event_name: eventName,
+        event_time: Math.floor(Date.now() / 1000),
+        event_id: normalizeText(details.eventId) || crypto.randomUUID(),
+        action_source: "website",
+        event_source_url: normalizeText(details.eventSourceUrl) || `${appBaseUrl(req)}${req?.originalUrl || ""}`,
+        user_data: userData,
+        custom_data: { currency: "USD", ...(details.customData || {}) }
+    };
+    const payload = { data: [event], ...(META_TEST_EVENT_CODE ? { test_event_code: META_TEST_EVENT_CODE } : {}) };
+    const response = await fetch(`https://graph.facebook.com/${encodeURIComponent(META_GRAPH_API_VERSION)}/${encodeURIComponent(META_PIXEL_ID)}/events?access_token=${encodeURIComponent(META_CONVERSIONS_ACCESS_TOKEN)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.error?.message || "Meta conversion event delivery failed.");
+    return { delivered: true, provider: "meta", result };
+}
+
 
 function createDemoSession(db, userId, sessionHours = SESSION_HOURS) {
     const token = crypto.randomBytes(32).toString("hex");
@@ -17535,6 +17574,14 @@ app.post("/api/auth/sign-up", async (req, res) => {
     await markMarketingLeadConverted(signUp.email).catch((err) => {
       console.error("Marketing lead conversion tracking failed:", err.message || err);
     });
+    await sendMetaConversionEvent("CompleteRegistration", {
+      ...body,
+      email: signUp.email,
+      eventSourceUrl: `${appBaseUrl(req)}/sign-up`,
+      customData: { status: "created" }
+    }, req).catch((err) => {
+      console.error("Meta registration event failed:", err.message || err);
+    });
 
     const emailDelivery = await sendVerificationEmail(signUp.email, created.verificationDelivery?.emailToken || "", req)
       .catch((err) => {
@@ -18273,17 +18320,24 @@ app.post("/api/support/tickets", async (req, res) => {
     const body = parseJsonBody(req);
     const auth = await authenticatedAccountContext(req);
     const ticket = await createSupportTicket(auth, body);
-    await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
+    const delivery = await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
       console.error("Support confirmation email failed:", err.message || err);
+      return { delivered: false, provider: "error" };
     });
     return res.json({
       success: true,
-      ticket
+      ticket: { ...ticket, reference: `AUT-${ticket.id.replace(/-/g, "").slice(0, 10).toUpperCase()}` },
+      delivery: delivery.delivered ? "sent" : "pending"
     });
   } catch (err) {
     console.error("Support ticket error:", err);
     return sendDemoError(res, err, "Support ticket could not be submitted");
   }
+});
+
+app.get("/api/meta/config", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  return res.json({ success: true, enabled: Boolean(META_PIXEL_ID), pixelId: META_PIXEL_ID || null });
 });
 
 app.post("/api/marketing/events", async (req, res) => {
@@ -18307,6 +18361,14 @@ app.post("/api/marketing/leads", async (req, res) => {
       console.error("Market lead welcome email failed:", err.message || err);
       return { delivered: false, provider: "error" };
     });
+    await sendMetaConversionEvent("Lead", {
+      ...body,
+      email: lead.email,
+      eventSourceUrl: `${appBaseUrl(req)}/global-markets`,
+      customData: { content_name: "Autody market briefing" }
+    }, req).catch((err) => {
+      console.error("Meta lead event failed:", err.message || err);
+    });
     return res.status(201).json({
       success: true,
       leadId: lead.id,
@@ -18323,12 +18385,14 @@ app.post("/api/public/support/tickets", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     const ticket = await createSupportTicket({ source: "public", profileId: null, userId: null, user: null }, body);
-    await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
+    const delivery = await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
       console.error("Public support confirmation email failed:", err.message || err);
+      return { delivered: false, provider: "error" };
     });
     return res.json({
       success: true,
-      ticket
+      ticket: { ...ticket, reference: `AUT-${ticket.id.replace(/-/g, "").slice(0, 10).toUpperCase()}` },
+      delivery: delivery.delivered ? "sent" : "pending"
     });
   } catch (err) {
     console.error("Public support ticket error:", err);
