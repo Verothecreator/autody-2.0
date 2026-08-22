@@ -53,6 +53,7 @@ form?.addEventListener("submit", async (event) => {
   submit.disabled = true;
   setStatus("Saving your preferences...");
   trackMarketingEvent("briefing_submit", { metadata: { interests } });
+  const metaLead = window.AutodyMeta?.conversionContext?.() || { metaConsent: false };
   try {
     const response = await fetch("/api/marketing/leads", {
       method: "POST",
@@ -63,11 +64,13 @@ form?.addEventListener("submit", async (event) => {
         interests,
         consent: data.get("consent") === "on",
         company: data.get("company"),
+        ...metaLead,
         ...attributionPayload()
       })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) throw new Error(result.error || "Your briefing could not be saved.");
+    window.AutodyMeta?.track?.("Lead", { content_name: "Autody market briefing", currency: "USD" }, metaLead.eventId);
     setStatus("Your briefing is ready. Check your inbox or continue to your free account.", "success");
     submit.textContent = "Continue to Autody";
     submit.disabled = false;
@@ -80,3 +83,4 @@ form?.addEventListener("submit", async (event) => {
     submit.disabled = false;
   }
 });
+
