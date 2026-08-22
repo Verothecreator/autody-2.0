@@ -45,6 +45,11 @@
 .campaign-status { min-height: 22px; margin: 0; color: #aab1c6; font-size: 14px; }
 .campaign-status[data-type="success"] { color: #59d9b2; }
 .campaign-status[data-type="error"] { color: #ff8f9c; }
+.ad-consent { position: fixed; z-index: 200; left: 20px; right: 20px; bottom: 20px; max-width: 920px; margin: auto; padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border: 1px solid #303a58; border-radius: 16px; background: rgba(10, 14, 27, .98); box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
+.ad-consent[hidden] { display: none; }
+.ad-consent p { margin: 5px 0 0; color: #aab1c6; font-size: 13px; }
+.ad-consent > div:last-child { display: flex; gap: 10px; flex: 0 0 auto; }
+@media (max-width: 680px) { .ad-consent { align-items: stretch; flex-direction: column; } .ad-consent > div:last-child { display: grid; grid-template-columns: 1fr 1fr; } }
 .marketing-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
 .marketing-kpis article { display: grid; gap: 8px; }
 .marketing-kpis span { color: #9fa8be; font-size: 13px; }
