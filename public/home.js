@@ -355,7 +355,9 @@ document.getElementById("public-support-form")?.addEventListener("submit", async
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) throw new Error(data.error || "Ticket could not be submitted.");
     form.reset();
-    setPublicSupportStatus("Ticket submitted. Autody will follow up by email.", "success");
+    const reference = data.ticket?.reference || "your ticket number";
+    const deliveryText = data.delivery === "sent" ? "A confirmation email has been sent." : "Your confirmation email is being processed.";
+    setPublicSupportStatus(`Ticket ${reference} received. ${deliveryText}`, "success");
   } catch (err) {
     setPublicSupportStatus(err.message || "Ticket could not be submitted. Please try again.", "error");
   } finally {
@@ -388,3 +390,4 @@ document.addEventListener("visibilitychange", () => {
   loadMarketData();
   loadNewsData();
 });
+
