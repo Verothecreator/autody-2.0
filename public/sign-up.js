@@ -372,16 +372,18 @@ signUpForm?.addEventListener("submit", async (event) => {
   }
 
   try {
+    const metaRegistration = window.AutodyMeta?.conversionContext?.() || { metaConsent: false };
     const response = await fetch("/api/auth/sign-up", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(signUpPayload(form))
+      body: JSON.stringify({ ...signUpPayload(form), ...metaRegistration })
     });
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok || !data.success) {
       throw new Error(data.error || "Sign up failed.");
     }
+    window.AutodyMeta?.track?.("CompleteRegistration", { currency: "USD", status: "created" }, metaRegistration.eventId);
 
     sessionStorage.setItem("autodyPendingEmail", String(form.get("email") || ""));
     if (data.emailHandoffToken) {
@@ -400,3 +402,4 @@ signUpForm?.addEventListener("submit", async (event) => {
     }
   }
 });
+
