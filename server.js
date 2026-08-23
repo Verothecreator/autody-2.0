@@ -123,6 +123,7 @@ const ADMIN_ACCOUNT_PASSWORD = process.env.AUTODY_ADMIN_PASSWORD || process.env.
 const ADMIN_ACCOUNT_PASSWORD_SALT = process.env.AUTODY_ADMIN_PASSWORD_SALT || process.env.ADMIN_PASSWORD_SALT || "";
 const ADMIN_ACCOUNT_PASSWORD_HASH = process.env.AUTODY_ADMIN_PASSWORD_HASH || process.env.ADMIN_PASSWORD_HASH || "";
 const ADMIN_SESSION_SECRET = process.env.AUTODY_ADMIN_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET || ADMIN_RESET_KEY || ADMIN_ACCOUNT_PASSWORD_HASH || ADMIN_ACCOUNT_PASSWORD;
+const MARKETING_SIGNING_SECRET = process.env.MARKETING_SIGNING_SECRET || ADMIN_SESSION_SECRET || RESEND_API_KEY;
 const ADMIN_KEY_BYPASS_ENABLED = process.env.AUTODY_ADMIN_KEY_BYPASS === "true";
 const ADMIN_SESSION_HOURS = Number(process.env.ADMIN_SESSION_HOURS || 2);
 const ADMIN_EMAIL_CODE_TTL_MS = Number(process.env.ADMIN_EMAIL_CODE_TTL_MS || 1000 * 60 * 5);
@@ -1379,9 +1380,8 @@ async function sendSupportTicketConfirmationEmail(ticket = {}) {
 
     const ticketId = normalizeText(ticket.id);
     const topic = normalizeText(ticket.topic) || normalizeText(ticket.category) || "Support request";
-    const reference = ticketId ? `AUT-${ticketId.replace(/-/g, "").slice(0, 10).toUpperCase()}` : "";
-    const subject = `Autody support request received${reference ? ` (${reference})` : ""}`;
-    const text = `We received your Autody support request.\n\nTopic: ${topic}${reference ? `\nTicket number: ${reference}` : ""}\n\nKeep this ticket number for future replies. Our support team will get back to you using this email address.\n\nThe Autody Support Team`;
+    const subject = `Autody support request received${ticketId ? ` (${ticketId.slice(0, 8)})` : ""}`;
+    const text = `We received your Autody support request.\n\nTopic: ${topic}${ticketId ? `\nTicket: ${ticketId}` : ""}\n\nOur support team will follow up using this email address.\n\nThe Autody Support Team`;
     const html = `
         <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
           <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody support</div>
@@ -1389,9 +1389,9 @@ async function sendSupportTicketConfirmationEmail(ticket = {}) {
           <p>We received your Autody support request.</p>
           <div style="margin:18px 0;padding:16px;border-radius:12px;background:#f4f6ff;border:1px solid #d7ddf3">
             <strong>Topic</strong><br>${emailHtmlEscape(topic)}
-            ${reference ? `<br><br><strong>Ticket number</strong><br>${emailHtmlEscape(reference)}` : ""}
+            ${ticketId ? `<br><br><strong>Ticket</strong><br>${emailHtmlEscape(ticketId)}` : ""}
           </div>
-          <p>Keep this ticket number for future replies. Our support team will get back to you using this email address.</p>
+          <p>Our support team will follow up using this email address.</p>
           <p>The Autody Support Team</p>
         </div>
     `;
@@ -1437,6 +1437,9 @@ async function ensureMarketingLeadTables(client = dbPool) {
           consent_version text not null,
           consent_at timestamptz not null default now(),
           status text not null default 'subscribed',
+          unsubscribed_at timestamptz,
+          last_briefing_at timestamptz,
+          briefing_count integer not null default 0,
           converted_at timestamptz,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
@@ -1446,6 +1449,10 @@ async function ensureMarketingLeadTables(client = dbPool) {
           on marketing_leads (campaign, source, created_at desc);
         create index if not exists marketing_leads_status_idx
           on marketing_leads (status, created_at desc);
+
+        alter table marketing_leads add column if not exists unsubscribed_at timestamptz;
+        alter table marketing_leads add column if not exists last_briefing_at timestamptz;
+        alter table marketing_leads add column if not exists briefing_count integer not null default 0;
 
         create table if not exists marketing_events (
           id uuid primary key,
@@ -1463,10 +1470,8 @@ async function ensureMarketingLeadTables(client = dbPool) {
           metadata jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now()
         );
-        create index if not exists marketing_events_campaign_idx
-          on marketing_events (campaign, source, event_name, created_at desc);
-        create index if not exists marketing_events_visitor_idx
-          on marketing_events (visitor_id, created_at desc);
+        create index if not exists marketing_events_campaign_idx on marketing_events (campaign, source, event_name, created_at desc);
+        create index if not exists marketing_events_visitor_idx on marketing_events (visitor_id, created_at desc);
     `);
 }
 
@@ -1475,66 +1480,33 @@ async function recordMarketingEvent(body = {}, req) {
     const eventName = normalizeText(body.eventName).toLowerCase();
     if (!allowedEvents.has(eventName)) throw demoTradeError(400, "Unknown marketing event.");
     const attribution = normalizeMarketingAttribution(body);
-    const event = {
-        id: crypto.randomUUID(),
-        visitorId: normalizeText(body.visitorId).slice(0, 80),
+    const event = { id: crypto.randomUUID(), visitorId: normalizeText(body.visitorId).slice(0, 80),
         leadId: /^[0-9a-f-]{36}$/i.test(normalizeText(body.leadId)) ? normalizeText(body.leadId) : null,
-        eventName,
-        countryCode: normalizeText(req?.get?.("cf-ipcountry") || req?.get?.("x-vercel-ip-country")).slice(0, 8).toUpperCase(),
-        metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
-        ...attribution,
-        createdAt: new Date().toISOString()
-    };
+        eventName, countryCode: normalizeText(req?.get?.("cf-ipcountry") || req?.get?.("x-vercel-ip-country")).slice(0, 8).toUpperCase(),
+        metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {}, ...attribution, createdAt: new Date().toISOString() };
     if (databaseConfigured()) {
         await ensureMarketingLeadTables();
-        await dbPool.query(`
-          insert into marketing_events (
-            id, visitor_id, lead_id, event_name, source, medium, campaign, content, term,
-            landing_path, referrer, country_code, metadata, created_at
-          ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,now())
-        `, [event.id, event.visitorId, event.leadId, event.eventName, event.source, event.medium,
-            event.campaign, event.content, event.term, event.landingPath, event.referrer,
-            event.countryCode, JSON.stringify(event.metadata)]);
+        await dbPool.query(`insert into marketing_events (id, visitor_id, lead_id, event_name, source, medium, campaign, content, term, landing_path, referrer, country_code, metadata, created_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,now())`,
+            [event.id, event.visitorId, event.leadId, event.eventName, event.source, event.medium, event.campaign, event.content, event.term, event.landingPath, event.referrer, event.countryCode, JSON.stringify(event.metadata)]);
         return event;
     }
-    const db = loadDemoDb();
-    db.marketingEvents = Array.isArray(db.marketingEvents) ? db.marketingEvents : [];
-    db.marketingEvents.unshift(event);
-    db.marketingEvents = db.marketingEvents.slice(0, 20000);
-    saveDemoDb(db);
-    return event;
+    const db = loadDemoDb(); db.marketingEvents = Array.isArray(db.marketingEvents) ? db.marketingEvents : []; db.marketingEvents.unshift(event); db.marketingEvents = db.marketingEvents.slice(0, 20000); saveDemoDb(db); return event;
 }
 
 async function marketingAnalyticsOverview(days = 30) {
     const safeDays = Math.min(365, Math.max(1, Number(days) || 30));
     if (!databaseConfigured()) {
-        const cutoff = Date.now() - safeDays * 86400000;
-        const db = loadDemoDb();
+        const cutoff = Date.now() - safeDays * 86400000; const db = loadDemoDb();
         const events = (db.marketingEvents || []).filter((item) => Date.parse(item.createdAt) >= cutoff);
         const leads = (db.marketingLeads || []).filter((item) => Date.parse(item.createdAt) >= cutoff);
-        return { days: safeDays, views: events.filter((e) => e.eventName === "page_view").length, leads: leads.length,
-            conversions: leads.filter((lead) => lead.status === "converted").length, campaigns: [] };
+        return { days: safeDays, views: events.filter((event) => event.eventName === "page_view").length, leads: leads.length, conversions: leads.filter((lead) => lead.status === "converted").length, campaigns: [] };
     }
     await ensureMarketingLeadTables();
-    const [summaryResult, campaignResult] = await Promise.all([
-        dbPool.query(`
-          select
-            (select count(*)::int from marketing_events where event_name = 'page_view' and created_at >= now() - ($1 || ' days')::interval) as views,
-            (select count(*)::int from marketing_leads where created_at >= now() - ($1 || ' days')::interval) as leads,
-            (select count(*)::int from marketing_leads where status = 'converted' and converted_at >= now() - ($1 || ' days')::interval) as conversions
-        `, [safeDays]),
-        dbPool.query(`
-          select coalesce(nullif(source, ''), 'direct') as source,
-                 coalesce(nullif(medium, ''), 'none') as medium,
-                 coalesce(nullif(campaign, ''), 'uncategorized') as campaign,
-                 count(*)::int as leads,
-                 count(*) filter (where status = 'converted')::int as conversions
-          from marketing_leads
-          where created_at >= now() - ($1 || ' days')::interval
-          group by 1,2,3 order by leads desc, conversions desc limit 100
-        `, [safeDays])
+    const [summary, campaigns] = await Promise.all([
+        dbPool.query(`select (select count(*)::int from marketing_events where event_name = 'page_view' and created_at >= now() - ($1 || ' days')::interval) as views, (select count(*)::int from marketing_leads where created_at >= now() - ($1 || ' days')::interval) as leads, (select count(*)::int from marketing_leads where status = 'converted' and converted_at >= now() - ($1 || ' days')::interval) as conversions`, [safeDays]),
+        dbPool.query(`select coalesce(nullif(source,''),'direct') as source, coalesce(nullif(medium,''),'none') as medium, coalesce(nullif(campaign,''),'uncategorized') as campaign, count(*)::int as leads, count(*) filter (where status = 'converted')::int as conversions from marketing_leads where created_at >= now() - ($1 || ' days')::interval group by 1,2,3 order by leads desc, conversions desc limit 100`, [safeDays])
     ]);
-    return { days: safeDays, ...summaryResult.rows[0], campaigns: campaignResult.rows };
+    return { days: safeDays, ...summary.rows[0], campaigns: campaigns.rows };
 }
 
 function normalizeMarketingAttribution(body = {}) {
@@ -1590,7 +1562,7 @@ async function createMarketingLead(body = {}) {
               landing_path = excluded.landing_path,
               referrer = excluded.referrer,
               consent_version = excluded.consent_version,
-              consent_at = now(), status = 'subscribed', updated_at = now()
+              consent_at = now(), status = 'subscribed', unsubscribed_at = null, updated_at = now()
             returning id, created_at
         `, [lead.id, email, lead.currency, JSON.stringify(lead.interests), lead.source, lead.medium,
             lead.campaign, lead.content, lead.term, lead.landingPath, lead.referrer, lead.consentVersion]);
@@ -1627,65 +1599,169 @@ async function markMarketingLeadConverted(email) {
     }
 }
 
+function marketingUnsubscribeToken(email = "") {
+    const normalized = normalizeEmail(email);
+    if (!normalized || !MARKETING_SIGNING_SECRET) return "";
+    const payload = Buffer.from(normalized).toString("base64url");
+    const signature = crypto.createHmac("sha256", MARKETING_SIGNING_SECRET).update(payload).digest("base64url");
+    return `${payload}.${signature}`;
+}
+
+async function listMarketingLeads(body = {}) {
+    const limit = Math.min(5000, Math.max(1, Number(body.limit) || 100));
+    const offset = Math.max(0, Number(body.offset) || 0);
+    const status = ["subscribed", "converted", "unsubscribed"].includes(normalizeText(body.status).toLowerCase()) ? normalizeText(body.status).toLowerCase() : "";
+    const interest = ["stocks", "crypto", "etfs", "commodities", "economy"].includes(normalizeText(body.interest).toLowerCase()) ? normalizeText(body.interest).toLowerCase() : "";
+    const search = normalizeText(body.search).toLowerCase().slice(0, 120);
+    if (!databaseConfigured()) {
+        const db = loadDemoDb();
+        const all = (db.marketingLeads || []).filter((lead) => (!status || lead.status === status)
+            && (!interest || (lead.interests || []).includes(interest)) && (!search || normalizeEmail(lead.email).includes(search)));
+        return { leads: all.slice(offset, offset + limit), total: all.length, limit, offset };
+    }
+    await ensureMarketingLeadTables();
+    const params = [];
+    const clauses = [];
+    if (status) { params.push(status); clauses.push(`status = $${params.length}`); }
+    if (interest) { params.push(JSON.stringify([interest])); clauses.push(`interests @> $${params.length}::jsonb`); }
+    if (search) { params.push(`%${search}%`); clauses.push(`lower(email) like $${params.length}`); }
+    const where = clauses.length ? `where ${clauses.join(" and ")}` : "";
+    const countResult = await dbPool.query(`select count(*)::int as total from marketing_leads ${where}`, params);
+    params.push(limit, offset);
+    const result = await dbPool.query(`select id, email, currency, interests, source, medium, campaign, content, consent_version, consent_at, status, unsubscribed_at, last_briefing_at, briefing_count, converted_at, created_at from marketing_leads ${where} order by created_at desc limit $${params.length - 1} offset $${params.length}`, params);
+    return { leads: result.rows, total: countResult.rows[0].total, limit, offset };
+}
+
+function csvCell(value) {
+    const text = Array.isArray(value) ? value.join("|") : String(value ?? "");
+    return `"${text.replace(/"/g, '""')}"`;
+}
+
+function marketingLeadsCsv(leads = []) {
+    const columns = ["email", "status", "interests", "source", "medium", "campaign", "content", "consent_version", "consent_at", "created_at", "converted_at", "unsubscribed_at", "last_briefing_at", "briefing_count"];
+    return [columns.map(csvCell).join(","), ...leads.map((lead) => columns.map((column) => csvCell(lead[column] ?? lead[column.replace(/_([a-z])/g, (_, c) => c.toUpperCase())])).join(","))].join("\n");
+}
+
+function marketingEmailFromToken(token = "") {
+    if (!MARKETING_SIGNING_SECRET || !String(token).includes(".")) return "";
+    const [payload, signature] = String(token).split(".");
+    const expected = crypto.createHmac("sha256", MARKETING_SIGNING_SECRET).update(payload).digest("base64url");
+    const given = Buffer.from(signature || "");
+    const wanted = Buffer.from(expected);
+    if (given.length !== wanted.length || !crypto.timingSafeEqual(given, wanted)) return "";
+    try { return normalizeEmail(Buffer.from(payload, "base64url").toString("utf8")); } catch (err) { return ""; }
+}
+
+function briefingFormatPrice(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "Price unavailable";
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: number < 1 ? 4 : 2 }).format(number);
+}
+
+async function buildMarketBriefing(lead = {}) {
+    const interestTypes = { stocks: ["stock"], crypto: ["crypto"], etfs: ["etf"], commodities: ["commodity"], economy: ["stock", "etf"] };
+    const interests = Array.isArray(lead.interests) && lead.interests.length ? lead.interests : ["stocks", "crypto"];
+    const sections = [];
+    for (const interest of interests.slice(0, 5)) {
+        const assets = await readLatestMarketSnapshots(interestTypes[interest] || [interest], 3).catch(() => []);
+        if (!assets.length) continue;
+        sections.push({ interest, assets: assets.map((asset) => ({
+            symbol: asset.symbol,
+            name: asset.name || asset.symbol,
+            price: briefingFormatPrice(asset.price),
+            change: Number.isFinite(Number(asset.changePct)) ? `${Number(asset.changePct) >= 0 ? "+" : ""}${Number(asset.changePct).toFixed(2)}%` : "—"
+        })) });
+    }
+    const news = await readLatestNewsSnapshots(4).catch(() => []);
+    return { sections, news, generatedAt: new Date() };
+}
+
+async function markBriefingDelivered(email) {
+    const normalized = normalizeEmail(email);
+    if (databaseConfigured()) {
+        await dbPool.query(`update marketing_leads set last_briefing_at = now(), briefing_count = briefing_count + 1, updated_at = now() where email = $1`, [normalized]);
+        return;
+    }
+    const db = loadDemoDb();
+    const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
+    if (lead) { lead.lastBriefingAt = new Date().toISOString(); lead.briefingCount = Number(lead.briefingCount || 0) + 1; saveDemoDb(db); }
+}
+
+async function unsubscribeMarketingLead(email) {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return false;
+    if (databaseConfigured()) {
+        await ensureMarketingLeadTables();
+        const result = await dbPool.query(`update marketing_leads set status = 'unsubscribed', unsubscribed_at = now(), updated_at = now() where email = $1 returning id`, [normalized]);
+        return Boolean(result.rowCount);
+    }
+    const db = loadDemoDb();
+    const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
+    if (!lead) return false;
+    lead.status = "unsubscribed"; lead.unsubscribedAt = new Date().toISOString(); lead.updatedAt = new Date().toISOString(); saveDemoDb(db);
+    return true;
+}
+
 async function sendMarketLeadWelcomeEmail(lead = {}, req) {
     const email = normalizeEmail(lead.email);
     if (!email) return { delivered: false, provider: "none", skipped: true };
     const accountUrl = `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id)}`;
     const interests = (lead.interests || []).map((value) => value.charAt(0).toUpperCase() + value.slice(1)).join(", ");
-    const subject = "Your Autody market briefing is ready";
-    const text = `Your Autody market briefing preferences are saved.\n\nMarkets: ${interests}\nAccount currency: USD\n\nCreate your free account to build a personal watchlist:\n${accountUrl}\n\nMarket information is educational and does not guarantee investment results.`;
+    const briefing = await buildMarketBriefing(lead);
+    const unsubscribeUrl = `${appBaseUrl(req)}/marketing/unsubscribe?token=${encodeURIComponent(marketingUnsubscribeToken(email))}`;
+    const subject = `Your Autody market briefing — ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(briefing.generatedAt)}`;
+    const marketText = briefing.sections.map((section) => `${section.interest.toUpperCase()}\n${section.assets.map((asset) => `• ${asset.name} (${asset.symbol}): ${asset.price}, ${asset.change}`).join("\n")}`).join("\n\n");
+    const newsText = briefing.news.length ? `\n\nMARKET HEADLINES\n${briefing.news.map((article) => `• ${article.title}${article.source ? ` — ${article.source}` : ""}`).join("\n")}` : "";
+    const text = `Your focused Autody market briefing\n\nMarkets selected: ${interests}\nAll values are shown in USD.\n\n${marketText || "Your selected markets are ready to follow in Autody."}${newsText}\n\nBuild your free personal watchlist:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
+    const sectionHtml = briefing.sections.map((section) => `<div style="margin:20px 0"><h2 style="font-size:17px;text-transform:capitalize">${emailHtmlEscape(section.interest)}</h2>${section.assets.map((asset) => `<div style="padding:10px 0;border-bottom:1px solid #e5e7eb"><strong>${emailHtmlEscape(asset.name)} (${emailHtmlEscape(asset.symbol)})</strong><br><span>${emailHtmlEscape(asset.price)} · ${emailHtmlEscape(asset.change)}</span></div>`).join("")}</div>`).join("");
+    const newsHtml = briefing.news.length ? `<div style="margin:22px 0"><h2 style="font-size:17px">Market headlines</h2>${briefing.news.map((article) => `<p><strong>${emailHtmlEscape(article.title)}</strong>${article.source ? `<br><span style="color:#6b7280">${emailHtmlEscape(article.source)}</span>` : ""}</p>`).join("")}</div>` : "";
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
         <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
-        <h1 style="margin:16px 0 10px">Your market briefing is ready</h1>
-        <p>We saved your preferences for <strong>${emailHtmlEscape(interests)}</strong>. Autody account values are displayed in <strong>USD</strong>.</p>
+        <h1 style="margin:16px 0 10px">Your focused market briefing</h1>
+        <p>Prepared for <strong>${emailHtmlEscape(interests)}</strong>. All account and market values are displayed in <strong>USD</strong>.</p>
+        ${sectionHtml || "<p>Your selected markets are ready to follow inside Autody.</p>"}
+        ${newsHtml}
         <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">Build your free watchlist</a></p>
-        <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results.</p>
+        <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results. <a href="${unsubscribeUrl}">Unsubscribe</a>.</p>
       </div>`;
     if (!RESEND_API_KEY) return { delivered: false, provider: "console" };
     const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: EMAIL_MARKETS_FROM, to: email, subject, html, text })
+        body: JSON.stringify({
+            from: EMAIL_MARKETS_FROM,
+            to: email,
+            subject,
+            html,
+            text,
+            headers: { "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+        })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Market welcome email delivery failed.");
+    await markBriefingDelivered(email).catch((err) => console.error("Briefing delivery tracking failed:", err.message || err));
     return { delivered: true, provider: "resend" };
 }
 
 async function sendMetaConversionEvent(eventName, details = {}, req) {
-    if (!META_PIXEL_ID || !META_CONVERSIONS_ACCESS_TOKEN || details.metaConsent !== true) {
-        return { delivered: false, provider: "meta", skipped: true };
-    }
+    if (!META_PIXEL_ID || !META_CONVERSIONS_ACCESS_TOKEN || details.metaConsent !== true) return { delivered: false, provider: "meta", skipped: true };
     const email = normalizeEmail(details.email || "");
     const forwarded = normalizeText(req?.get?.("x-forwarded-for")).split(",")[0].trim();
-    const userData = {
-        ...(email ? { em: [crypto.createHash("sha256").update(email).digest("hex")] } : {}),
-        ...(forwarded || req?.ip ? { client_ip_address: forwarded || req.ip } : {}),
-        ...(req?.get?.("user-agent") ? { client_user_agent: req.get("user-agent") } : {}),
-        ...(normalizeText(details.fbp) ? { fbp: normalizeText(details.fbp) } : {}),
-        ...(normalizeText(details.fbc) ? { fbc: normalizeText(details.fbc) } : {})
-    };
-    const event = {
-        event_name: eventName,
-        event_time: Math.floor(Date.now() / 1000),
-        event_id: normalizeText(details.eventId) || crypto.randomUUID(),
-        action_source: "website",
-        event_source_url: normalizeText(details.eventSourceUrl) || `${appBaseUrl(req)}${req?.originalUrl || ""}`,
-        user_data: userData,
-        custom_data: { currency: "USD", ...(details.customData || {}) }
-    };
+    const userData = { ...(email ? { em: [crypto.createHash("sha256").update(email).digest("hex")] } : {}),
+        ...(forwarded || req?.ip ? { client_ip_address: forwarded || req.ip } : {}), ...(req?.get?.("user-agent") ? { client_user_agent: req.get("user-agent") } : {}),
+        ...(normalizeText(details.fbp) ? { fbp: normalizeText(details.fbp) } : {}), ...(normalizeText(details.fbc) ? { fbc: normalizeText(details.fbc) } : {}) };
+    const event = { event_name: eventName, event_time: Math.floor(Date.now() / 1000), event_id: normalizeText(details.eventId) || crypto.randomUUID(),
+        action_source: "website", event_source_url: normalizeText(details.eventSourceUrl) || `${appBaseUrl(req)}${req?.originalUrl || ""}`,
+        user_data: userData, custom_data: { currency: "USD", ...(details.customData || {}) } };
     const payload = { data: [event], ...(META_TEST_EVENT_CODE ? { test_event_code: META_TEST_EVENT_CODE } : {}) };
     const response = await fetch(`https://graph.facebook.com/${encodeURIComponent(META_GRAPH_API_VERSION)}/${encodeURIComponent(META_PIXEL_ID)}/events?access_token=${encodeURIComponent(META_CONVERSIONS_ACCESS_TOKEN)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.error?.message || "Meta conversion event delivery failed.");
     return { delivered: true, provider: "meta", result };
 }
-
 
 function createDemoSession(db, userId, sessionHours = SESSION_HOURS) {
     const token = crypto.randomBytes(32).toString("hex");
@@ -14510,13 +14586,13 @@ app.post("/webhook/transak", async (req, res) => {
         }
 
         if (!validTransakSignature(req)) {
-            console.log("âŒ Invalid Transak signature");
+            console.log("❌ Invalid Transak signature");
             return res.status(401).send("Invalid signature");
         }
 
         const data = JSON.parse(req.body.toString());
 
-        console.log("ðŸŸ¢ Webhook received:", data);
+        console.log("🟢 Webhook received:", data);
 
         const orderId = data?.id;
         const status = data?.status;
@@ -14525,7 +14601,7 @@ app.post("/webhook/transak", async (req, res) => {
         const auAmount = Number(metadata.au_amount);
 
         if (!orderId || !buyerWallet || !auAmount) {
-            console.log("âŒ Missing required metadata");
+            console.log("❌ Missing required metadata");
             return res.status(400).send("Missing metadata");
         }
 
@@ -14533,13 +14609,13 @@ app.post("/webhook/transak", async (req, res) => {
 
         // Prevent double-credit
         if (orders[orderId]) {
-            console.log("âš  Order already processed:", orderId);
+            console.log("⚠ Order already processed:", orderId);
             return res.status(200).send("Already processed");
         }
 
         // Only credit AU after Transak confirms success
         if (status !== "COMPLETED") {
-            console.log("âŒ› Order not completed yet:", orderId, status);
+            console.log("⌛ Order not completed yet:", orderId, status);
             return res.status(200).send("Waiting for completion");
         }
 
@@ -14555,12 +14631,12 @@ app.post("/webhook/transak", async (req, res) => {
             backendWallet
         );
 
-        console.log("ðŸ“¤ Sending AU:", auAmount, "to", buyerWallet);
+        console.log("📤 Sending AU:", auAmount, "to", buyerWallet);
 
         const tx = await contract.buyForBuyer(buyerWallet, auAmount);
         const receipt = await tx.wait();
 
-        console.log("âœ… AU credited:", receipt.transactionHash);
+        console.log("✅ AU credited:", receipt.transactionHash);
 
         // Save order to prevent re-credit
         orders[orderId] = {
@@ -14573,7 +14649,7 @@ app.post("/webhook/transak", async (req, res) => {
 
         return res.status(200).send("Success");
     } catch (err) {
-        console.error("âŒ Webhook error:", err);
+        console.error("❌ Webhook error:", err);
         return res.status(500).send("Server error");
     }
 });
@@ -17180,26 +17256,6 @@ app.post("/api/admin/news/publish", async (req, res) => {
   }
 });
 
-app.post("/api/admin/marketing/overview", async (req, res) => {
-  try {
-    const body = parseJsonBody(req);
-    if (!adminRequestAuthorized(req, body)) {
-      return res.status(403).json({ success: false, error: "Admin marketing overview is not authorized." });
-    }
-    const overview = await marketingAnalyticsOverview(body.days);
-    const views = Number(overview.views || 0);
-    const leads = Number(overview.leads || 0);
-    const conversions = Number(overview.conversions || 0);
-    return res.json({ success: true, ...overview,
-      leadRate: views ? Number(((leads / views) * 100).toFixed(2)) : 0,
-      conversionRate: leads ? Number(((conversions / leads) * 100).toFixed(2)) : 0,
-      generatedAt: new Date().toISOString() });
-  } catch (err) {
-    console.error("Admin marketing overview failed:", err);
-    return res.status(err.status || 500).json({ success: false, error: err.message || "Marketing overview failed." });
-  }
-});
-
 app.post("/api/admin/accounts/overview", async (req, res) => {
   try {
     let body = {};
@@ -18320,14 +18376,12 @@ app.post("/api/support/tickets", async (req, res) => {
     const body = parseJsonBody(req);
     const auth = await authenticatedAccountContext(req);
     const ticket = await createSupportTicket(auth, body);
-    const delivery = await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
+    await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
       console.error("Support confirmation email failed:", err.message || err);
-      return { delivered: false, provider: "error" };
     });
     return res.json({
       success: true,
-      ticket: { ...ticket, reference: `AUT-${ticket.id.replace(/-/g, "").slice(0, 10).toUpperCase()}` },
-      delivery: delivery.delivered ? "sent" : "pending"
+      ticket
     });
   } catch (err) {
     console.error("Support ticket error:", err);
@@ -18341,34 +18395,21 @@ app.get("/api/meta/config", (req, res) => {
 });
 
 app.post("/api/marketing/events", async (req, res) => {
-  try {
-    const body = parseJsonBody(req);
-    await recordMarketingEvent(body, req);
-    return res.status(202).json({ success: true });
-  } catch (err) {
-    return sendDemoError(res, err, "Marketing event could not be recorded");
-  }
+  try { await recordMarketingEvent(parseJsonBody(req), req); return res.status(202).json({ success: true }); }
+  catch (err) { return sendDemoError(res, err, "Marketing event could not be recorded"); }
 });
 
 app.post("/api/marketing/leads", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     const lead = await createMarketingLead(body);
-    await recordMarketingEvent({ ...body, eventName: "briefing_created", leadId: lead.id }, req).catch((err) => {
-      console.error("Marketing lead event failed:", err.message || err);
-    });
+    await recordMarketingEvent({ ...body, eventName: "briefing_created", leadId: lead.id }, req).catch((err) => console.error("Marketing lead event failed:", err.message || err));
     const delivery = await sendMarketLeadWelcomeEmail(lead, req).catch((err) => {
       console.error("Market lead welcome email failed:", err.message || err);
       return { delivered: false, provider: "error" };
     });
-    await sendMetaConversionEvent("Lead", {
-      ...body,
-      email: lead.email,
-      eventSourceUrl: `${appBaseUrl(req)}/global-markets`,
-      customData: { content_name: "Autody market briefing" }
-    }, req).catch((err) => {
-      console.error("Meta lead event failed:", err.message || err);
-    });
+    await sendMetaConversionEvent("Lead", { ...body, email: lead.email, eventSourceUrl: `${appBaseUrl(req)}/global-markets`, customData: { content_name: "Autody market briefing" } }, req)
+      .catch((err) => console.error("Meta lead event failed:", err.message || err));
     return res.status(201).json({
       success: true,
       leadId: lead.id,
@@ -18381,18 +18422,89 @@ app.post("/api/marketing/leads", async (req, res) => {
   }
 });
 
+app.get("/marketing/unsubscribe", async (req, res) => {
+  const email = marketingEmailFromToken(req.query.token);
+  const removed = email ? await unsubscribeMarketingLead(email).catch(() => false) : false;
+  res.status(removed ? 200 : 400).type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Autody email preferences</title><link rel="stylesheet" href="/styles.css"></head><body class="campaign-body"><main class="container" style="max-width:680px;padding:80px 24px"><p class="eyebrow">Autody email preferences</p><h1>${removed ? "You’re unsubscribed" : "This unsubscribe link is invalid"}</h1><p>${removed ? "You will no longer receive Autody marketing briefings. Essential account and security messages are unaffected." : "The link may be incomplete or expired. Contact support@autodytraded.com if you need help."}</p><p><a class="btn" href="/">Return to Autody</a></p></main></body></html>`);
+});
+
+app.post("/marketing/unsubscribe", async (req, res) => {
+  const email = marketingEmailFromToken(req.query.token);
+  const removed = email ? await unsubscribeMarketingLead(email).catch(() => false) : false;
+  return res.status(removed ? 200 : 400).send(removed ? "Unsubscribed" : "Invalid unsubscribe request");
+});
+
+app.post("/api/admin/marketing/overview", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing overview is not authorized." });
+    const overview = await marketingAnalyticsOverview(body.days); const views = Number(overview.views || 0); const leads = Number(overview.leads || 0); const conversions = Number(overview.conversions || 0);
+    return res.json({ success: true, ...overview, leadRate: views ? Number(((leads / views) * 100).toFixed(2)) : 0, conversionRate: leads ? Number(((conversions / leads) * 100).toFixed(2)) : 0, generatedAt: new Date().toISOString() });
+  } catch (err) { console.error("Admin marketing overview failed:", err); return res.status(err.status || 500).json({ success: false, error: err.message || "Marketing overview failed." }); }
+});
+
+app.post("/api/admin/marketing/leads", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing access is not authorized." });
+    return res.json({ success: true, ...(await listMarketingLeads(body)) });
+  } catch (err) {
+    console.error("Admin marketing leads failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Marketing leads unavailable." });
+  }
+});
+
+app.post("/api/admin/marketing/export", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing export is not authorized." });
+    const result = await listMarketingLeads({ ...body, limit: 5000, offset: 0 });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="autody-marketing-leads-${new Date().toISOString().slice(0, 10)}.csv"`);
+    return res.send(marketingLeadsCsv(result.leads));
+  } catch (err) {
+    console.error("Admin marketing export failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Marketing export unavailable." });
+  }
+});
+
+app.post("/api/admin/marketing/send-briefing", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing delivery is not authorized." });
+    const ids = Array.from(new Set((Array.isArray(body.ids) ? body.ids : []).map(normalizeText).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 50);
+    if (!ids.length) return res.status(400).json({ success: false, error: "Select at least one subscribed lead." });
+    let leads = [];
+    if (databaseConfigured()) {
+      await ensureMarketingLeadTables();
+      const result = await dbPool.query(`select id, email, interests, status from marketing_leads where id = any($1::uuid[]) and status in ('subscribed','converted')`, [ids]);
+      leads = result.rows;
+    } else {
+      const db = loadDemoDb();
+      leads = (db.marketingLeads || []).filter((lead) => ids.includes(lead.id) && ["subscribed", "converted"].includes(lead.status));
+    }
+    const deliveries = [];
+    for (const lead of leads) {
+      const delivery = await sendMarketLeadWelcomeEmail(lead, req).catch((err) => ({ delivered: false, error: err.message || "Delivery failed" }));
+      deliveries.push({ id: lead.id, email: lead.email, ...delivery });
+    }
+    return res.json({ success: true, requested: ids.length, sent: deliveries.filter((item) => item.delivered).length, deliveries });
+  } catch (err) {
+    console.error("Admin marketing briefing delivery failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Briefing delivery failed." });
+  }
+});
+
 app.post("/api/public/support/tickets", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     const ticket = await createSupportTicket({ source: "public", profileId: null, userId: null, user: null }, body);
-    const delivery = await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
+    await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
       console.error("Public support confirmation email failed:", err.message || err);
-      return { delivered: false, provider: "error" };
     });
     return res.json({
       success: true,
-      ticket: { ...ticket, reference: `AUT-${ticket.id.replace(/-/g, "").slice(0, 10).toUpperCase()}` },
-      delivery: delivery.delivered ? "sent" : "pending"
+      ticket
     });
   } catch (err) {
     console.error("Public support ticket error:", err);
@@ -18746,3 +18858,4 @@ startServer().catch((err) => {
   console.error("Autody startup failed:", err);
   process.exit(1);
 });
+

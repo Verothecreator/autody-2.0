@@ -383,6 +383,7 @@ signUpForm?.addEventListener("submit", async (event) => {
     if (!response.ok || !data.success) {
       throw new Error(data.error || "Sign up failed.");
     }
+
     window.AutodyMeta?.track?.("CompleteRegistration", { currency: "USD", status: "created" }, metaRegistration.eventId);
 
     sessionStorage.setItem("autodyPendingEmail", String(form.get("email") || ""));
