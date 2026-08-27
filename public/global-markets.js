@@ -16,7 +16,7 @@ form?.addEventListener("submit", async (event) => {
     const response = await fetch("/api/marketing/leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.get("email"), currency: "USD", interests, consent: data.get("consent") === "on", company: data.get("company"), ...metaLead, ...attributionPayload() }) });
     const result = await response.json().catch(() => ({})); if (!response.ok || !result.success) throw new Error(result.error || "Your briefing could not be prepared.");
     window.AutodyMeta?.track?.("Lead", { content_name: "Autody market briefing", currency: "USD" }, metaLead.eventId);
-    setStatus("Your briefing was sent. Check your inbox or continue to your free account.", "success"); submit.textContent = "Continue to Autody"; submit.disabled = false;
+    setStatus("Your snapshot was sent. Check your inbox or build your free watchlist.", "success"); submit.textContent = "Build My Free Watchlist"; submit.disabled = false;
     submit.onclick = () => { trackMarketingEvent("signup_click", { leadId: result.leadId }); window.location.href = result.next || "/sign-up"; };
   } catch (error) { setStatus(error.message || "Your briefing could not be prepared.", "error"); submit.disabled = false; }
 });
