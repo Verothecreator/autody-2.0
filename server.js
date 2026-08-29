@@ -1476,7 +1476,20 @@ async function ensureMarketingLeadTables(client = dbPool) {
 }
 
 async function recordMarketingEvent(body = {}, req) {
-    const allowedEvents = new Set(["page_view", "briefing_submit", "briefing_created", "signup_click"]);
+    const allowedEvents = new Set([
+        "page_view",
+        "in_app_browser",
+        "external_browser_prompt_continue",
+        "external_browser_copy",
+        "form_view",
+        "form_start",
+        "email_focus",
+        "interests_changed",
+        "consent_changed",
+        "briefing_submit",
+        "briefing_created",
+        "signup_click"
+    ]);
     const eventName = normalizeText(body.eventName).toLowerCase();
     if (!allowedEvents.has(eventName)) throw demoTradeError(400, "Unknown marketing event.");
     const attribution = normalizeMarketingAttribution(body);
@@ -18858,4 +18871,3 @@ startServer().catch((err) => {
   console.error("Autody startup failed:", err);
   process.exit(1);
 });
-
