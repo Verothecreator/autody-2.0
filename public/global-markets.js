@@ -36,6 +36,10 @@ if (inAppBrowser && browserNote) {
   });
 }
 
+document.querySelectorAll("[data-briefing-cta]").forEach((cta) => cta.addEventListener("click", () => {
+  trackMarketingEvent("form_cta_click", { metadata: { placement: cta.classList.contains("mobile-sticky-briefing-cta") ? "sticky" : "inline" } });
+}));
+
 if (form) {
   const markFormStart = () => trackOnce("form_start");
   new IntersectionObserver((entries, observer) => {
