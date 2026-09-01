@@ -1481,6 +1481,7 @@ async function recordMarketingEvent(body = {}, req) {
         "in_app_browser",
         "external_browser_prompt_continue",
         "external_browser_copy",
+        "form_cta_click",
         "form_view",
         "form_start",
         "email_focus",
