@@ -48,14 +48,7 @@ jobs:
             cd "$APP_DIR"
             git remote set-url origin "$REPO_URL"
             git fetch origin main
-            # Keep server-side commits while accepting updates from GitHub.
-            # Preserve the current revision and leave the running app alone on conflict.
-            git branch "deploy-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
-            if ! git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" merge --no-edit origin/main; then
-              git status --short
-              git merge --abort || true
-              exit 1
-            fi
+            git pull --ff-only origin main
             npm install --omit=dev --no-package-lock
 
             set_env_value() {
