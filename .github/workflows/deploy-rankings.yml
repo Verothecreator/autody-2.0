@@ -1,0 +1,30 @@
+name: Deploy account rankings
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/deploy-rankings.yml]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply the reviewed account rankings files
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST || vars.VPS_HOST || '162.213.249.146' }}
+          username: ${{ secrets.VPS_USER || vars.VPS_USER || 'root' }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          script: |
+            set -e
+            cd "${{ secrets.VPS_APP_DIR || vars.VPS_APP_DIR || '/var/www/autody-2.0' }}"
+            git fetch origin main
+            CAMPAIGN_FILES="public/account-rankings.html public/demo-sidebar.js public/top-assets.html public/top-assets.css public/top-assets.js public/watchlist-intent.js"
+            PATCH_FILE="/tmp/autody-rankings-${{ github.run_id }}.patch"
+            git diff --binary 7a2d5f626eebc660f5524e6ed763207f55d63f83 ${{ github.sha }} -- $CAMPAIGN_FILES > "$PATCH_FILE"
+            git apply --check "$PATCH_FILE"
+            git branch "rankings-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
+            git apply "$PATCH_FILE"
+            git add -- $CAMPAIGN_FILES
+            git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" commit --only -m "Add account rankings navigation and workspace" -- $CAMPAIGN_FILES
+            curl --fail --silent --show-error http://127.0.0.1:3000/account-rankings | grep -q 'Account | Rankings'

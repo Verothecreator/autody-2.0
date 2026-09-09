@@ -1,5 +1,10 @@
 (function () {
   "use strict";
+  const isAccountPage = /^\/account-rankings(?:\.html)?$/.test(location.pathname);
+  if (isAccountPage && !window.AutodyAuth) {
+    window.AutodyWatchlistIntent?.begin();
+    return;
+  }
   const labels = { crypto: "crypto assets", stock: "stocks", etf: "ETFs", commodity: "commodities" };
   const params = new URLSearchParams(location.search);
   const state = { type: Object.hasOwn(labels, params.get("type")) ? params.get("type") : "crypto", limit: params.has("limit") && [0, 10, 100, 200].includes(Number(params.get("limit"))) ? Number(params.get("limit")) : 10, search: (params.get("q") || "").slice(0, 80), assets: [], saved: new Set(), busy: new Set(), loaded: false, loading: false, session: null, detail: null };
@@ -73,6 +78,10 @@
   }
   function showSignup(asset) {
     const remembered = intent.begin(asset?.symbol || "", asset?.name || "");
+    if (isAccountPage) {
+      location.href = "/sign-in?next=account-rankings";
+      return;
+    }
     $("signup-title").textContent = asset ? `Follow ${asset.name}` : "Start your watchlist";
     $("signup-copy").textContent = asset ? `Create your free account to add ${asset.name} to your watchlist. We’ll save your selection after you finish signing up.` : "Create your free account to keep the assets you follow together.";
     $("storage-note").hidden = remembered; $("asset-dialog").close(); $("signup-dialog").showModal();

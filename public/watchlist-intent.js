@@ -8,7 +8,7 @@
       const value = JSON.parse(localStorage.getItem(key) || "null");
       if (!value) return null;
       const url = new URL(value.returnTo, location.origin);
-      if (url.origin !== location.origin || url.pathname !== "/top-assets" ||
+      if (url.origin !== location.origin || !["/top-assets", "/account-rankings"].includes(url.pathname) ||
           !Number.isFinite(value.createdAt) || Date.now() - value.createdAt > lifetime || value.createdAt > Date.now() ||
           typeof value.symbol !== "string" || value.symbol.length > 40) {
         clear(); return null;
@@ -17,7 +17,7 @@
     } catch { clear(); return null; }
   }
   function begin(symbol = "", name = "") {
-    const returnTo = new URL("/top-assets", location.origin);
+    const returnTo = new URL(/^\/account-rankings(?:\.html)?$/.test(location.pathname) ? "/account-rankings" : "/top-assets", location.origin);
     const current = new URL(location.href);
     ["type", "limit", "q", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"].forEach((param) => {
       if (current.searchParams.has(param)) returnTo.searchParams.set(param, current.searchParams.get(param).slice(0, 200));

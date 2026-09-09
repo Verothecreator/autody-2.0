@@ -1,35 +1,41 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Top Assets & Global Market Rankings | Autody</title>
-  <meta name="description" content="Explore crypto, stocks, ETFs and commodities. Browse top 10, 100 or 200 available assets and build your own Autody watchlist." />
-  <link rel="canonical" href="https://autodytraded.com/top-assets" />
-  <meta property="og:title" content="Find your next follow. | Autody market rankings" />
-  <meta property="og:description" content="Explore the rankings. Pick your assets. Build your watchlist." />
-  <meta property="og:url" content="https://autodytraded.com/top-assets" />
-  <meta property="og:type" content="website" />
-  <meta name="theme-color" content="#0b0d12" />
-  <link rel="icon" href="/Autody-Logo.png" />
-  <link rel="stylesheet" href="/top-assets.css" />
-  <script src="/watchlist-intent.js" defer></script>
-  <script src="/top-assets.js" defer></script>
-  <script src="/meta-tracking.js" defer></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Autody Live Account | Rankings</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="icon" href="/Autody-Logo.png" />
+<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/top-assets.css" />
 </head>
-<body class="rankings-workspace">
-  <a class="skip" href="#rankings">Skip to rankings</a>
-  <header class="header"><div class="wrap header-inner">
-    <a class="brand" href="/" aria-label="Autody home"><img src="/Autody-Logo.png" alt="" /><span>Autody</span></a>
-    <nav aria-label="Account"><a href="/sign-in" data-auth="sign-in">Sign in</a><a class="button primary" href="/sign-up" data-auth="sign-up" id="account-link">Build my watchlist <span aria-hidden="true">↗</span></a></nav>
-  </div></header>
-  <main class="wrap">
-    <section class="intro" aria-labelledby="page-title">
-      <p class="eyebrow"><span></span> GLOBAL MARKETS. YOUR PERSPECTIVE.</p>
-      <h1 id="page-title">Find your next <em>follow.</em></h1>
-      <p>Explore the rankings. Tap <b>＋</b> to keep the assets that matter to you in one personal watchlist.</p>
-      <div class="intro-note">Free to explore <span>·</span> An account to save <span>·</span> No deposit required</div>
-    </section>
+<body class="account-body">
+<div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="index.html" class="brand app-brand" aria-label="Autody home">
+        <img src="Autody-Logo.png" alt="" class="brand-mark" />
+        <span>Autody</span>
+      </a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="account.html">Overview</a>
+        <a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html">Markets</a>
+        <a href="account-orders.html">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a>
+        <a href="account-research.html">Research</a>
+        <a href="account-settings.html">Settings</a>
+      </nav>
+      <div class="sidebar-profile">
+        <span>Account workspace</span>
+        <strong data-static-profile>Live account</strong>
+      </div>
+      <div class="sidebar-actions">
+        <a href="demo-account.html" class="btn sidebar-return">Open Demo</a>
+        <a href="sign-in.html" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a>
+      </div>
+    </aside>
+<main class="app-main rankings-workspace">
+<header class="app-topbar"><div><p class="eyebrow">Markets</p><h1>Rankings</h1><p class="app-subtitle">Explore top assets and add your favorites to your watchlist.</p></div><a class="button primary" id="account-link" href="/account-watchlist">My watchlist ↗</a></header>
     <section class="market-panel" id="rankings" aria-label="Asset rankings">
       <div class="market-tabs" role="group" aria-label="Market type">
         <button type="button" data-type="crypto" aria-pressed="true">Crypto <span data-count="crypto">—</span></button>
@@ -54,9 +60,7 @@
       <div class="list-footer"><span id="coverage">Preparing the latest available data.</span><span id="quote-freshness">Auto-refreshes every 60 seconds</span></div>
     </section>
     <p class="method-note" id="method-note">Rankings cover assets available on Autody. Quotes may be delayed and are shown in their reported currency. Daily change uses the provider’s comparison period; crypto trades around the clock.</p>
-    <noscript><p>Enable JavaScript to load rankings and save assets. You can also <a href="/sign-up">create an Autody account</a>.</p></noscript>
-  </main>
-  <footer class="wrap footer"><span>© 2026 Autody</span><a href="/account-watchlist">My watchlist <span aria-hidden="true">↗</span></a></footer>
+
   <dialog id="signup-dialog" aria-labelledby="signup-title">
     <button class="close" type="button" data-close aria-label="Close">×</button>
     <span class="dialog-icon" aria-hidden="true">＋</span><p class="eyebrow">MAKE IT YOURS</p>
@@ -69,6 +73,12 @@
     <button class="close" type="button" data-close aria-label="Close">×</button><p class="eyebrow" id="detail-symbol"></p><h2 id="detail-title"></h2>
     <dl id="detail-values"></dl><p class="detail-time" id="detail-time"></p><button class="button primary full" type="button" id="detail-save">＋ Add to watchlist</button>
   </dialog>
-  <aside class="ad-consent" data-ad-consent hidden aria-label="Cookie preferences"><div><strong>Cookie preferences</strong><p>Allow optional analytics to help us improve Autody. Essential features work without them.</p></div><div><button type="button" data-ad-consent-decline>Reject optional</button><button type="button" class="primary" data-ad-consent-accept>Accept all</button></div></aside>
+
+</main>
+</div>
+<script src="/watchlist-intent.js"></script>
+<script src="/demo-auth.js"></script>
+<script src="/demo-sidebar.js"></script>
+<script src="/top-assets.js"></script>
 </body>
 </html>
