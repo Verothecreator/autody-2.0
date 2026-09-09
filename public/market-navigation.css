@@ -1,0 +1,6 @@
+.market-view-nav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px;padding:5px;width:fit-content;max-width:100%;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.market-view-nav a,.rankings-workspace .market-view-nav a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 20px;border-radius:6px;color:var(--muted);font-size:14px;font-weight:700;text-decoration:none}
+.market-view-nav a[aria-current="page"],.rankings-workspace .market-view-nav a[aria-current="page"]{background:linear-gradient(135deg,#5d5fef,#4345ce);color:#fff}
+.market-view-nav a:hover{color:var(--text)}
+.market-view-nav a:focus-visible{outline:2px solid #8b8df8;outline-offset:3px}
+@media(max-width:560px){.market-view-nav{width:100%}.market-view-nav a{flex:1;padding-inline:12px}}
