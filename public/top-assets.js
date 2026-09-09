@@ -2,7 +2,9 @@
   "use strict";
   const labels = { crypto: "crypto assets", stock: "stocks", etf: "ETFs", commodity: "commodities" };
   const params = new URLSearchParams(location.search);
-  const state = { type: Object.hasOwn(labels, params.get("type")) ? params.get("type") : "crypto", limit: [10, 100, 200].includes(Number(params.get("limit"))) ? Number(params.get("limit")) : 10, search: (params.get("q") || "").slice(0, 80), assets: [], saved: new Set(), busy: new Set(), loaded: false, session: null, detail: null };
+  const state = { type: Object.hasOwn(labels, params.get("type")) ? params.get("type") : "crypto", limit: params.has("limit") && [0, 10, 100, 200].includes(Number(params.get("limit"))) ? Number(params.get("limit")) : 10, search: (params.get("q") || "").slice(0, 80), assets: [], saved: new Set(), busy: new Set(), loaded: false, loading: false, session: null, detail: null };
+  const REFRESH_MS = 60000;
+  let refreshTimer;
   const $ = (id) => document.getElementById(id);
   const intent = window.AutodyWatchlistIntent;
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -35,13 +37,29 @@
     if (state.search) url.searchParams.set("q", state.search); else url.searchParams.delete("q"); history.replaceState(null, "", url.pathname + url.search);
   }
   function render() {
+    const all = ranked();
+    const limits = [10, 100, 200].filter((limit) => limit <= all.length);
+    if (all.length < 200 && !limits.includes(all.length)) limits.push(0);
+    if (state.loaded && !limits.includes(state.limit)) {
+      state.limit = limits.includes(100) ? 100 : limits.includes(0) ? 0 : limits[0] || 0;
+      updateUrl();
+    }
     document.querySelectorAll("[data-type]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.type === state.type)));
-    document.querySelectorAll("[data-limit]").forEach((button) => button.setAttribute("aria-pressed", String(Number(button.dataset.limit) === state.limit)));
+    document.querySelectorAll("[data-limit]").forEach((button) => {
+      const limit = Number(button.dataset.limit);
+      button.hidden = state.loaded ? !limits.includes(limit) : limit !== 10;
+      button.setAttribute("aria-pressed", String(limit === state.limit));
+      if (!limit) button.textContent = `All ${all.length}`;
+    });
     for (const type of Object.keys(labels)) document.querySelector(`[data-count="${type}"]`).textContent = state.loaded ? state.assets.filter((asset) => asset.assetType === type && !asset.customAsset).length : "—";
-    $("list-title").textContent = `Top ${state.limit} ${labels[state.type]}`;
+    $("list-title").textContent = `${state.limit ? `Top ${state.limit}` : "All"} ${labels[state.type]}`;
     $("ranking-method").textContent = state.type === "crypto" ? "Largest market capitalization · among covered assets" : "Highest daily percentage change · among covered assets";
     $("metric-title").textContent = state.type === "crypto" ? "Market cap" : "Market";
-    const all = ranked(); const top = all.slice(0, state.limit);
+    const top = all.slice(0, state.limit || all.length);
+    const times = top.map((asset) => Date.parse(asset.capturedAt)).filter(Number.isFinite);
+    const oldest = times.length ? Math.min(...times) : null;
+    const newest = times.length ? Math.max(...times) : null;
+    $("quote-freshness").textContent = newest ? `Latest quote ${new Date(newest).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} · Auto-refresh 60s${Date.now() - oldest > 15 * 60000 ? " · Some quotes delayed" : ""}` : "Quote times unavailable · Auto-refresh 60s";
     const rows = top.map((asset, index) => ({ asset, rank: index + 1 })).filter(({ asset }) => `${asset.name} ${asset.symbol}`.toLowerCase().includes(state.search.toLowerCase()));
     $("asset-rows").innerHTML = rows.map(({ asset, rank }) => {
       const symbol = String(asset.symbol).toUpperCase(); const saved = state.saved.has(symbol); const busy = state.busy.has(symbol);
@@ -50,7 +68,7 @@
     }).join("") || `<tr><td colspan="6" class="empty">${!state.loaded ? "Loading market data…" : state.search ? "No matches in this ranking. Try another name or a larger list." : "No ranking data is available for this market yet. Try refreshing."}</td></tr>`;
     $("asset-rows").querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove(), { once: true }));
     const missing = state.assets.filter((asset) => asset.assetType === state.type && !asset.customAsset).length - all.length;
-    $("coverage").textContent = state.loaded ? `${rows.length} shown · ${all.length} ranked assets available${all.length < state.limit ? ` (fewer than ${state.limit})` : ""}${missing ? ` · ${missing} without ranking data omitted` : ""}` : "Preparing the latest available data.";
+    $("coverage").textContent = state.loaded ? `${rows.length} shown · ${all.length} ranked assets available${missing ? ` · ${missing} without ranking data omitted` : ""}` : "Preparing the latest available data.";
     updateDetailSave();
   }
   function showSignup(asset) {
@@ -99,12 +117,22 @@
     } catch { /* Save still authenticates and reports failures. */ }
     accountLinks(); render();
   }
-  async function load() {
-    $("refresh").disabled = true; status(state.loaded ? "Refreshing market data…" : "Loading market rankings…");
+  async function load({ automatic = false } = {}) {
+    if (state.loading) return;
+    state.loading = true;
+    clearTimeout(refreshTimer);
+    $("refresh").disabled = true;
+    if (!automatic) status(state.loaded ? "Refreshing market data…" : "Loading market rankings…");
     try {
       const response = await fetch("/api/markets/catalog?type=all", { cache: "no-store", signal: AbortSignal.timeout(30000) }); const result = await response.json();
       if (!response.ok || !result.success || !Array.isArray(result.assets)) throw new Error("Market data unavailable");
-      state.assets = result.assets; state.loaded = true; status(""); render();
+      state.assets = result.assets; state.loaded = true;
+      if (!automatic || $("page-status").classList.contains("error")) status("");
+      render();
+      if (state.detail && $("asset-dialog").open) {
+        const asset = state.assets.find((item) => item.symbol === state.detail.symbol);
+        if (asset) showDetail(asset);
+      }
       const pending = intent.read();
       if (pending && state.session) {
         if (!pending.symbol) intent.clear();
@@ -117,7 +145,11 @@
       status(state.loaded ? "Refresh failed. Showing the last loaded quotes; try again." : "Could not load market rankings. Please try Refresh.", true);
       if (!state.loaded) $("asset-rows").innerHTML = '<tr><td colspan="6" class="empty">Market data could not be loaded. Use Refresh to try again.</td></tr>';
     }
-    finally { $("refresh").disabled = false; }
+    finally {
+      state.loading = false;
+      $("refresh").disabled = false;
+      if (!document.hidden) refreshTimer = setTimeout(() => load({ automatic: true }), REFRESH_MS);
+    }
   }
   document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => { state.type = button.dataset.type; updateUrl(); render(); }));
   document.querySelectorAll("[data-limit]").forEach((button) => button.addEventListener("click", () => { state.limit = Number(button.dataset.limit); updateUrl(); render(); }));
@@ -135,5 +167,10 @@
   });
   $("signup-dialog").addEventListener("close", () => intent.clear());
   $("signup-dialog").addEventListener("cancel", () => intent.clear());
+  document.addEventListener("visibilitychange", () => {
+    clearTimeout(refreshTimer);
+    if (!document.hidden) load({ automatic: true });
+  });
+  window.addEventListener("pagehide", () => clearTimeout(refreshTimer));
   render(); loadWatchlist().then(load);
 })();

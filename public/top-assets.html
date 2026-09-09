@@ -19,10 +19,10 @@
 </head>
 <body>
   <a class="skip" href="#rankings">Skip to rankings</a>
-  <header class="header wrap">
-    <a class="brand" href="/" aria-label="Autody home"><img src="/Autody-Logo.png" alt="" /><span>Autody<span class="brand-label">MARKET RANKINGS</span></span></a>
+  <header class="header"><div class="wrap header-inner">
+    <a class="brand" href="/" aria-label="Autody home"><img src="/Autody-Logo.png" alt="" /><span>Autody</span></a>
     <nav aria-label="Account"><a href="/sign-in" data-auth="sign-in">Sign in</a><a class="button primary" href="/sign-up" data-auth="sign-up" id="account-link">Build my watchlist <span aria-hidden="true">↗</span></a></nav>
-  </header>
+  </div></header>
   <main class="wrap">
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow"><span></span> GLOBAL MARKETS. YOUR PERSPECTIVE.</p>
@@ -42,6 +42,7 @@
           <button type="button" data-limit="10" aria-pressed="true">Top 10</button>
           <button type="button" data-limit="100" aria-pressed="false">Top 100</button>
           <button type="button" data-limit="200" aria-pressed="false">Top 200</button>
+          <button type="button" data-limit="0" aria-pressed="false" hidden>All</button>
         </div>
         <label class="search"><span aria-hidden="true">⌕</span><input id="asset-search" type="search" placeholder="Search name or symbol" aria-label="Search within the selected ranking" maxlength="80" /></label>
       </div>
@@ -50,7 +51,7 @@
       <div class="table-scroll" tabindex="0" role="region" aria-label="Ranked assets">
         <table><thead><tr><th scope="col" class="rank">#</th><th scope="col">Asset</th><th scope="col" class="numeric">Price</th><th scope="col" class="numeric">Daily change</th><th scope="col" class="numeric metric" id="metric-title">Market cap</th><th scope="col" class="save-col"><span class="sr-only">Watchlist</span></th></tr></thead><tbody id="asset-rows"></tbody></table>
       </div>
-      <div class="list-footer"><span id="coverage">Preparing the latest available data.</span><span>Tap an asset for details <span aria-hidden="true">↗</span></span></div>
+      <div class="list-footer"><span id="coverage">Preparing the latest available data.</span><span id="quote-freshness">Auto-refreshes every 60 seconds</span></div>
     </section>
     <p class="method-note" id="method-note">Rankings cover assets available on Autody. Quotes may be delayed and are shown in their reported currency. Daily change uses the provider’s comparison period; crypto trades around the clock.</p>
     <noscript><p>Enable JavaScript to load rankings and save assets. You can also <a href="/sign-up">create an Autody account</a>.</p></noscript>
