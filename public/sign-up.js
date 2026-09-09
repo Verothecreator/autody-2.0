@@ -392,7 +392,7 @@ signUpForm?.addEventListener("submit", async (event) => {
     } else {
       sessionStorage.removeItem("autodyEmailHandoff");
     }
-    location.href = data.next || signUpNextPage();
+    location.href = window.AutodyWatchlistIntent.destination(data.next || signUpNextPage());
   } catch (err) {
     setSignUpMessage("error", err.message || "Sign up failed.");
     window.AutodyCaptcha.refresh(signUpForm);

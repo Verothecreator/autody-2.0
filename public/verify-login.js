@@ -109,7 +109,7 @@ verifyLoginForm?.addEventListener("submit", async (event) => {
     }
     sessionStorage.removeItem("autodyPendingEmail");
     sessionStorage.removeItem("autodyRememberDevice");
-    location.href = data.next || "account.html";
+    location.href = window.AutodyWatchlistIntent.destination(data.next || "account.html");
   } catch (err) {
     setVerifyLoginError(err.message || "Could not verify the sign-in code.");
   } finally {

@@ -80,7 +80,7 @@ signInForm?.addEventListener("submit", async (event) => {
 
     localStorage.setItem("autodyDemoSession", JSON.stringify(data.session));
     localStorage.setItem("autodyDemoUser", JSON.stringify(data.user));
-    location.href = data.next && !data.next.startsWith("verify-") ? data.next : nextPage();
+    location.href = window.AutodyWatchlistIntent.destination(data.next && !data.next.startsWith("verify-") ? data.next : nextPage());
   } catch (err) {
     setError(err.message || "Sign in failed.");
     window.AutodyCaptcha.refresh(signInForm);

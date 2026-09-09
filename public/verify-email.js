@@ -51,7 +51,7 @@ function redirectVerifiedAccount(message = "Email already verified. Opening your
   lockResendButton();
   setVerifyEmailMessage("success", message);
   setTimeout(() => {
-    location.href = verifiedRedirectTarget();
+    location.href = window.AutodyWatchlistIntent.destination(verifiedRedirectTarget());
   }, 800);
 }
 
@@ -87,7 +87,7 @@ async function completeVerificationFromWaitingPage() {
       lockResendButton();
       setVerifyEmailMessage("success", "Email verified. Opening your Autody account.");
       setTimeout(() => {
-        location.href = data.next || "account.html";
+        location.href = window.AutodyWatchlistIntent.destination(data.next || "account.html");
       }, 700);
       return true;
     }
@@ -141,7 +141,7 @@ async function verifyEmailLink() {
     lockResendButton();
     setVerifyEmailMessage("success", "Email verified. Opening your Autody account.");
     setTimeout(() => {
-      location.href = data.next || "account.html";
+      location.href = window.AutodyWatchlistIntent.destination(data.next || "account.html");
     }, 900);
   } catch (err) {
     setVerifyEmailMessage("error", err.message || "Email verification failed.");
