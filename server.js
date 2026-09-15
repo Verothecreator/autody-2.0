@@ -799,7 +799,6 @@ function parseSignUpPayload(body = {}) {
         legalName,
         displayName,
         email,
-        leadId: /^[0-9a-f-]{36}$/i.test(normalizeText(body.leadId)) ? normalizeText(body.leadId) : "",
         phone,
         country,
         dateOfBirth,
@@ -17781,6 +17780,7 @@ app.post("/api/auth/sign-up", async (req, res) => {
     }
 
     const signUp = parseSignUpPayload(body);
+    signUp.leadId = /^[0-9a-f-]{36}$/i.test(normalizeText(body.leadId)) ? normalizeText(body.leadId) : "";
     let created = null;
 
     if (databaseConfigured()) {

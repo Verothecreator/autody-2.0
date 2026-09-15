@@ -23,6 +23,7 @@ jobs:
             APP_DIR="${{ secrets.VPS_APP_DIR || vars.VPS_APP_DIR || '/var/www/autody-2.0' }}"
             APP_NAME="${{ secrets.PM2_APP_NAME || vars.PM2_APP_NAME || 'autody' }}"
             cd "$APP_DIR"
+            echo "Applying the lead and support update"
             git fetch origin main
             PATCH_FILE=$(mktemp)
             git diff --binary 7d3ab340392cd6be0fafca68b80063a5b4f6da39 "${{ github.sha }}" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/marketing-support.css public/ops-console.html public/sign-up.js > "$PATCH_FILE"
