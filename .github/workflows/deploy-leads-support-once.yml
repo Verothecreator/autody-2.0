@@ -36,7 +36,20 @@ jobs:
             git show "${{ github.sha }}:server.js" > "$SERVER_NEW"
             if ! git merge-file -p server.js "$SERVER_BASE" "$SERVER_NEW" > "$SERVER_MERGED"; then
               echo "Server merge needs review; no files were changed"
-              grep -n -A 12 -B 3 '^<<<<<<<' "$SERVER_MERGED" || true
+              python3 - "$SERVER_MERGED" <<'PY'
+            import pathlib, sys
+            lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
+            starts = [i for i, line in enumerate(lines) if line.startswith('<<<<<<<')]
+            for number, start in enumerate(starts, 1):
+                middle = next(i for i in range(start + 1, len(lines)) if lines[i] == '=======')
+                end = next(i for i in range(middle + 1, len(lines)) if lines[i].startswith('>>>>>>>'))
+                ours, theirs = lines[start + 1:middle], lines[middle + 1:end]
+                print('CONFLICT', number, 'lines', start + 1, middle + 1, end + 1, 'ours', len(ours), 'theirs', len(theirs))
+                print('OURS START:', '\n'.join(ours[:8]))
+                print('OURS END:', '\n'.join(ours[-8:]))
+                print('THEIRS START:', '\n'.join(theirs[:8]))
+                print('THEIRS END:', '\n'.join(theirs[-8:]))
+            PY
               exit 1
             fi
             git apply --check "$PATCH_FILE"
