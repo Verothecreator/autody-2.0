@@ -23,11 +23,11 @@ jobs:
             APP_NAME="${{ secrets.PM2_APP_NAME || vars.PM2_APP_NAME || 'autody' }}"
             cd "$APP_DIR"
             git fetch origin main
-            rg -q 'async function marketBriefingFollowupDraft' server.js
-            rg -q 'original_briefing_text' server.js
-            rg -q 'preview-followup' public/admin-marketing.js
-            rg -q 'Shared watchlist' public/account-watchlist.html
-            rg -q 'Shared watchlist' public/demo-watchlist.html
+            grep -q 'async function marketBriefingFollowupDraft' server.js
+            grep -q 'original_briefing_text' server.js
+            grep -q 'preview-followup' public/admin-marketing.js
+            grep -q 'Shared watchlist' public/account-watchlist.html
+            grep -q 'Shared watchlist' public/demo-watchlist.html
             python3 - <<'PY'
             import pathlib
             for name in ('server.js', 'public/admin-marketing.html', 'public/admin-marketing.js', 'public/account-watchlist.html', 'public/demo-watchlist.html'):
