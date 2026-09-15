@@ -1691,10 +1691,18 @@ function marketingEmailFromToken(token = "") {
     try { return normalizeEmail(Buffer.from(payload, "base64url").toString("utf8")); } catch (err) { return ""; }
 }
 
-function briefingFormatPrice(value) {
+function briefingQuotedCurrency(asset = {}) {
+    const symbol = normalizeTradeSymbol(asset.symbol);
+    if (symbol.endsWith(".KS")) return "KRW";
+    if (symbol.endsWith(".HK")) return "HKD";
+    const currency = normalizeText(asset.currency).toUpperCase();
+    return /^[A-Z]{3}$/.test(currency) ? currency : "USD";
+}
+
+function briefingFormatPrice(value, currency = "USD") {
     const number = Number(value);
     if (!Number.isFinite(number)) return "Price unavailable";
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: number < 1 ? 4 : 2 }).format(number);
+    return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : number < 1 ? 4 : 2 }).format(number);
 }
 
 async function buildMarketBriefing(lead = {}) {
@@ -1707,7 +1715,7 @@ async function buildMarketBriefing(lead = {}) {
         sections.push({ interest, assets: assets.map((asset) => ({
             symbol: asset.symbol,
             name: asset.name || asset.symbol,
-            price: briefingFormatPrice(asset.price),
+            price: briefingFormatPrice(asset.price, briefingQuotedCurrency(asset)),
             change: Number.isFinite(Number(asset.changePct)) ? `${Number(asset.changePct) >= 0 ? "+" : ""}${Number(asset.changePct).toFixed(2)}%` : "—"
         })) });
     }
@@ -1868,14 +1876,14 @@ async function sendMarketLeadWelcomeEmail(lead = {}, req) {
     const subject = `Your Autody market briefing — ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(briefing.generatedAt)}`;
     const marketText = briefing.sections.map((section) => `${section.interest.toUpperCase()}\n${section.assets.map((asset) => `• ${asset.name} (${asset.symbol}): ${asset.price}, ${asset.change}`).join("\n")}`).join("\n\n");
     const newsText = briefing.news.length ? `\n\nMARKET HEADLINES\n${briefing.news.map((article) => `• ${article.title}${article.source ? ` — ${article.source}` : ""}`).join("\n")}` : "";
-    const text = `Your focused Autody market briefing\n\nMarkets selected: ${interests}\nAll values are shown in USD.\n\n${marketText || "Your selected markets are ready to follow in Autody."}${newsText}\n\n${actionText}:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
+    const text = `Your focused Autody market briefing\n\nMarkets selected: ${interests}\nPrices use each asset's quoted market currency where applicable.\n\n${marketText || "Your selected markets are ready to follow in Autody."}${newsText}\n\n${actionText}:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
     const sectionHtml = briefing.sections.map((section) => `<div style="margin:20px 0"><h2 style="font-size:17px;text-transform:capitalize">${emailHtmlEscape(section.interest)}</h2>${section.assets.map((asset) => `<div style="padding:10px 0;border-bottom:1px solid #e5e7eb"><strong>${emailHtmlEscape(asset.name)} (${emailHtmlEscape(asset.symbol)})</strong><br><span>${emailHtmlEscape(asset.price)} · ${emailHtmlEscape(asset.change)}</span></div>`).join("")}</div>`).join("");
     const newsHtml = briefing.news.length ? `<div style="margin:22px 0"><h2 style="font-size:17px">Market headlines</h2>${briefing.news.map((article) => `<p><strong>${emailHtmlEscape(article.title)}</strong>${article.source ? `<br><span style="color:#6b7280">${emailHtmlEscape(article.source)}</span>` : ""}</p>`).join("")}</div>` : "";
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
         <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
         <h1 style="margin:16px 0 10px">Your focused market briefing</h1>
-        <p>Prepared for <strong>${emailHtmlEscape(interests)}</strong>. All account and market values are displayed in <strong>USD</strong>.</p>
+        <p>Prepared for <strong>${emailHtmlEscape(interests)}</strong>. Prices use each asset's quoted market currency where applicable.</p>
         ${sectionHtml || "<p>Your selected markets are ready to follow inside Autody.</p>"}
         ${newsHtml}
         <p>${emailHtmlEscape(actionText)}.</p>
@@ -10884,6 +10892,17 @@ function originalMarketBriefingContent(text = "") {
     return String(text).split(/\n\n(?:Build your free personal watchlist|Create an account to save|Review your watchlist offer|Educational information only)[^\n]*:/i)[0].trim();
 }
 
+function correctedOriginalBriefingCurrencyLabels(text = "") {
+    const original = String(text);
+    const corrected = original.replace(/(\(([A-Z0-9.-]{1,20})\): )\$(?=[\d,])/g, (match, prefix, symbol) => {
+            if (symbol.endsWith(".KS")) return `${prefix}₩`;
+            if (symbol.endsWith(".HK")) return `${prefix}HK$`;
+            return match;
+        });
+    return corrected === original ? original
+        : corrected.replace("All values are shown in USD.", "Prices use each asset's quoted market currency where applicable.");
+}
+
 function originalMarketBriefingSymbols(text = "") {
     return Array.from(new Set([...String(text).matchAll(/\(([A-Z0-9.-]{1,20})\):/g)]
         .map((match) => normalizeTradeSymbol(match[1])).filter(Boolean))).slice(0, 25);
@@ -10897,14 +10916,17 @@ async function marketBriefingFollowupDraft(lead = {}, req) {
     const sentAt = new Date(original.sentAt || Date.now());
     const sentDate = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" })
         .format(Number.isNaN(sentAt.getTime()) ? new Date() : sentAt);
-    const briefing = originalMarketBriefingContent(original.text);
+    const originalBriefing = originalMarketBriefingContent(original.text);
+    const briefing = correctedOriginalBriefingCurrencyLabels(originalBriefing);
     const symbols = originalMarketBriefingSymbols(briefing);
     const accountUrl = hasAccount
         ? `${appBaseUrl(req)}/account-markets?briefing=review`
         : `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id || "")}&next=account-watchlist`;
     const unsubscribeUrl = `${appBaseUrl(req)}/marketing/unsubscribe?token=${encodeURIComponent(marketingUnsubscribeToken(email))}`;
     const subject = "Your Autody briefing is ready — explore with $50,000 in Demo";
-    const introduction = `Here is the same Autody market briefing we emailed you on ${sentDate}. This is a snapshot from that date; check Autody for current market prices.`;
+    const introduction = briefing === originalBriefing
+        ? `Here is the same Autody market briefing we emailed you on ${sentDate}. This is a snapshot from that date; check Autody for current market prices.`
+        : `Here is the Autody market briefing we emailed you on ${sentDate}, with the same assets, figures, and headlines. We corrected the currency labels on Korean and Hong Kong listings. These are dated quotes; check Autody for current prices.`;
     const invitation = hasAccount
         ? "Open your account to accept or decline adding these briefing assets to your shared watchlist. You can also see how your ideas play out with $50,000 in Demo practice funds."
         : "Create your free Autody account, choose whether to accept or decline these briefing assets for your shared watchlist, and see how your market ideas play out with $50,000 in Demo practice funds. Try practice trades without using real money. Demo funds cannot be withdrawn or transferred to Live.";
