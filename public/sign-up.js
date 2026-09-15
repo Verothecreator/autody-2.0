@@ -314,6 +314,7 @@ function signUpPayload(form) {
     lastName,
     legalName: `${firstName} ${lastName}`.trim(),
     email: form.get("email"),
+    leadId: new URLSearchParams(location.search).get("lead") || "",
     countryCode: form.get("countryCode"),
     countryCodeCountry: selectedCountryCodeOption()?.dataset?.country || "",
     phone: form.get("phone"),

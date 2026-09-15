@@ -15,7 +15,7 @@ function leadNotice(message, state = "") {
 function renderLeads(data) {
   leadState.leads = data.leads || [];
   document.getElementById("lead-summary").innerHTML = `<strong>${Number(data.total || 0).toLocaleString()} consent record${Number(data.total || 0) === 1 ? "" : "s"}</strong>`;
-  document.getElementById("lead-table").innerHTML = leadState.leads.length ? leadState.leads.map((lead) => `<div class="admin-record" style="grid-template-columns:auto 2fr 1fr 2fr 1fr;align-items:center"><input class="lead-select" type="checkbox" value="${leadEscape(lead.id)}" ${lead.status === "unsubscribed" ? "disabled" : ""}><span><strong>${leadEscape(lead.email)}</strong><small>${leadEscape(new Date(lead.created_at || lead.createdAt).toLocaleString())}</small></span><span><strong>${leadEscape(lead.status)}</strong><small>${leadEscape((lead.interests || []).join(", "))}</small></span><span><strong>${leadEscape(lead.campaign || "direct")}</strong><small>${leadEscape(`${lead.source || "direct"} / ${lead.medium || "none"}`)}</small></span><span><strong>${Number(lead.briefing_count ?? lead.briefingCount ?? 0)}</strong><small>briefings sent</small></span></div>`).join("") : '<p class="admin-empty">No leads match these filters.</p>';
+  document.getElementById("lead-table").innerHTML = leadState.leads.length ? leadState.leads.map((lead) => `<div class="admin-record" style="grid-template-columns:auto 2fr 1fr 2fr 1fr;align-items:center"><input class="lead-select" type="checkbox" value="${leadEscape(lead.id)}"><span><strong>${leadEscape(lead.email)}</strong><small>${leadEscape(new Date(lead.created_at || lead.createdAt).toLocaleString())}</small></span><span><strong>${leadEscape(lead.status)}</strong><small>${leadEscape((lead.interests || []).join(", "))}</small></span><span><strong>${leadEscape(lead.campaign || "direct")}</strong><small>${leadEscape(`${lead.source || "direct"} / ${lead.medium || "none"}`)}</small></span><span><strong>${Number(lead.briefing_count ?? lead.briefingCount ?? 0)}</strong><small>briefings sent · ${leadEscape(lead.watchlist_offer_status || lead.watchlistOfferStatus || "no offer")}</small></span></div>`).join("") : '<p class="admin-empty">No leads match these filters.</p>';
 }
 
 async function loadLeads() {
@@ -42,11 +42,21 @@ async function sendBriefings() {
   await loadLeads();
 }
 
+async function deleteSelectedLeads() {
+  const ids = [...document.querySelectorAll(".lead-select:checked")].map((node) => node.value);
+  if (!ids.length) throw new Error("Select at least one lead to delete.");
+  if (!confirm(`Permanently delete ${ids.length} selected marketing lead record${ids.length === 1 ? "" : "s"}?`)) return;
+  const result = await opsPost("/api/admin/marketing/delete", { ids });
+  await loadLeads();
+  leadNotice(`${result.deleted.length} lead record${result.deleted.length === 1 ? "" : "s"} deleted.`, "success");
+}
+
 (async () => {
   if (!await opsRequireSession()) return;
   document.getElementById("lead-refresh").addEventListener("click", () => loadLeads().catch((err) => leadNotice(err.message, "error")));
   document.getElementById("lead-export").addEventListener("click", () => exportLeads().catch((err) => leadNotice(err.message, "error")));
   document.getElementById("lead-send").addEventListener("click", () => sendBriefings().catch((err) => leadNotice(err.message, "error")));
+  document.getElementById("lead-delete").addEventListener("click", () => deleteSelectedLeads().catch((err) => leadNotice(err.message, "error")));
   ["lead-status", "lead-interest"].forEach((id) => document.getElementById(id).addEventListener("change", () => loadLeads().catch((err) => leadNotice(err.message, "error"))));
   document.getElementById("lead-search").addEventListener("keydown", (event) => { if (event.key === "Enter") loadLeads().catch((err) => leadNotice(err.message, "error")); });
   loadLeads().catch((err) => leadNotice(err.message, "error"));

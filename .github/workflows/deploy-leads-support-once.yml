@@ -1,0 +1,87 @@
+name: Deploy leads and support update once
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/deploy-leads-support-once.yml]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply update while preserving VPS edits
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST || vars.VPS_HOST || '162.213.249.146' }}
+          username: ${{ secrets.VPS_USER || vars.VPS_USER || 'root' }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          script: |
+            set -e
+            APP_DIR="${{ secrets.VPS_APP_DIR || vars.VPS_APP_DIR || '/var/www/autody-2.0' }}"
+            APP_NAME="${{ secrets.PM2_APP_NAME || vars.PM2_APP_NAME || 'autody' }}"
+            cd "$APP_DIR"
+            git fetch origin main
+            PATCH_FILE=$(mktemp)
+            git diff --binary 7d3ab340392cd6be0fafca68b80063a5b4f6da39 "${{ github.sha }}" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/ops-console.html public/sign-up.js public/styles.css > "$PATCH_FILE"
+            git apply --check "$PATCH_FILE"
+            git branch "lead-support-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
+            git apply "$PATCH_FILE"
+            rm -f "$PATCH_FILE"
+            git add -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/ops-console.html public/sign-up.js public/styles.css
+            git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" commit --only -m "Add lead follow-up and support inbox" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/ops-console.html public/sign-up.js public/styles.css
+            node --check server.js
+            node --check public/admin-marketing.js
+            node --check public/admin-support.js
+            node --check public/demo-sidebar.js
+            node --check public/sign-up.js
+            npm install --omit=dev --no-package-lock
+            node <<'NODE'
+            require('dotenv').config();
+            const fs = require('fs');
+            const { Pool } = require('pg');
+            const emails = ['verop6968@gmail.com', 'btest7174@gmail.com'];
+            async function cleanup() {
+              const file = 'data/demo-db.json';
+              if (fs.existsSync(file)) {
+                const db = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const deleted = (db.marketingLeads || []).filter(lead => emails.includes(String(lead.email || '').toLowerCase()));
+                const ids = new Set(deleted.map(lead => lead.id));
+                db.marketingLeads = (db.marketingLeads || []).filter(lead => !emails.includes(String(lead.email || '').toLowerCase()));
+                db.marketingEvents = (db.marketingEvents || []).filter(event => !ids.has(event.leadId));
+                if (deleted.length) fs.writeFileSync(file, JSON.stringify(db, null, 2));
+                console.log('JSON test leads removed:', deleted.length);
+              }
+              const url = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
+              if (!url) return;
+              const pool = new Pool({ connectionString: url, ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 });
+              const client = await pool.connect();
+              try {
+                await client.query('begin');
+                const found = await client.query('select id from marketing_leads where lower(email) = any($1::text[])', [emails]);
+                const ids = found.rows.map(row => row.id);
+                if (ids.length) {
+                  await client.query('delete from marketing_events where lead_id = any($1::uuid[])', [ids]);
+                  await client.query('delete from marketing_leads where id = any($1::uuid[])', [ids]);
+                }
+                await client.query('commit');
+                console.log('Database test leads removed:', ids.length);
+              } catch (error) { await client.query('rollback'); throw error; }
+              finally { client.release(); await pool.end(); }
+            }
+            cleanup().catch(error => { console.error(error); process.exit(1); });
+            NODE
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 restart "$APP_NAME" --update-env
+              pm2 save
+            elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then
+              systemctl restart autody
+            else
+              echo "Autody service was not found"
+              exit 1
+            fi
+            sleep 3
+            curl --fail --silent --show-error http://127.0.0.1:3000/api/live/status >/dev/null
+            curl --fail --silent --show-error http://127.0.0.1:3000/admin-support >/dev/null

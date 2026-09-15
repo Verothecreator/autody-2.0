@@ -179,7 +179,60 @@ function refreshDemoSidebarWhenVisible() {
   loadDemoSidebarBalance();
 }
 
+function accountPageIsLive() {
+  const page = (location.pathname.split("/").pop() || "").replace(/\.html$/i, "");
+  return page === "account" || page.startsWith("account-");
+}
+
+async function loadBriefingWatchlistOffer() {
+  if (!accountPageIsLive()) return;
+  const main = document.querySelector(".app-main");
+  if (!main) return;
+  try {
+    const response = await fetch("/api/account/marketing/watchlist-offer", { cache: "no-store", headers: window.AutodyAuth?.headers?.() || {} });
+    if (!response.ok) return;
+    const data = await response.json();
+    main.querySelector(".briefing-watchlist-offer")?.remove();
+    if (!data.offer?.symbols?.length) return;
+    const banner = document.createElement("section");
+    banner.className = "briefing-watchlist-offer";
+    banner.dataset.leadId = data.offer.leadId;
+    const label = document.createElement("p"); label.className = "eyebrow"; label.textContent = "Your market briefing";
+    const title = document.createElement("h2"); title.textContent = "Add your briefing assets to your watchlist?";
+    const detail = document.createElement("p"); detail.textContent = `${data.offer.symbols.join(", ")} · You can accept or decline this suggestion.`;
+    const actions = document.createElement("div"); actions.className = "briefing-offer-actions";
+    const accept = document.createElement("button"); accept.className = "btn"; accept.type = "button"; accept.dataset.briefingAction = "accept"; accept.textContent = "Add to watchlist";
+    const decline = document.createElement("button"); decline.className = "btn btn-ghost"; decline.type = "button"; decline.dataset.briefingAction = "decline"; decline.textContent = "Decline";
+    actions.append(accept, decline); banner.append(label, title, detail, actions);
+    main.prepend(banner);
+  } catch (err) { console.warn("Briefing watchlist offer failed:", err); }
+}
+
+async function respondToBriefingOffer(button) {
+  const banner = button.closest(".briefing-watchlist-offer");
+  const buttons = banner.querySelectorAll("button"); buttons.forEach((item) => { item.disabled = true; });
+  try {
+    const response = await fetch("/api/account/marketing/watchlist-offer", { method: "POST", headers: { "Content-Type": "application/json", ...(window.AutodyAuth?.headers?.() || {}) }, body: JSON.stringify({ leadId: banner.dataset.leadId, action: button.dataset.briefingAction }) });
+    const data = await response.json();
+    if (!response.ok || !data.success || data.status === "pending") throw new Error(data.error || "We could not add these assets. Try again.");
+    banner.innerHTML = "";
+    const title = document.createElement("h2"); title.textContent = data.status === "accepted" ? "Briefing assets added" : "Suggestion declined";
+    const detail = document.createElement("p"); detail.textContent = data.status === "accepted" ? `${data.saved.length} assets are now in your watchlist.` : "We won't add these assets to your watchlist.";
+    banner.append(title, detail);
+    if (data.status === "accepted") {
+      const link = document.createElement("a"); link.className = "btn btn-ghost"; link.href = "account-watchlist"; link.textContent = "View watchlist"; banner.append(link);
+    }
+  } catch (err) {
+    let notice = banner.querySelector(".briefing-offer-error");
+    if (!notice) { notice = document.createElement("p"); notice.className = "briefing-offer-error"; banner.append(notice); }
+    notice.textContent = err.message;
+    buttons.forEach((item) => { item.disabled = false; });
+  }
+}
+
 document.addEventListener("click", (event) => {
+  const briefingButton = event.target.closest("[data-briefing-action]");
+  if (briefingButton) { event.preventDefault(); respondToBriefingOffer(briefingButton); return; }
   const sidebarToggle = event.target.closest("[data-sidebar-toggle]");
   if (sidebarToggle) {
     event.preventDefault();
@@ -198,6 +251,7 @@ document.addEventListener("click", (event) => {
 
 ensureDemoSidebarTools();
 loadDemoSidebarBalance();
+loadBriefingWatchlistOffer();
 setInterval(refreshDemoSidebarWhenVisible, DEMO_SIDEBAR_REFRESH_MS);
 window.addEventListener("focus", refreshDemoSidebarWhenVisible);
 document.addEventListener("visibilitychange", refreshDemoSidebarWhenVisible);

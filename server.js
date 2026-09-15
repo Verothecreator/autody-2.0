@@ -123,6 +123,7 @@ const ADMIN_ACCOUNT_PASSWORD = process.env.AUTODY_ADMIN_PASSWORD || process.env.
 const ADMIN_ACCOUNT_PASSWORD_SALT = process.env.AUTODY_ADMIN_PASSWORD_SALT || process.env.ADMIN_PASSWORD_SALT || "";
 const ADMIN_ACCOUNT_PASSWORD_HASH = process.env.AUTODY_ADMIN_PASSWORD_HASH || process.env.ADMIN_PASSWORD_HASH || "";
 const ADMIN_SESSION_SECRET = process.env.AUTODY_ADMIN_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET || ADMIN_RESET_KEY || ADMIN_ACCOUNT_PASSWORD_HASH || ADMIN_ACCOUNT_PASSWORD;
+const EMAIL_SUPPORT_INBOX_TO = normalizeEmail(process.env.EMAIL_SUPPORT_INBOX_TO || process.env.SUPPORT_INBOX_EMAIL || ADMIN_ACCOUNT_EMAIL || "");
 const MARKETING_SIGNING_SECRET = process.env.MARKETING_SIGNING_SECRET || ADMIN_SESSION_SECRET || RESEND_API_KEY;
 const ADMIN_KEY_BYPASS_ENABLED = process.env.AUTODY_ADMIN_KEY_BYPASS === "true";
 const ADMIN_SESSION_HOURS = Number(process.env.ADMIN_SESSION_HOURS || 2);
@@ -799,6 +800,7 @@ function parseSignUpPayload(body = {}) {
         legalName,
         displayName,
         email,
+        leadId: /^[0-9a-f-]{36}$/i.test(normalizeText(body.leadId)) ? normalizeText(body.leadId) : "",
         phone,
         country,
         dateOfBirth,
@@ -1440,6 +1442,9 @@ async function ensureMarketingLeadTables(client = dbPool) {
           unsubscribed_at timestamptz,
           last_briefing_at timestamptz,
           briefing_count integer not null default 0,
+          suggested_watchlist jsonb not null default '[]'::jsonb,
+          watchlist_offer_status text not null default 'none',
+          last_watchlist_offer_at timestamptz,
           converted_at timestamptz,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
@@ -1453,6 +1458,9 @@ async function ensureMarketingLeadTables(client = dbPool) {
         alter table marketing_leads add column if not exists unsubscribed_at timestamptz;
         alter table marketing_leads add column if not exists last_briefing_at timestamptz;
         alter table marketing_leads add column if not exists briefing_count integer not null default 0;
+        alter table marketing_leads add column if not exists suggested_watchlist jsonb not null default '[]'::jsonb;
+        alter table marketing_leads add column if not exists watchlist_offer_status text not null default 'none';
+        alter table marketing_leads add column if not exists last_watchlist_offer_at timestamptz;
 
         create table if not exists marketing_events (
           id uuid primary key,
@@ -1642,8 +1650,25 @@ async function listMarketingLeads(body = {}) {
     const where = clauses.length ? `where ${clauses.join(" and ")}` : "";
     const countResult = await dbPool.query(`select count(*)::int as total from marketing_leads ${where}`, params);
     params.push(limit, offset);
-    const result = await dbPool.query(`select id, email, currency, interests, source, medium, campaign, content, consent_version, consent_at, status, unsubscribed_at, last_briefing_at, briefing_count, converted_at, created_at from marketing_leads ${where} order by created_at desc limit $${params.length - 1} offset $${params.length}`, params);
+    const result = await dbPool.query(`select id, email, currency, interests, source, medium, campaign, content, consent_version, consent_at, status, unsubscribed_at, last_briefing_at, briefing_count, suggested_watchlist, watchlist_offer_status, converted_at, created_at from marketing_leads ${where} order by created_at desc limit $${params.length - 1} offset $${params.length}`, params);
     return { leads: result.rows, total: countResult.rows[0].total, limit, offset };
+}
+
+async function deleteMarketingLeads(ids = []) {
+    const selectedIds = Array.from(new Set(ids.map(normalizeText).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 100);
+    if (!selectedIds.length) throw demoTradeError(400, "Select a marketing lead to delete.");
+    if (databaseConfigured()) {
+        await ensureMarketingLeadTables();
+        await dbPool.query("delete from marketing_events where lead_id = any($1::uuid[])", [selectedIds]);
+        const result = await dbPool.query("delete from marketing_leads where id = any($1::uuid[]) returning id, email", [selectedIds]);
+        return result.rows;
+    }
+    const db = loadDemoDb();
+    const deleted = (db.marketingLeads || []).filter((lead) => selectedIds.includes(lead.id));
+    db.marketingLeads = (db.marketingLeads || []).filter((lead) => !selectedIds.includes(lead.id));
+    db.marketingEvents = (db.marketingEvents || []).filter((event) => !selectedIds.includes(event.leadId));
+    saveDemoDb(db);
+    return deleted.map((lead) => ({ id: lead.id, email: lead.email }));
 }
 
 function csvCell(value) {
@@ -1701,6 +1726,72 @@ async function markBriefingDelivered(email) {
     if (lead) { lead.lastBriefingAt = new Date().toISOString(); lead.briefingCount = Number(lead.briefingCount || 0) + 1; saveDemoDb(db); }
 }
 
+function briefingWatchlistSymbols(briefing = {}) {
+    return Array.from(new Set((briefing.sections || []).flatMap((section) => (section.assets || []).map((asset) => normalizeTradeSymbol(asset.symbol))).filter(Boolean))).slice(0, 25);
+}
+
+async function marketingAccountExists(email) {
+    const normalized = normalizeEmail(email);
+    if (databaseConfigured()) {
+        const result = await dbPool.query("select id from profiles where lower(email) = lower($1) limit 1", [normalized]);
+        if (result.rows.length) return true;
+    }
+    return Boolean(jsonUserByEmail(loadDemoDb(), normalized));
+}
+
+async function marketingLeadForEmail(email, leadId = "") {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return null;
+    if (databaseConfigured()) {
+        await ensureMarketingLeadTables();
+        const result = await dbPool.query("select id, email, interests, status, suggested_watchlist, watchlist_offer_status from marketing_leads where lower(email) = lower($1) and ($2::uuid is null or id = $2::uuid) limit 1", [normalized, /^[0-9a-f-]{36}$/i.test(leadId) ? leadId : null]);
+        return result.rows[0] || null;
+    }
+    return (loadDemoDb().marketingLeads || []).find((lead) => normalizeEmail(lead.email) === normalized && (!leadId || lead.id === leadId)) || null;
+}
+
+function marketingLeadSymbols(lead = {}) {
+    const symbols = lead.suggested_watchlist ?? lead.suggestedWatchlist ?? [];
+    return Array.from(new Set((Array.isArray(symbols) ? symbols : []).map(normalizeTradeSymbol).filter(Boolean))).slice(0, 25);
+}
+
+async function updateMarketingLeadOffer(email, symbols, status) {
+    const normalized = normalizeEmail(email);
+    if (databaseConfigured()) {
+        await ensureMarketingLeadTables();
+        await dbPool.query("update marketing_leads set suggested_watchlist = $2::jsonb, watchlist_offer_status = $3, last_watchlist_offer_at = now(), updated_at = now() where lower(email) = lower($1)", [normalized, JSON.stringify(symbols), status]);
+        return;
+    }
+    const db = loadDemoDb();
+    const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
+    if (lead) {
+        lead.suggestedWatchlist = symbols;
+        lead.watchlistOfferStatus = status;
+        lead.lastWatchlistOfferAt = new Date().toISOString();
+        lead.updatedAt = new Date().toISOString();
+        saveDemoDb(db);
+    }
+}
+
+async function acceptMarketingLeadOffer(auth, lead) {
+    const symbols = marketingLeadSymbols(lead);
+    let added = 0;
+    const saved = [];
+    for (const symbol of symbols) {
+        try {
+            const result = auth.source === "supabase"
+                ? await addDatabaseWatchlistSymbol(symbol, "live", auth.profileId)
+                : await addJsonWatchlistSymbol(symbol, "live", auth.userId);
+            saved.push(result.asset.symbol);
+            if (!result.alreadySaved) added += 1;
+        } catch (err) {
+            console.error("Briefing watchlist import failed:", symbol, err.message || err);
+        }
+    }
+    if (saved.length || !symbols.length) await updateMarketingLeadOffer(lead.email, symbols, "accepted");
+    return { added, saved, requested: symbols.length };
+}
+
 async function unsubscribeMarketingLead(email) {
     const normalized = normalizeEmail(email);
     if (!normalized) return false;
@@ -1719,14 +1810,21 @@ async function unsubscribeMarketingLead(email) {
 async function sendMarketLeadWelcomeEmail(lead = {}, req) {
     const email = normalizeEmail(lead.email);
     if (!email) return { delivered: false, provider: "none", skipped: true };
-    const accountUrl = `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id)}`;
     const interests = (lead.interests || []).map((value) => value.charAt(0).toUpperCase() + value.slice(1)).join(", ");
     const briefing = await buildMarketBriefing(lead);
+    const symbols = briefingWatchlistSymbols(briefing);
+    const hasAccount = await marketingAccountExists(email);
+    await updateMarketingLeadOffer(email, symbols, symbols.length ? (hasAccount ? "pending" : "ready") : "none");
+    const accountUrl = hasAccount
+        ? `${appBaseUrl(req)}/account-markets?briefing=review`
+        : `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id)}&next=account-watchlist`;
+    const actionText = hasAccount ? "Review your watchlist offer in Autody" : "Create an account to save these assets to your watchlist";
+    const buttonText = hasAccount ? "Accept or decline in Autody" : "Create account and save assets";
     const unsubscribeUrl = `${appBaseUrl(req)}/marketing/unsubscribe?token=${encodeURIComponent(marketingUnsubscribeToken(email))}`;
     const subject = `Your Autody market briefing — ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(briefing.generatedAt)}`;
     const marketText = briefing.sections.map((section) => `${section.interest.toUpperCase()}\n${section.assets.map((asset) => `• ${asset.name} (${asset.symbol}): ${asset.price}, ${asset.change}`).join("\n")}`).join("\n\n");
     const newsText = briefing.news.length ? `\n\nMARKET HEADLINES\n${briefing.news.map((article) => `• ${article.title}${article.source ? ` — ${article.source}` : ""}`).join("\n")}` : "";
-    const text = `Your focused Autody market briefing\n\nMarkets selected: ${interests}\nAll values are shown in USD.\n\n${marketText || "Your selected markets are ready to follow in Autody."}${newsText}\n\nBuild your free personal watchlist:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
+    const text = `Your focused Autody market briefing\n\nMarkets selected: ${interests}\nAll values are shown in USD.\n\n${marketText || "Your selected markets are ready to follow in Autody."}${newsText}\n\n${actionText}:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
     const sectionHtml = briefing.sections.map((section) => `<div style="margin:20px 0"><h2 style="font-size:17px;text-transform:capitalize">${emailHtmlEscape(section.interest)}</h2>${section.assets.map((asset) => `<div style="padding:10px 0;border-bottom:1px solid #e5e7eb"><strong>${emailHtmlEscape(asset.name)} (${emailHtmlEscape(asset.symbol)})</strong><br><span>${emailHtmlEscape(asset.price)} · ${emailHtmlEscape(asset.change)}</span></div>`).join("")}</div>`).join("");
     const newsHtml = briefing.news.length ? `<div style="margin:22px 0"><h2 style="font-size:17px">Market headlines</h2>${briefing.news.map((article) => `<p><strong>${emailHtmlEscape(article.title)}</strong>${article.source ? `<br><span style="color:#6b7280">${emailHtmlEscape(article.source)}</span>` : ""}</p>`).join("")}</div>` : "";
     const html = `
@@ -1736,7 +1834,8 @@ async function sendMarketLeadWelcomeEmail(lead = {}, req) {
         <p>Prepared for <strong>${emailHtmlEscape(interests)}</strong>. All account and market values are displayed in <strong>USD</strong>.</p>
         ${sectionHtml || "<p>Your selected markets are ready to follow inside Autody.</p>"}
         ${newsHtml}
-        <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">Build your free watchlist</a></p>
+        <p>${emailHtmlEscape(actionText)}.</p>
+        <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">${buttonText}</a></p>
         <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results. <a href="${unsubscribeUrl}">Unsubscribe</a>.</p>
       </div>`;
     if (!RESEND_API_KEY) return { delivered: false, provider: "console" };
@@ -10593,16 +10692,22 @@ async function ensureSupportTicketTables(client = dbPool) {
           priority text not null default 'normal',
           message text not null,
           status text not null default 'open',
-          created_at timestamptz not null default now()
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          resolved_at timestamptz
         );
 
         alter table if exists support_tickets
           add column if not exists topic text not null default '',
           add column if not exists contact_name text not null default '',
-          add column if not exists contact_email text not null default '';
+          add column if not exists contact_email text not null default '',
+          add column if not exists updated_at timestamptz not null default now(),
+          add column if not exists resolved_at timestamptz;
 
         create index if not exists support_tickets_profile_idx
           on support_tickets (profile_id, created_at desc);
+        create index if not exists support_tickets_status_idx
+          on support_tickets (status, created_at desc);
     `);
 }
 
@@ -10651,6 +10756,55 @@ async function createSupportTicket(auth = {}, body = {}) {
     db.supportTickets = db.supportTickets.slice(0, 500);
     saveDemoDb(db);
     return ticket;
+}
+
+async function sendSupportTicketInboxEmail(ticket = {}) {
+    if (!EMAIL_SUPPORT_INBOX_TO || !RESEND_API_KEY) return { delivered: false, provider: "none" };
+    const topic = normalizeText(ticket.topic || ticket.category || "Support request");
+    const contact = normalizeEmail(ticket.email);
+    const text = `New Autody support ticket\n\nTicket: ${ticket.id}\nTopic: ${topic}\nFrom: ${ticket.name || "Unknown"} <${contact || "no email"}>\nPriority: ${ticket.priority}\n\n${ticket.message}\n\nOpen support inbox: https://autodytraded.com/admin-support`;
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: EMAIL_SUPPORT_FROM, to: EMAIL_SUPPORT_INBOX_TO,
+            subject: `Autody support: ${topic.slice(0, 80)}`, text,
+            html: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827"><h1>New support ticket</h1><p><strong>Ticket:</strong> ${emailHtmlEscape(ticket.id)}<br><strong>Topic:</strong> ${emailHtmlEscape(topic)}<br><strong>From:</strong> ${emailHtmlEscape(contact || "No email")}</p><p style="white-space:pre-wrap">${emailHtmlEscape(ticket.message)}</p><p><a href="https://autodytraded.com/admin-support">Open support inbox</a></p></div>`,
+            ...(contact ? { reply_to: contact } : {}) })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Support inbox email delivery failed.");
+    return { delivered: true, provider: "resend" };
+}
+
+async function listAdminSupportTickets(body = {}) {
+    const status = ["open", "in_progress", "resolved"].includes(normalizeText(body.status)) ? normalizeText(body.status) : "";
+    const search = normalizeText(body.search).toLowerCase().slice(0, 120);
+    const limit = Math.min(500, Math.max(1, Number(body.limit) || 100));
+    if (databaseConfigured()) {
+        await ensureSupportTicketTables();
+        const result = await dbPool.query(`select id, profile_id, account_mode, category, topic, contact_name as name, contact_email as email, priority, message, status, created_at as "createdAt", updated_at as "updatedAt", resolved_at as "resolvedAt" from support_tickets where ($1::text = '' or status = $1) and ($2::text = '' or lower(contact_email || ' ' || topic || ' ' || message) like $2) order by created_at desc limit $3`, [status, search ? `%${search}%` : "", limit]);
+        return result.rows;
+    }
+    return (loadDemoDb().supportTickets || []).filter((ticket) => (!status || ticket.status === status)
+        && (!search || `${ticket.email} ${ticket.topic} ${ticket.message}`.toLowerCase().includes(search))).slice(0, limit);
+}
+
+async function updateAdminSupportTicket(body = {}) {
+    const id = normalizeText(body.id);
+    const status = normalizeText(body.status);
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !["open", "in_progress", "resolved"].includes(status)) throw demoTradeError(400, "Choose a valid ticket and status.");
+    if (databaseConfigured()) {
+        await ensureSupportTicketTables();
+        const result = await dbPool.query("update support_tickets set status = $2, updated_at = now(), resolved_at = case when $2 = 'resolved' then now() else null end where id = $1 returning id, status", [id, status]);
+        if (!result.rows.length) throw demoTradeError(404, "Support ticket not found.");
+        return result.rows[0];
+    }
+    const db = loadDemoDb();
+    const ticket = (db.supportTickets || []).find((item) => item.id === id);
+    if (!ticket) throw demoTradeError(404, "Support ticket not found.");
+    ticket.status = status; ticket.updatedAt = new Date().toISOString(); ticket.resolvedAt = status === "resolved" ? ticket.updatedAt : null;
+    saveDemoDb(db);
+    return { id, status };
 }
 
 async function ensureKycTables(client = dbPool) {
@@ -17641,6 +17795,14 @@ app.post("/api/auth/sign-up", async (req, res) => {
       created = createJsonAccount(signUp);
     }
 
+    const signupLead = await marketingLeadForEmail(signUp.email, signUp.leadId).catch((err) => {
+      console.error("Signup briefing lookup failed:", err.message || err);
+      return null;
+    });
+    if (signupLead && ["ready", "pending"].includes(signupLead.watchlist_offer_status ?? signupLead.watchlistOfferStatus)) {
+      await acceptMarketingLeadOffer({ source: created.source || "json", profileId: created.user.id, userId: created.user.id }, signupLead)
+        .catch((err) => console.error("Signup briefing watchlist import failed:", err.message || err));
+    }
     await markMarketingLeadConverted(signUp.email).catch((err) => {
       console.error("Marketing lead conversion tracking failed:", err.message || err);
     });
@@ -18393,6 +18555,7 @@ app.post("/api/support/tickets", async (req, res) => {
     await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
       console.error("Support confirmation email failed:", err.message || err);
     });
+    await sendSupportTicketInboxEmail(ticket).catch((err) => console.error("Support inbox alert failed:", err.message || err));
     return res.json({
       success: true,
       ticket
@@ -18516,6 +18679,7 @@ app.post("/api/public/support/tickets", async (req, res) => {
     await sendSupportTicketConfirmationEmail(ticket).catch((err) => {
       console.error("Public support confirmation email failed:", err.message || err);
     });
+    await sendSupportTicketInboxEmail(ticket).catch((err) => console.error("Public support inbox alert failed:", err.message || err));
     return res.json({
       success: true,
       ticket
@@ -18799,6 +18963,61 @@ app.get('/api/dex/pair', async (req, res) => {
     console.error("Dex proxy error:", err);
     return res.status(500).json({ error: "Failed to fetch Dexscreener", details: String(err?.message || err) });
   }
+});
+
+app.post("/api/admin/marketing/delete", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing access is not authorized." });
+    const deleted = await deleteMarketingLeads(Array.isArray(body.ids) ? body.ids : []);
+    return res.json({ success: true, deleted });
+  } catch (err) { return sendDemoError(res, err, "Marketing leads could not be deleted"); }
+});
+
+app.get("/api/account/marketing/watchlist-offer", async (req, res) => {
+  try {
+    const auth = await authenticatedAccountContext(req);
+    const lead = await marketingLeadForEmail(auth.user.email);
+    if (lead && lead.status === "converted" && (lead.watchlist_offer_status ?? lead.watchlistOfferStatus) === "none") {
+      const symbols = briefingWatchlistSymbols(await buildMarketBriefing(lead));
+      if (symbols.length) { await updateMarketingLeadOffer(lead.email, symbols, "pending"); lead.suggested_watchlist = symbols; lead.watchlist_offer_status = "pending"; }
+    }
+    const pending = lead && (lead.watchlist_offer_status ?? lead.watchlistOfferStatus) === "pending";
+    return res.json({ success: true, offer: pending ? { leadId: lead.id, symbols: marketingLeadSymbols(lead) } : null });
+  } catch (err) { return sendDemoError(res, err, "Watchlist offer unavailable"); }
+});
+
+app.post("/api/account/marketing/watchlist-offer", async (req, res) => {
+  try {
+    const auth = await authenticatedAccountContext(req);
+    const body = parseJsonBody(req);
+    const lead = await marketingLeadForEmail(auth.user.email, normalizeText(body.leadId));
+    if (!lead || (lead.watchlist_offer_status ?? lead.watchlistOfferStatus) !== "pending") return res.status(404).json({ success: false, error: "Watchlist offer is no longer pending." });
+    const action = normalizeText(body.action).toLowerCase();
+    if (action === "decline") {
+      await updateMarketingLeadOffer(lead.email, marketingLeadSymbols(lead), "declined");
+      return res.json({ success: true, status: "declined" });
+    }
+    if (action !== "accept") return res.status(400).json({ success: false, error: "Choose accept or decline." });
+    const result = await acceptMarketingLeadOffer(auth, lead);
+    return res.json({ success: true, status: result.saved.length || !result.requested ? "accepted" : "pending", ...result });
+  } catch (err) { return sendDemoError(res, err, "Watchlist offer could not be updated"); }
+});
+
+app.post("/api/admin/support/tickets", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin support access is not authorized." });
+    return res.json({ success: true, tickets: await listAdminSupportTickets(body) });
+  } catch (err) { return sendDemoError(res, err, "Support inbox unavailable"); }
+});
+
+app.post("/api/admin/support/update", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin support access is not authorized." });
+    return res.json({ success: true, ticket: await updateAdminSupportTicket(body) });
+  } catch (err) { return sendDemoError(res, err, "Support ticket could not be updated"); }
 });
 
 // --- serve frontend
