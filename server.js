@@ -1836,12 +1836,12 @@ async function updateMarketingLeadOffer(email, symbols, status) {
     const normalized = normalizeEmail(email);
     if (databaseConfigured()) {
         await ensureMarketingOfferColumns();
-        await dbPool.query("update marketing_leads set suggested_watchlist = $2::jsonb, watchlist_offer_status = $3, last_watchlist_offer_at = now(), updated_at = now() where lower(email) = lower($1)", [normalized, JSON.stringify(symbols), status]);
+        await dbPool.query("update marketing_leads set suggested_watchlist = $2::jsonb, watchlist_offer_status = $3, last_watchlist_offer_at = now(), updated_at = now() where lower(email) = lower($1) and (watchlist_offer_status <> 'dismissed' or $3 = 'dismissed')", [normalized, JSON.stringify(symbols), status]);
         return;
     }
     const db = loadDemoDb();
     const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
-    if (lead) {
+    if (lead && (lead.watchlistOfferStatus ?? lead.watchlist_offer_status) !== "dismissed") {
         lead.suggestedWatchlist = symbols;
         lead.watchlistOfferStatus = status;
         lead.lastWatchlistOfferAt = new Date().toISOString();
