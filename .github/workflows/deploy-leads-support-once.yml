@@ -35,27 +35,34 @@ jobs:
             git show "$SERVER_BASE_SHA:server.js" > "$SERVER_BASE"
             git show "${{ github.sha }}:server.js" > "$SERVER_NEW"
             if ! git merge-file -p server.js "$SERVER_BASE" "$SERVER_NEW" > "$SERVER_MERGED"; then
-              echo "Server merge needs review; no files were changed"
               python3 - "$SERVER_MERGED" <<'PY'
-            import difflib, pathlib, sys
-            lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
-            starts = [i for i, line in enumerate(lines) if line.startswith('<<<<<<<')]
-            for number, start in enumerate(starts, 1):
-                middle = next(i for i in range(start + 1, len(lines)) if lines[i] == '=======')
-                end = next(i for i in range(middle + 1, len(lines)) if lines[i].startswith('>>>>>>>'))
-                ours, theirs = lines[start + 1:middle], lines[middle + 1:end]
-                print('CONFLICT', number, 'lines', start + 1, middle + 1, end + 1, 'ours', len(ours), 'theirs', len(theirs))
-                print('OURS START:', '\n'.join(ours[:8]))
-                print('OURS END:', '\n'.join(ours[-8:]))
-                print('THEIRS START:', '\n'.join(theirs[:8]))
-                print('THEIRS END:', '\n'.join(theirs[-8:]))
-                print('AFTER:', '\n'.join(lines[end + 1:end + 9]))
-                differences = list(difflib.unified_diff(ours, theirs, fromfile='live', tofile='github', lineterm=''))
-                print('DIFF LINES:', len(differences))
-                print('\n'.join(differences[:130]))
+            import pathlib, re, sys
+            file = pathlib.Path(sys.argv[1])
+            text = file.read_text()
+            pattern = re.compile(r'^<<<<<<<[^\n]*\n(?P<ours>.*?)^=======\n(?P<theirs>.*?)^>>>>>>>[^\n]*\n', re.M | re.S)
+            blocks = list(pattern.finditer(text))
+            if len(blocks) != 2:
+                raise SystemExit(f'Expected two reviewed server conflicts, found {len(blocks)}; no files changed')
+            first_live = blocks[0].group('ours')
+            first_new = blocks[0].group('theirs')
+            if not first_live.startswith('async function recordMarketingEvent(') or not first_new.startswith('function markDatabaseSlow('):
+                raise SystemExit('Marketing conflict changed; no files changed')
+            outside = pattern.sub('', text)
+            if outside.count('async function recordMarketingEvent(') != 1:
+                raise SystemExit('Complete marketing event function was not found; no files changed')
+            second_live = blocks[1].group('ours').splitlines()
+            second_new = blocks[1].group('theirs').splitlines()
+            remaining = iter(second_new)
+            if not all(any(line == item for item in remaining) for line in second_live):
+                raise SystemExit('Live support code differs beyond additions; no files changed')
+            resolved = pattern.sub(lambda match: match.group('theirs'), text)
+            if '<<<<<<<' in resolved or '>>>>>>>' in resolved:
+                raise SystemExit('Unresolved server conflict markers remain; no files changed')
+            file.write_text(resolved)
+            print('Resolved two reviewed server conflicts while preserving live support code')
             PY
-              exit 1
             fi
+            node --check "$SERVER_MERGED"
             git apply --check "$PATCH_FILE"
             git branch "lead-support-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
             cp "$SERVER_MERGED" server.js
