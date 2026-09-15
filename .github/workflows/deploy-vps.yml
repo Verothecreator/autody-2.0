@@ -48,7 +48,29 @@ jobs:
             cd "$APP_DIR"
             git remote set-url origin "$REPO_URL"
             git fetch origin main
-            git pull --ff-only origin main
+            TARGET_SHA="${{ github.sha }}"
+            DEPLOY_SHA_FILE="$APP_DIR/.github-last-deployed-sha"
+            if git merge-base --is-ancestor "$TARGET_SHA" HEAD; then
+              echo "VPS already contains this GitHub commit"
+            elif git merge-base --is-ancestor HEAD "$TARGET_SHA"; then
+              git merge --ff-only "$TARGET_SHA"
+            else
+              BASE_SHA=$(cat "$DEPLOY_SHA_FILE" 2>/dev/null || printf '%s' '4055314280d409dbeb9fcbd6f4a897f05e4b7f52')
+              git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA" || { echo "Invalid deployed GitHub marker"; exit 1; }
+              PATCH_FILE=$(mktemp)
+              git diff --binary "$BASE_SHA" "$TARGET_SHA" -- . ':(exclude).github/workflows' > "$PATCH_FILE"
+              if [ -s "$PATCH_FILE" ]; then
+                git diff --cached --quiet || { echo "VPS has staged edits; deployment stopped"; exit 1; }
+                git apply --index --check "$PATCH_FILE"
+                git branch "deploy-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
+                git apply --index "$PATCH_FILE"
+                git diff --cached --check
+                node --check server.js
+                git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" commit -m "Apply checked GitHub update $TARGET_SHA"
+              else
+                echo "No application file changes in this GitHub commit"
+              fi
+            fi
             npm install --omit=dev --no-package-lock
 
             set_env_value() {
@@ -102,3 +124,4 @@ jobs:
               pm2 logs "$APP_NAME" --lines 80 --nostream || true
             fi
             curl --fail --silent --show-error http://127.0.0.1:3000/api/live/status
+            printf '%s\n' "$TARGET_SHA" > "$DEPLOY_SHA_FILE"
