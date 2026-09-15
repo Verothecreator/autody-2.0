@@ -1702,8 +1702,10 @@ function briefingQuotedCurrency(asset = {}) {
 function briefingFormatPrice(value, currency = "USD") {
     const number = Number(value);
     if (!Number.isFinite(number)) return "Price unavailable";
-    return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : number < 1 ? 4 : 2 }).format(number);
+    const digits = currency === "KRW" ? 0 : number > 0 && number < 0.0001 ? 10 : number < 1 ? 4 : 2;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: digits }).format(number);
 }
+
 
 async function buildMarketBriefing(lead = {}) {
     const interestTypes = { stocks: ["stock"], crypto: ["crypto"], etfs: ["etf"], commodities: ["commodity"], economy: ["stock", "etf"] };
@@ -10910,43 +10912,99 @@ function originalMarketBriefingSymbols(text = "") {
 
 async function marketBriefingFollowupDraft(lead = {}, req) {
     const original = await originalMarketBriefingForLead(lead);
-    if (!original?.text) return null;
+    if (!original?.text) throw new Error("The original market selection is unavailable.");
     const email = normalizeEmail(lead.email);
     const hasAccount = await marketingAccountExists(email);
-    const sentAt = new Date(original.sentAt || Date.now());
-    const sentDate = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" })
-        .format(Number.isNaN(sentAt.getTime()) ? new Date() : sentAt);
-    const originalBriefing = originalMarketBriefingContent(original.text);
-    const briefing = correctedOriginalBriefingCurrencyLabels(originalBriefing);
-    const symbols = originalMarketBriefingSymbols(briefing);
+    const source = originalMarketBriefingContent(original.text);
+    const selected = [];
+    let category = "";
+    for (const line of source.split(/\r?\n/)) {
+        const heading = line.trim().toUpperCase();
+        if (["STOCKS", "CRYPTO", "ETFS", "COMMODITIES", "ECONOMY", "MARKET HEADLINES"].includes(heading)) {
+            category = heading === "ECONOMY" || heading === "MARKET HEADLINES" ? "" : heading;
+            continue;
+        }
+        const match = category && line.match(/^\s*[•*-]\s+(.+?)\s+\(([A-Z0-9.-]{1,20})\):/);
+        if (match && !selected.some((item) => item.symbol === match[2])) selected.push({ category, symbol: match[2] });
+    }
+    if (!selected.length) throw new Error("No original briefing assets were found. Nothing was sent.");
+    if (!databaseConfigured()) throw new Error("Live market data is unavailable. Nothing was sent.");
+    const now = Date.now();
+    const sections = [];
+    for (const item of selected) {
+        const result = await dbPool.query(`select symbol, asset_name, asset_type, price_usd, change_pct, currency, captured_at
+            from market_latest_snapshots where upper(symbol) = upper($1) order by captured_at desc limit 1`, [item.symbol]);
+        const row = result.rows[0];
+        const captured = new Date(row?.captured_at || 0).getTime();
+        const maxAge = item.category === "CRYPTO" ? 24 : 72;
+        if (!row || row.price_usd == null || !Number.isFinite(Number(row.price_usd)) || !captured || now - captured > maxAge * 3600000 || captured > now + 300000) {
+            throw new Error(`A current quote for ${item.symbol} is unavailable. Refresh market data before previewing or sending.`);
+        }
+        let section = sections.find((entry) => entry.category === item.category);
+        if (!section) { section = { category: item.category, assets: [] }; sections.push(section); }
+        section.assets.push({ symbol: row.symbol, name: row.asset_name || row.symbol,
+            price: briefingFormatPrice(row.price_usd, briefingQuotedCurrency({ symbol: row.symbol, currency: row.currency })),
+            change: Number.isFinite(Number(row.change_pct)) ? `${Number(row.change_pct) >= 0 ? "+" : ""}${Number(row.change_pct).toFixed(2)}%` : "—" });
+    }
+    const headlines = (await readLatestNewsSnapshots(20)).filter((article) => {
+        const published = new Date(article.publishedAt || 0).getTime();
+        return article.title && published && now - published <= 24 * 3600000 && published <= now + 300000;
+    }).filter((article, index, articles) => articles.findIndex((other) => other.title === article.title) === index).slice(0, 4);
+    const symbols = sections.flatMap((section) => section.assets.map((asset) => asset.symbol));
+    const briefing = sections.map((section) => `${section.category}\n${section.assets.map((asset) => `• ${asset.name} (${asset.symbol}): ${asset.price}, ${asset.change}`).join("\n")}`).join("\n\n")
+        + (headlines.length ? `\n\nMARKET HEADLINES\n${headlines.map((article) => {
+            const title = article.title.replace(new RegExp(`\\s+-\\s+${String(article.source || "").replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`, "i"), "").trim();
+            return `• ${title}${article.source ? ` — ${article.source}` : ""}`;
+        }).join("\n")}` : "");
+    const asOf = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(now);
     const accountUrl = hasAccount
         ? `${appBaseUrl(req)}/account-markets?briefing=review`
         : `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id || "")}&next=account-watchlist`;
     const unsubscribeUrl = `${appBaseUrl(req)}/marketing/unsubscribe?token=${encodeURIComponent(marketingUnsubscribeToken(email))}`;
-    const subject = "Your Autody briefing is ready — explore with $50,000 in Demo";
-    const introduction = briefing === originalBriefing
-        ? `Here is the same Autody market briefing we emailed you on ${sentDate}. This is a snapshot from that date; check Autody for current market prices.`
-        : `Here is the Autody market briefing we emailed you on ${sentDate}, with the same assets, figures, and headlines. We corrected the currency labels on Korean and Hong Kong listings. These are dated quotes; check Autody for current prices.`;
+    const subject = hasAccount ? "Your Autody account: choose the markets to follow" : "Open your Autody account to follow your markets";
+    const introduction = "We’ve updated the markets you asked us to follow. Here’s your latest Autody briefing:";
     const invitation = hasAccount
-        ? "Open your account to accept or decline adding these briefing assets to your shared watchlist. You can also see how your ideas play out with $50,000 in Demo practice funds."
-        : "Create your free Autody account, choose whether to accept or decline these briefing assets for your shared watchlist, and see how your market ideas play out with $50,000 in Demo practice funds. Try practice trades without using real money. Demo funds cannot be withdrawn or transferred to Live.";
-    const action = hasAccount ? "Review your watchlist offer" : "Create your account";
-    const text = `Hello,\n\n${introduction}\n\n${briefing}\n\n${invitation}\n\n${action}:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
+        ? "Your account is ready. Open your markets page to choose which of these assets to add to your watchlist. You can accept or decline each one. Your account also includes $50,000 in Demo practice funds to explore the platform and try practice trades."
+        : "Open your Autody account to keep the markets that interest you close. You can choose which of these assets to add to your watchlist. You’ll also have $50,000 in Demo practice funds to explore the platform and try practice trades. The Demo balance is for practice and isn’t a cash deposit.";
+    const action = hasAccount ? "Review your markets" : "Open your account";
+    const text = `Hello,\n\n${introduction}\n\n${briefing}\n\nMarket prices and changes as of ${asOf} UTC.\n\n${invitation}\n\n${action}:\n${accountUrl}\n\nSee you in Autody,\nThe Autody Team`;
     const html = `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827;max-width:680px">
         <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
-        <h1 style="margin:16px 0 10px">Your market briefing is ready</h1>
+        <h1 style="margin:16px 0 10px">Follow your markets with Autody</h1>
         <p>${emailHtmlEscape(introduction)}</p>
         <div style="margin:20px 0;padding:18px;background:#f5f6fb;border-radius:10px">${emailHtmlEscape(briefing).replace(/\n/g, "<br>")}</div>
+        <p style="color:#4b5563;font-size:13px">Market prices and changes as of ${emailHtmlEscape(asOf)} UTC.</p>
         <p>${emailHtmlEscape(invitation)}</p>
         <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">${emailHtmlEscape(action)}</a></p>
-        <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results. <a href="${unsubscribeUrl}">Unsubscribe</a>.</p>
+        <p>See you in Autody,<br>The Autody Team</p>
       </div>`;
-    return { id: lead.id, email, subject, text, html, symbols, sourceSubject: original.subject, sourceSentAt: original.sentAt, accountUrl, unsubscribeUrl };
+    return { id: lead.id, email, subject, text, html, symbols, accountUrl, unsubscribeUrl, generatedAt: now };
 }
 
-async function sendMarketBriefingFollowup(lead = {}, req) {
-    const draft = await marketBriefingFollowupDraft(lead, req);
-    if (!draft) return { delivered: false, error: "The original sent briefing could not be recovered." };
+function signedMarketFollowupDraft(draft) {
+    if (!MARKETING_SIGNING_SECRET) throw new Error("Email review signing is unavailable.");
+    const payload = Buffer.from(JSON.stringify(draft)).toString("base64url");
+    const signature = crypto.createHmac("sha256", MARKETING_SIGNING_SECRET).update(payload).digest("base64url");
+    return `${payload}.${signature}`;
+}
+
+function reviewedMarketFollowupDraft(token) {
+    if (!MARKETING_SIGNING_SECRET || typeof token !== "string" || token.length > 100000 || !token.includes(".")) return null;
+    const [payload, signature] = token.split(".");
+    const expected = crypto.createHmac("sha256", MARKETING_SIGNING_SECRET).update(payload).digest("base64url");
+    const given = Buffer.from(signature || "");
+    const wanted = Buffer.from(expected);
+    if (given.length !== wanted.length || !crypto.timingSafeEqual(given, wanted)) return null;
+    try {
+        const draft = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+        if (!draft.generatedAt || Date.now() - draft.generatedAt > 30 * 60000 || draft.generatedAt > Date.now() + 300000) return null;
+        return draft;
+    } catch (err) { return null; }
+}
+
+async function sendMarketBriefingFollowup(lead = {}, draft) {
+    if (!draft || draft.id !== lead.id || draft.email !== normalizeEmail(lead.email))
+        return { delivered: false, error: "The reviewed draft does not match this lead. Preview again." };
     if (!RESEND_API_KEY) return { delivered: false, error: "Email delivery is unavailable." };
     const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -10964,8 +11022,9 @@ async function sendMarketBriefingFollowup(lead = {}, req) {
         .catch((err) => console.error("Follow-up watchlist offer tracking failed:", err.message || err));
     await markBriefingDelivered(draft.email)
         .catch((err) => console.error("Follow-up delivery tracking failed:", err.message || err));
-    return { delivered: true, provider: "resend", originalSentAt: draft.sourceSentAt };
+    return { delivered: true, provider: "resend" };
 }
+
 
 async function listAdminSupportTickets(body = {}) {
     const status = ["open", "in_progress", "resolved"].includes(normalizeText(body.status)) ? normalizeText(body.status) : "";
@@ -18857,9 +18916,9 @@ app.post("/api/admin/marketing/preview-followup", async (req, res) => {
         const draft = await marketBriefingFollowupDraft(lead, req);
         drafts.push(draft ? {
           id: draft.id, email: draft.email, subject: draft.subject, text: draft.text,
-          sourceSubject: draft.sourceSubject, sourceSentAt: draft.sourceSentAt,
-          symbols: draft.symbols
-        } : { id: lead.id, email: lead.email, error: "Original sent briefing unavailable." });
+          symbols: draft.symbols, generatedAt: draft.generatedAt,
+          reviewToken: signedMarketFollowupDraft(draft)
+        } : { id: lead.id, email: lead.email, error: "Current briefing unavailable." });
       } catch (err) {
         drafts.push({ id: lead.id, email: lead.email, error: err.message || "Preview unavailable." });
       }
@@ -18875,7 +18934,7 @@ app.post("/api/admin/marketing/send-briefing", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing delivery is not authorized." });
-    if (body.reviewed !== true) return res.status(400).json({ success: false, error: "Preview and review the original briefing follow-up before sending." });
+    if (body.reviewed !== true) return res.status(400).json({ success: false, error: "Preview and review the current market email before sending." });
     const ids = Array.from(new Set((Array.isArray(body.ids) ? body.ids : []).map(normalizeText).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 50);
     if (!ids.length) return res.status(400).json({ success: false, error: "Select at least one subscribed lead." });
     let leads = [];
@@ -18889,7 +18948,10 @@ app.post("/api/admin/marketing/send-briefing", async (req, res) => {
     }
     const deliveries = [];
     for (const lead of leads) {
-      const delivery = await sendMarketBriefingFollowup(lead, req).catch((err) => ({ delivered: false, error: err.message || "Delivery failed" }));
+      const draft = reviewedMarketFollowupDraft(body.reviewTokens?.[lead.id]);
+      const delivery = draft
+        ? await sendMarketBriefingFollowup(lead, draft).catch((err) => ({ delivered: false, error: err.message || "Delivery failed" }))
+        : { delivered: false, error: "Review expired or changed. Preview again before sending." };
       deliveries.push({ id: lead.id, email: lead.email, ...delivery });
     }
     return res.json({ success: true, requested: ids.length, sent: deliveries.filter((item) => item.delivered).length, deliveries });
@@ -18898,6 +18960,7 @@ app.post("/api/admin/marketing/send-briefing", async (req, res) => {
     return res.status(err.status || 500).json({ success: false, error: err.message || "Briefing delivery failed." });
   }
 });
+
 
 app.post("/api/public/support/tickets", async (req, res) => {
   try {
