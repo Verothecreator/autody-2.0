@@ -1590,6 +1590,10 @@ async function createMarketingLead(body = {}) {
             lead.campaign, lead.content, lead.term, lead.landingPath, lead.referrer, lead.consentVersion]);
         lead.id = result.rows[0].id;
         lead.createdAt = result.rows[0].created_at;
+        if (await marketingAccountExists(email)) {
+            await markMarketingLeadConverted(email);
+            lead.status = "converted";
+        }
         return lead;
     }
 
@@ -1600,6 +1604,10 @@ async function createMarketingLead(body = {}) {
     else db.marketingLeads.unshift(lead);
     db.marketingLeads = db.marketingLeads.slice(0, 5000);
     saveDemoDb(db);
+    if (await marketingAccountExists(email)) {
+        await markMarketingLeadConverted(email);
+        (existing || lead).status = "converted";
+    }
     return existing || lead;
 }
 
@@ -1770,13 +1778,13 @@ async function saveOriginalMarketBriefing(email, message = {}) {
             original_briefing_subject = $2, original_briefing_text = $3,
             original_briefing_html = $4, original_briefing_sent_at = $5,
             original_briefing_provider_id = $6, updated_at = now()
-            where email = $1 and original_briefing_text is null`,
+            where email = $1`,
             [normalized, message.subject || "", message.text || "", message.html || "", message.sentAt || new Date(), message.providerId || null]);
         return;
     }
     const db = loadDemoDb();
     const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
-    if (lead && !lead.originalBriefingText) {
+    if (lead) {
         lead.originalBriefingSubject = message.subject || "";
         lead.originalBriefingText = message.text || "";
         lead.originalBriefingHtml = message.html || "";
@@ -10888,7 +10896,7 @@ async function originalMarketBriefingForLead(lead = {}) {
         const list = await response.json();
         matching = (list.data || []).find((item) =>
             (item.to || []).some((recipient) => normalizeEmail(recipient) === email)
-            && /Autody market briefing/i.test(item.subject || ""));
+            && /(?:Autody market briefing|Open your Autody account to follow your markets|Your Autody account: choose the markets to follow)/i.test(item.subject || ""));
         if (!list.has_more || !(list.data || []).length) break;
         after = list.data[list.data.length - 1].id;
     }
