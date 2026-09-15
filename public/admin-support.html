@@ -10,7 +10,20 @@
 </head>
 <body class="app-page">
   <main class="container" style="padding:40px 20px 80px">
-    <div class="section-heading"><div><p class="eyebrow">Support control</p><h1>Support inbox</h1><p>Read complaints and requests, reply to customers, and track what has been resolved.</p></div><a class="btn btn-ghost" href="ops-console.html">Back to operations</a></div>
+    <div class="section-heading"><div><p class="eyebrow">Support control</p><h1>Support inbox</h1><p>Assign each request to an agent, reply to the customer, and keep the conversation with the ticket.</p></div><a class="btn btn-ghost" href="ops-console.html">Back to operations</a></div>
+    <section class="app-card support-agent-management">
+      <div class="support-inbox-heading"><div><p class="muted-label">Your support team</p><h2>Agent profiles</h2></div><a class="btn btn-ghost" href="support-agent">Agent sign in</a></div>
+      <p>An agent's Autody address appears on customer replies. Their sign-in email must already receive mail so they can get an access code.</p>
+      <form id="support-agent-form" class="support-agent-form">
+        <input name="agentId" type="hidden" />
+        <label>Name<input name="name" type="text" maxlength="80" placeholder="Stella Ray" required /></label>
+        <label>Autody sender address<input name="senderEmail" type="email" placeholder="stella.ray@autodytraded.com" required /></label>
+        <label>Sign-in email<input name="loginEmail" type="email" placeholder="A mailbox the agent can open" required /></label>
+        <label class="support-agent-active"><input name="active" type="checkbox" checked /> Active</label>
+        <div class="support-inbox-actions"><button class="btn" id="support-agent-save" type="submit">Create agent</button><button class="btn btn-ghost" id="support-agent-reset" type="button">Clear</button></div>
+      </form>
+      <div id="support-agents"></div>
+    </section>
     <section class="app-card" style="margin:24px 0">
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
         <label>Search<input id="support-search" type="search" placeholder="Email, topic, or message" /></label>

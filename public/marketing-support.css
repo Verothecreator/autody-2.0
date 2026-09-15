@@ -14,3 +14,24 @@
 .support-inbox-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
 .support-inbox-actions { margin-top: 18px; justify-content: flex-start; }
 .support-inbox-actions select { margin-left: 8px; }
+.support-agent-management { margin: 24px 0; padding: 24px; }
+.support-agent-form { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 14px; align-items: end; margin: 22px 0; }
+.support-agent-form label { display: grid; gap: 8px; }
+.support-agent-active { align-self: end; min-height: 46px; display: flex !important; align-items: center; gap: 10px; }
+.support-agent-form .support-inbox-actions { grid-column: 1 / -1; margin-top: 0; }
+.support-agent-card { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 15px 0; border-top: 1px solid rgba(130, 145, 190, .22); }
+.support-agent-card div { display: grid; gap: 4px; min-width: 0; }
+.support-agent-card small { overflow-wrap: anywhere; }
+.support-thread { padding: 18px 0 4px; border-top: 1px solid rgba(130, 145, 190, .22); margin-top: 20px; display: grid; gap: 14px; }
+.support-thread label, .support-agent-login label, #customer-support-form label { display: grid; gap: 8px; }
+.support-thread textarea, #customer-support-form textarea { width: 100%; min-height: 128px; resize: vertical; }
+.support-thread-entry { padding: 15px; margin: 10px 0; border: 1px solid rgba(130, 145, 190, .25); border-radius: 12px; }
+.support-thread-entry.from-customer { background: rgba(130, 145, 190, .07); }
+.support-thread-entry.from-agent { background: rgba(91, 92, 246, .12); }
+.support-reply-preview { border: 1px solid rgba(91, 92, 246, .45); border-radius: 12px; padding: 18px; background: rgba(91, 92, 246, .09); }
+.support-reply-preview p { margin: 10px 0; }
+.support-agent-login { max-width: 620px; padding: 28px; margin: 26px 0; display: grid; gap: 16px; }
+.support-agent-filters { margin: 20px 0; padding: 18px; }
+.support-customer-page { max-width: 820px; padding: 70px 20px 90px; }
+.support-customer-page .app-card { padding: 22px; margin: 22px 0; }
+@media (max-width: 780px) { .support-agent-form { grid-template-columns: 1fr; } }

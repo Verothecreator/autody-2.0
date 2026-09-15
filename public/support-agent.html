@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Autody Support Agent</title>
+  <link rel="icon" type="image/png" href="Autody-Logo.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="marketing-support.css" />
+</head>
+<body class="app-page">
+  <main class="container" style="padding:40px 20px 80px">
+    <div class="section-heading">
+      <div><p class="eyebrow">Customer care</p><h1>Agent queue</h1><p>Help customers with the tickets assigned to you.</p></div>
+      <button class="btn btn-ghost" type="button" id="agent-sign-out" hidden>Sign out</button>
+    </div>
+    <form id="agent-login" class="app-card support-agent-login">
+      <h2>Agent sign in</h2>
+      <p>Use the sign-in email saved on your support profile. Your customer-facing Autody address can be different.</p>
+      <label>Sign-in email<input name="email" type="email" autocomplete="username" required /></label>
+      <button class="btn" type="submit">Send access code</button>
+    </form>
+    <form id="agent-code" class="app-card support-agent-login" hidden>
+      <h2>Check your email</h2>
+      <label>Six-digit code<input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required /></label>
+      <button class="btn" type="submit">Open my queue</button>
+      <button class="btn btn-ghost" id="agent-code-back" type="button">Back</button>
+    </form>
+    <p id="agent-notice" class="campaign-status" role="status"></p>
+    <section id="agent-workspace" hidden>
+      <div class="support-inbox-heading">
+        <div><p class="muted-label" id="agent-identity"></p><h2>Your tickets</h2></div>
+        <button class="btn btn-ghost" type="button" id="agent-refresh">Refresh</button>
+      </div>
+      <section class="app-card support-agent-filters">
+        <label>Status<select id="agent-status"><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option></select></label>
+      </section>
+      <div id="agent-tickets"></div>
+    </section>
+  </main>
+  <script src="support-agent.js"></script>
+</body>
+</html>

@@ -19349,6 +19349,15 @@ app.post("/api/admin/support/update", async (req, res) => {
   } catch (err) { return sendDemoError(res, err, "Support ticket could not be updated"); }
 });
 
+const { registerSupportAgentRoutes } = require("./support-agents");
+registerSupportAgentRoutes(app, {
+  dbPool, databaseConfigured, loadDemoDb, saveDemoDb,
+  ensureSupportTicketTables, parseJsonBody, normalizeEmail, normalizeText,
+  adminRequestAuthorized, requestAdminSessionToken, verifyAdminSessionToken,
+  adminSessionSecret: ADMIN_SESSION_SECRET, resendApiKey: RESEND_API_KEY,
+  adminEmail: ADMIN_ACCOUNT_EMAIL, supportFrom: EMAIL_SUPPORT_FROM, appBaseUrl, fetch
+});
+
 // --- serve frontend
 
 app.get("/config", (req, res) => {
