@@ -33,17 +33,17 @@ function selectedLeadIds() {
 async function previewFollowups() {
   const ids = selectedLeadIds();
   if (!ids.length) throw new Error("Select at least one subscribed lead.");
-  leadNotice("Recovering original sent briefings...");
+  leadNotice("Updating market quotes and headlines...");
   const result = await opsPost("/api/admin/marketing/preview-followup", { ids });
   leadState.drafts = result.drafts || [];
   document.getElementById("lead-draft-section").hidden = false;
   document.getElementById("lead-drafts").innerHTML = leadState.drafts.map((draft) => `<div class="admin-record" style="display:block;margin:12px 0">
-    <p><strong>${leadEscape(draft.email)}</strong> · ${draft.error ? `<span style="color:#ff697d">${leadEscape(draft.error)}</span>` : `Original: ${leadEscape(draft.sourceSubject || "")} (${leadEscape(new Date(draft.sourceSentAt).toLocaleString())})`}</p>
+    <p><strong>${leadEscape(draft.email)}</strong> · ${draft.error ? `<span style="color:#ff697d">${leadEscape(draft.error)}</span>` : `Prepared ${leadEscape(new Date(draft.generatedAt).toLocaleString())}`}</p>
     ${draft.error ? "" : `<p><strong>Subject:</strong> ${leadEscape(draft.subject)}</p><p><strong>Watchlist assets:</strong> ${leadEscape((draft.symbols || []).join(", "))}</p><details><summary>Read complete email</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.5">${leadEscape(draft.text)}</pre></details>`}
   </div>`).join("");
   const ready = leadState.drafts.length === ids.length && leadState.drafts.every((draft) => draft.text && !draft.error);
   document.getElementById("lead-send").disabled = !ready;
-  leadNotice(ready ? `${ids.length} original briefing follow-up draft${ids.length === 1 ? "" : "s"} ready for review.` : "Some original briefings could not be recovered. Nothing was sent.", ready ? "success" : "error");
+  leadNotice(ready ? `${ids.length} current market email${ids.length === 1 ? "" : "s"} ready for review. Preview expires in 30 minutes.` : "Some current quotes are unavailable. Nothing was sent.", ready ? "success" : "error");
 }
 
 async function loadLeads() {
@@ -62,10 +62,11 @@ async function exportLeads() {
 
 async function sendBriefings() {
   const ids = selectedLeadIds();
-  if (!ids.length || leadState.drafts.length !== ids.length || !leadState.drafts.every((draft) => ids.includes(draft.id) && draft.text)) throw new Error("Preview the selected original briefing follow-ups first.");
-  if (!confirm(`Send the ${ids.length} reviewed original briefing follow-up${ids.length === 1 ? "" : "s"}?`)) return;
+  if (!ids.length || leadState.drafts.length !== ids.length || !leadState.drafts.every((draft) => ids.includes(draft.id) && draft.text && draft.reviewToken)) throw new Error("Preview the selected current market emails first.");
+  if (!confirm(`Send the ${ids.length} reviewed market email${ids.length === 1 ? "" : "s"}?`)) return;
   leadNotice("Sending reviewed follow-ups...");
-  const result = await opsPost("/api/admin/marketing/send-briefing", { ids, reviewed: true });
+  const reviewTokens = Object.fromEntries(leadState.drafts.map((draft) => [draft.id, draft.reviewToken]));
+  const result = await opsPost("/api/admin/marketing/send-briefing", { ids, reviewed: true, reviewTokens });
   leadNotice(`${result.sent} of ${result.requested} follow-ups sent.`, result.sent ? "success" : "error");
   await loadLeads();
 }
@@ -91,3 +92,5 @@ async function deleteSelectedLeads() {
   document.getElementById("lead-table").addEventListener("change", (event) => { if (event.target.matches(".lead-select")) clearFollowupDrafts(); });
   loadLeads().catch((err) => leadNotice(err.message, "error"));
 })();
+
+

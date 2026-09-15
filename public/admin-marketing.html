@@ -16,13 +16,15 @@
         <label>Status<select id="lead-status"><option value="">All statuses</option><option>subscribed</option><option>converted</option><option>unsubscribed</option></select></label>
         <label>Interest<select id="lead-interest"><option value="">All interests</option><option>stocks</option><option>crypto</option><option>etfs</option><option>commodities</option><option>economy</option></select></label>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px"><button class="btn" id="lead-refresh">Refresh</button><button class="btn btn-ghost" id="lead-export">Export CSV</button><button class="btn btn-ghost" id="lead-preview">Preview original briefing follow-up</button><button class="btn btn-ghost" id="lead-send" disabled>Send reviewed follow-up</button><button class="btn btn-ghost" id="lead-delete">Delete selected</button></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px"><button class="btn" id="lead-refresh">Refresh</button><button class="btn btn-ghost" id="lead-export">Export CSV</button><button class="btn btn-ghost" id="lead-preview">Preview updated market email</button><button class="btn btn-ghost" id="lead-send" disabled>Send reviewed email</button><button class="btn btn-ghost" id="lead-delete">Delete selected</button></div>
       <p id="lead-notice" class="campaign-status" role="status"></p>
     </section>
-    <section class="app-card" id="lead-draft-section" hidden style="margin:24px 0"><h2>Follow-up drafts</h2><p>These drafts repeat each lead's original sent briefing, then invite them to review the watchlist offer and practise with $50,000 in Demo. Original prices are dated snapshots.</p><div id="lead-drafts"></div></section>
+    <section class="app-card" id="lead-draft-section" hidden style="margin:24px 0"><h2>Emails for review</h2><p>Each email keeps the assets from that person's earlier briefing and uses current quotes and headlines. The reviewed copy expires after 30 minutes.</p><div id="lead-drafts"></div></section>
     <section class="app-card"><div id="lead-summary" style="margin-bottom:14px"></div><div id="lead-table"></div></section>
   </main>
   <script src="ops-auth.js"></script>
   <script src="admin-marketing.js"></script>
 </body>
 </html>
+
+
