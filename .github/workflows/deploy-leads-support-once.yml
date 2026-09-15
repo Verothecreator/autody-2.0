@@ -27,7 +27,25 @@ jobs:
             git fetch origin main
             PATCH_FILE=$(mktemp)
             git diff --binary 7d3ab340392cd6be0fafca68b80063a5b4f6da39 "${{ github.sha }}" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/marketing-support.css public/ops-console.html public/sign-up.js > "$PATCH_FILE"
-            git apply --check "$PATCH_FILE"
+            if ! git apply --check "$PATCH_FILE"; then
+              python3 - "$PATCH_FILE" <<'PY'
+            import pathlib, re, subprocess, sys, tempfile
+            patch = pathlib.Path(sys.argv[1]).read_text()
+            for section in re.findall(r'^diff --git .*?(?=^diff --git |\Z)', patch, re.M | re.S):
+                if not section.startswith('diff --git a/server.js '):
+                    continue
+                position = section.find('@@ ')
+                header = section[:position]
+                for hunk in re.findall(r'^@@ .*?(?=^@@ |\Z)', section[position:], re.M | re.S):
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False) as handle:
+                        handle.write(header + hunk)
+                        name = handle.name
+                    result = subprocess.run(['git', 'apply', '--check', name], text=True, capture_output=True)
+                    pathlib.Path(name).unlink()
+                    print(hunk.splitlines()[0], 'OK' if result.returncode == 0 else 'CONFLICT', result.stderr.strip().splitlines()[-1:] if result.stderr else '')
+            PY
+              exit 1
+            fi
             git branch "lead-support-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
             git apply "$PATCH_FILE"
             rm -f "$PATCH_FILE"
