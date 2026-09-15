@@ -9,7 +9,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Merge reviewed update into the VPS checkout
+      - name: Apply only the reviewed briefing and watchlist patch
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST || vars.VPS_HOST || '162.213.249.146' }}
@@ -23,59 +23,16 @@ jobs:
             APP_NAME="${{ secrets.PM2_APP_NAME || vars.PM2_APP_NAME || 'autody' }}"
             cd "$APP_DIR"
             git fetch origin main
-            NEW_SHA="${{ github.sha }}"
-            BASE_SHA=$(git merge-base HEAD "$NEW_SHA")
-            echo "Guarded merge base: $BASE_SHA"
-            TMP_DIR=$(mktemp -d)
-            for path in server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html; do
-              mkdir -p "$TMP_DIR/$(dirname "$path")"
-              git show "$BASE_SHA:$path" > "$TMP_DIR/$path.base"
-              git show "$NEW_SHA:$path" > "$TMP_DIR/$path.new"
-              if git merge-file -p "$path" "$TMP_DIR/$path.base" "$TMP_DIR/$path.new" > "$TMP_DIR/$path.merged"; then
-                echo "Merged $path"
-              elif [ "$path" = server.js ]; then
-                python3 - "$TMP_DIR/$path.merged" <<'PY'
-            import pathlib, re, sys
-            file = pathlib.Path(sys.argv[1])
-            text = file.read_text()
-            pattern = re.compile(r'^<<<<<<<[^\n]*\n(?P<ours>.*?)^=======\n(?P<theirs>.*?)^>>>>>>>[^\n]*\n', re.M | re.S)
-            blocks = list(pattern.finditer(text))
-            if len(blocks) != 2:
-                raise SystemExit(f'Unexpected server conflicts ({len(blocks)}); no live files changed')
-            first_live = blocks[0].group('ours')
-            first_new = blocks[0].group('theirs')
-            if not first_live.startswith('async function recordMarketingEvent(') or not first_new.startswith('function markDatabaseSlow('):
-                raise SystemExit('Marketing conflict differs from the reviewed live conflict; no live files changed')
-            outside = pattern.sub('', text)
-            if outside.count('async function recordMarketingEvent(') != 1:
-                raise SystemExit('Complete marketing function was not found; no live files changed')
-            second_live = blocks[1].group('ours').splitlines()
-            second_new = blocks[1].group('theirs').splitlines()
-            remaining = iter(second_new)
-            if not all(any(line == item for item in remaining) for line in second_live):
-                raise SystemExit('Support conflict differs from reviewed additions; no live files changed')
-            resolved = pattern.sub(lambda match: match.group('theirs'), text)
-            if '<<<<<<<' in resolved or '>>>>>>>' in resolved:
-                raise SystemExit('Unresolved server markers; no live files changed')
-            file.write_text(resolved)
-            print('Resolved the two previously reviewed live server conflicts')
-            PY
-              else
-                echo "Unexpected merge conflict in $path; no live files changed"
-                exit 1
-              fi
-            done
-            node --check "$TMP_DIR/server.js.merged"
-            node --check "$TMP_DIR/public/admin-marketing.js.merged"
+            PATCH_FILE=$(mktemp)
+            git diff --binary bc0199019f266a8fa1f0dff26bea6253842b8c12 f008f92bf04817f7632b91781f56650d15fff2af -- server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html > "$PATCH_FILE"
+            git apply --check "$PATCH_FILE"
             git branch "briefing-watchlist-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
-            for path in server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html; do
-              cp "$TMP_DIR/$path.merged" "$path"
-            done
+            git apply "$PATCH_FILE"
+            node --check server.js
+            node --check public/admin-marketing.js
             git diff --check -- server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html
             git add -- server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html
             git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" commit --only -m "Reuse original briefing and share watchlists" -- server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html
-            node --check server.js
-            node --check public/admin-marketing.js
             if command -v pm2 >/dev/null 2>&1; then
               pm2 restart "$APP_NAME" --update-env
               pm2 save
