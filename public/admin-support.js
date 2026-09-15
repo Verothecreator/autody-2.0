@@ -1,4 +1,4 @@
-const supportState = { agents: [], tickets: [] };
+const supportState = { tickets: [] };
 function supportNode(tag, text = "", className = "") {
   const node = document.createElement(tag);
   node.textContent = text; node.className = className;
@@ -7,28 +7,6 @@ function supportNode(tag, text = "", className = "") {
 function supportNotice(message, type = "") {
   const node = document.getElementById("support-notice");
   node.textContent = message; node.dataset.type = type;
-}
-function renderAgentRoster() {
-  const list = document.getElementById("support-agents"); list.replaceChildren();
-  if (!supportState.agents.length) { list.append(supportNode("p", "No agents yet. Create an agent above.", "admin-empty")); return; }
-  supportState.agents.forEach((agent) => {
-    const card = supportNode("article", "", "support-agent-card");
-    const copy = supportNode("div");
-    copy.append(supportNode("strong", agent.name + (agent.active ? "" : " · Inactive")),
-      supportNode("small", "Sends as " + agent.senderEmail + " · signs in at " + agent.loginEmail));
-    const edit = supportNode("button", "Edit", "btn btn-ghost"); edit.type = "button";
-    edit.addEventListener("click", () => {
-      const form = document.getElementById("support-agent-form");
-      form.elements.agentId.value = agent.id;
-      form.elements.name.value = agent.name;
-      form.elements.senderEmail.value = agent.senderEmail;
-      form.elements.loginEmail.value = agent.loginEmail;
-      form.elements.active.checked = agent.active;
-      document.getElementById("support-agent-save").textContent = "Save agent";
-      form.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    card.append(copy, edit); list.append(card);
-  });
 }
 async function loadThreadMessages(ticket, container) {
   const data = await opsPost("/api/support-team/thread", { ticketId: ticket.id });
@@ -45,7 +23,7 @@ function renderThread(ticket, container) {
   const thread = supportNode("div", "", "support-thread");
   thread.append(supportNode("p", ticket.message, "support-message support-customer-message"));
   const messages = supportNode("div", "Loading replies..."); thread.append(messages);
-  const label = supportNode("label", "Reply as " + (ticket.assignedAgentName || "the assigned agent"));
+  const label = supportNode("label", "Reply as Autody Support <support@autodytraded.com>");
   const textarea = document.createElement("textarea");
   textarea.rows = 5; textarea.maxLength = 4000; textarea.placeholder = "Write a clear, helpful response for the customer.";
   label.append(textarea); thread.append(label);
@@ -57,21 +35,21 @@ function renderThread(ticket, container) {
   previewButton.addEventListener("click", () => {
     if (!textarea.value.trim()) return supportNotice("Write a reply first.", "error");
     preview.replaceChildren(supportNode("strong", "Customer email preview"),
-      supportNode("p", "From: " + (ticket.assignedAgentName || "Assigned agent")),
+      supportNode("p", "From: Autody Support <support@autodytraded.com>"),
       supportNode("p", "Subject: Re: " + (ticket.topic || ticket.category || "Your request") + " | Autody Support"),
       supportNode("p", "Hello,"), supportNode("p", textarea.value.trim(), "support-inbox-message"),
       supportNode("p", "Reply to this ticket: [customer's secure link]"),
-      supportNode("p", (ticket.assignedAgentName || "Agent") + "\nAutody Support", "support-inbox-message"));
+      supportNode("p", "Autody Support", "support-inbox-message"));
     preview.hidden = false;
   });
-  const send = supportNode("button", "Send reply", "btn"); send.type = "button"; send.disabled = !ticket.assignedAgentId;
+  const send = supportNode("button", "Send reply", "btn"); send.type = "button";
   send.addEventListener("click", async () => {
     if (!textarea.value.trim()) return supportNotice("Write a reply first.", "error");
     if (preview.hidden) return supportNotice("Preview the customer email before sending.", "error");
     pendingRequestId ||= crypto.randomUUID();
     try {
       send.disabled = true; send.textContent = "Sending...";
-      await opsPost("/api/support-team/reply", { ticketId: ticket.id, agentId: ticket.assignedAgentId, requestId: pendingRequestId, message: textarea.value.trim() });
+      await opsPost("/api/support-team/reply", { ticketId: ticket.id, requestId: pendingRequestId, message: textarea.value.trim() });
       textarea.value = ""; preview.hidden = true; pendingRequestId = null;
       supportNotice("Reply emailed and saved in this ticket.", "success");
       await loadThreadMessages(ticket, messages);
@@ -89,18 +67,6 @@ function ticketCard(ticket) {
   card.append(heading, supportNode("p", (ticket.name || "Customer") + " · " + (ticket.email || "No email") + " · " + (ticket.priority || "Normal")),
     supportNode("p", ticket.message, "support-inbox-message"));
   const actions = supportNode("div", "", "support-inbox-actions");
-  const assignmentLabel = supportNode("label", "Agent ");
-  const assignment = document.createElement("select"); assignment.append(new Option("Unassigned", ""));
-  supportState.agents.filter((agent) => agent.active || agent.id === ticket.assignedAgentId)
-    .forEach((agent) => assignment.append(new Option(agent.name + " · " + agent.senderEmail + (agent.active ? "" : " (inactive)"), agent.id)));
-  assignment.value = ticket.assignedAgentId || "";
-  assignment.addEventListener("change", async () => {
-    try {
-      await opsPost("/api/support-team/assign", { ticketId: ticket.id, agentId: assignment.value || null });
-      await loadSupportInbox(); supportNotice("Ticket assignment saved.", "success");
-    } catch (error) { assignment.value = ticket.assignedAgentId || ""; supportNotice(error.message, "error"); }
-  });
-  assignmentLabel.append(assignment); actions.append(assignmentLabel);
   const statusLabel = supportNode("label", "Status ");
   const status = document.createElement("select");
   [["open", "Open"], ["in_progress", "In progress"], ["resolved", "Resolved"]].forEach(([value, label]) => status.append(new Option(label, value)));
@@ -120,13 +86,9 @@ function ticketCard(ticket) {
   actions.append(button); card.append(actions, thread); return card;
 }
 async function loadSupportInbox() {
-  const [roster, inbox] = await Promise.all([
-    opsPost("/api/support-team/agents"),
-    opsPost("/api/support-team/tickets", { status: document.getElementById("support-status").value,
-      search: document.getElementById("support-search").value.trim(), limit: 500 })
-  ]);
-  supportState.agents = roster.agents || []; supportState.tickets = inbox.tickets || [];
-  renderAgentRoster();
+  const inbox = await opsPost("/api/support-team/tickets", { status: document.getElementById("support-status").value,
+    search: document.getElementById("support-search").value.trim(), limit: 500 });
+  supportState.tickets = inbox.tickets || [];
   document.getElementById("support-summary").textContent = supportState.tickets.length + " ticket" + (supportState.tickets.length === 1 ? "" : "s");
   const list = document.getElementById("support-tickets"); list.replaceChildren();
   if (supportState.tickets.length) supportState.tickets.forEach((ticket) => list.append(ticketCard(ticket)));
@@ -135,22 +97,24 @@ async function loadSupportInbox() {
 }
 (async () => {
   if (!await opsRequireSession()) return;
-  const form = document.getElementById("support-agent-form");
-  form.addEventListener("submit", async (event) => {
+  const emailForm = document.getElementById("support-email-import");
+  let emailRequestId = null;
+  emailForm.addEventListener("input", () => { emailRequestId = null; });
+  emailForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const button = document.getElementById("support-agent-save");
-    const body = { id: form.elements.agentId.value || undefined, name: form.elements.name.value.trim(),
-      senderEmail: form.elements.senderEmail.value.trim(), loginEmail: form.elements.loginEmail.value.trim(),
-      active: form.elements.active.checked };
+    const button = emailForm.querySelector("button[type='submit']");
+    emailRequestId ||= crypto.randomUUID();
     try {
-      button.disabled = true; await opsPost("/api/support-team/agents/save", body);
-      form.reset(); form.elements.agentId.value = ""; button.textContent = "Create agent";
-      await loadSupportInbox(); supportNotice("Agent profile saved.", "success");
+      button.disabled = true;
+      await opsPost("/api/support-team/import-email", {
+        requestId: emailRequestId, email: emailForm.elements.email.value.trim(),
+        name: emailForm.elements.name.value.trim(), subject: emailForm.elements.subject.value.trim(),
+        message: emailForm.elements.message.value.trim()
+      });
+      emailForm.reset(); emailRequestId = null;
+      await loadSupportInbox(); supportNotice("Email saved as a ticket. Open its conversation to reply.", "success");
     } catch (error) { supportNotice(error.message, "error"); }
     finally { button.disabled = false; }
-  });
-  document.getElementById("support-agent-reset").addEventListener("click", () => {
-    form.reset(); form.elements.agentId.value = ""; document.getElementById("support-agent-save").textContent = "Create agent";
   });
   document.getElementById("support-refresh").addEventListener("click", () => loadSupportInbox().catch((error) => supportNotice(error.message, "error")));
   document.getElementById("support-status").addEventListener("change", () => loadSupportInbox().catch((error) => supportNotice(error.message, "error")));

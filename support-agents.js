@@ -226,6 +226,35 @@ function registerSupportAgentRoutes(app, deps) {
       return res.json({ success: true, agents: (await agents()).map(displayAgent) });
     } catch (error) { return sendError(res, error); }
   });
+  app.post("/api/support-team/import-email", async (req, res) => {
+    try {
+      const body = parseJsonBody(req); requireOwner(req, body);
+      const id = String(body.requestId || "");
+      const email = normalizeEmail(body.email);
+      const name = normalizeText(body.name).slice(0, 120);
+      const topic = normalizeText(body.subject).slice(0, 160);
+      const message = normalizeText(body.message).slice(0, 4000);
+      if (!validId(id) || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || message.length < 6) {
+        fail(400, "Enter the sender's email and message to save this request.");
+      }
+      if (databaseConfigured()) {
+        await ensureTables();
+        await dbPool.query(`insert into support_tickets
+          (id, account_mode, category, topic, contact_name, contact_email, priority, message, status)
+          values ($1, 'public', 'Email', $2, $3, $4, 'normal', $5, 'open')
+          on conflict (id) do nothing`, [id, topic || "Email support request", name, email, message]);
+      } else {
+        const data = jsonData();
+        if (!data.supportTickets.some((row) => row.id === id)) data.supportTickets.unshift({
+          id, accountMode: "public", category: "Email", topic: topic || "Email support request",
+          name, email, priority: "normal", message, status: "open",
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        });
+        saveDemoDb(data);
+      }
+      return res.json({ success: true, ticket: displayTicket(await ticketById(id)) });
+    } catch (error) { return sendError(res, error); }
+  });
   app.post("/api/support-team/agents/save", async (req, res) => {
     try {
       const body = parseJsonBody(req); requireOwner(req, body);
@@ -412,9 +441,8 @@ function registerSupportAgentRoutes(app, deps) {
     try {
       const body = parseJsonBody(req), user = await actor(req, body);
       const ticket = await ticketById(body.ticketId); canWorkTicket(user, ticket);
-      const sender = user.role === "agent" ? user.agent : await agentById(body.agentId);
-      if (!sender || sender.active === false) fail(400, "Choose an active agent to send this reply.");
-      if (user.role === "admin" && (ticket.assigned_agent_id ?? ticket.assignedAgentId) !== sender.id) fail(400, "Assign this ticket to the sending agent first.");
+      const sender = user.role === "agent" ? user.agent : null;
+      if (user.role === "agent" && (!sender || sender.active === false)) fail(403, "Support agent access is not authorized.");
       const text = normalizeText(body.message).slice(0, 4000);
       const id = String(body.requestId || "");
       if (!validId(id) || text.length < 2) fail(400, "Write a reply and try again.");
@@ -422,18 +450,20 @@ function registerSupportAgentRoutes(app, deps) {
       if (prior) return res.json({ success: true, message: displayMessage(prior), alreadySent: true });
       const to = normalizeEmail(ticket.contact_email ?? ticket.email);
       if (!to) fail(400, "This ticket has no customer email.");
-      const name = normalizeText(sender.name).replace(/[<>\r\n]/g, "").slice(0, 80);
-      const from = name + " <" + (sender.sender_email ?? sender.senderEmail) + ">";
+      const name = user.role === "admin" ? "Autody Support" : normalizeText(sender.name).replace(/[<>\r\n]/g, "").slice(0, 80);
+      const from = user.role === "admin" ? supportFrom : name + " <" + (sender.sender_email ?? sender.senderEmail) + ">";
       const link = customerUrl(req, ticket);
       const subject = "Re: " + (ticket.topic || ticket.category || "Your request").slice(0, 120) + " | Autody Support";
-      const emailText = "Hello,\n\n" + text + "\n\nReply to this ticket: " + link + "\n\n" + name + "\nAutody Support";
+      const emailText = "Hello,\n\n" + text + "\n\nReply to this ticket: " + link + "\n\n" + (user.role === "admin" ? "Autody Support" : name + "\nAutody Support");
       const html = "<div style='font-family:Arial,sans-serif;line-height:1.55;color:#111827'>" +
         "<p>Hello,</p><p style='white-space:pre-wrap'>" + safe(text) + "</p>" +
-        "<p><a href='" + safe(link) + "'>Reply to this ticket</a></p><p>" + safe(name) + "<br>Autody Support</p></div>";
-      const replyTo = normalizeEmail(process.env.EMAIL_SUPPORT_REPLY_TO || process.env.EMAIL_SUPPORT_INBOX_TO || adminEmail);
+        "<p><a href='" + safe(link) + "'>Reply to this ticket</a></p><p>" + safe(name) +
+        (user.role === "admin" ? "" : "<br>Autody Support") + "</p></div>";
+      const replyTo = normalizeEmail(user.role === "admin" ? "support@autodytraded.com" :
+        process.env.EMAIL_SUPPORT_REPLY_TO || "support@autodytraded.com");
       const resendId = await sendEmail({ from, to, subject, text: emailText, html,
         ...(replyTo ? { reply_to: replyTo } : {}) }, id);
-      await saveMessage({ id, ticketId: ticket.id, role: "agent", agentId: sender.id,
+      await saveMessage({ id, ticketId: ticket.id, role: user.role === "admin" ? "support" : "agent", agentId: sender?.id || null,
         agentName: name, body: text, resendId, createdAt: new Date().toISOString() });
       return res.json({ success: true, message: displayMessage(await existingMessage(id, ticket.id)) });
     } catch (error) { return sendError(res, error); }

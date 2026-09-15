@@ -77,6 +77,49 @@ test("owner creates an agent, assigns a ticket, and the agent replies while cust
   assert.equal(invalid.status, 403);
 });
 
+test("owner can reply as support@ without an agent or ticket assignment", async () => {
+  const h = makeHarness();
+  const requestId = "7a83286d-e0b2-4b86-8a88-08926998714e";
+  const rejected = await h.call("/api/support-team/reply", {
+    ticketId: h.ticketId, requestId, message: "Thanks for contacting us."
+  });
+  assert.equal(rejected.status, 403);
+  const replied = await h.call("/api/support-team/reply", {
+    ticketId: h.ticketId, requestId, message: "Thanks for contacting us."
+  }, { owner: true });
+  assert.equal(replied.success, true);
+  assert.equal(replied.message.role, "support");
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.sent[0].body.from, "Autody Support <support@autodytraded.com>");
+  assert.equal(h.sent[0].body.reply_to, "support@autodytraded.com");
+  assert.match(h.sent[0].body.text, /support-reply\?/);
+  const repeated = await h.call("/api/support-team/reply", {
+    ticketId: h.ticketId, requestId, message: "Thanks for contacting us."
+  }, { owner: true });
+  assert.equal(repeated.alreadySent, true);
+  assert.equal(h.sent.length, 1);
+});
+
+test("owner can save a received email as a ticket and answer it once", async () => {
+  const h = makeHarness();
+  const emailId = "63f41789-51e7-428e-b266-893190d8d8ed";
+  const body = { requestId: emailId, email: "new@example.com", name: "New Customer",
+    subject: "Account help", message: "I wrote to support@ with an account question." };
+  const denied = await h.call("/api/support-team/import-email", body);
+  assert.equal(denied.status, 403);
+  const added = await h.call("/api/support-team/import-email", body, { owner: true });
+  assert.equal(added.ticket.email, "new@example.com");
+  const retry = await h.call("/api/support-team/import-email", body, { owner: true });
+  assert.equal(retry.ticket.id, emailId);
+  assert.equal(h.data().supportTickets.filter((ticket) => ticket.id === emailId).length, 1);
+  const answered = await h.call("/api/support-team/reply", {
+    ticketId: emailId, requestId: "13946b9a-51b5-4ee5-9da5-86bb46b76b75",
+    message: "We can help with your account question."
+  }, { owner: true });
+  assert.equal(answered.success, true);
+  assert.equal(h.sent[0].body.to, "new@example.com");
+});
+
 test("agent access stays limited to assigned tickets and stops when the owner deactivates the profile", async () => {
   const h = makeHarness();
   const created = await h.call("/api/support-team/agents/save", {
