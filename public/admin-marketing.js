@@ -91,5 +91,3 @@ async function deleteSelectedLeads() {
   document.getElementById("lead-table").addEventListener("change", (event) => { if (event.target.matches(".lead-select")) clearFollowupDrafts(); });
   loadLeads().catch((err) => leadNotice(err.message, "error"));
 })();
-
-
