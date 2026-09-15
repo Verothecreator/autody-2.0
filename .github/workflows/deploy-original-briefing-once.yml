@@ -9,7 +9,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Apply only the reviewed briefing and watchlist patch
+      - name: Finish checked VPS patch and restart
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST || vars.VPS_HOST || '162.213.249.146' }}
@@ -23,11 +23,19 @@ jobs:
             APP_NAME="${{ secrets.PM2_APP_NAME || vars.PM2_APP_NAME || 'autody' }}"
             cd "$APP_DIR"
             git fetch origin main
-            PATCH_FILE=$(mktemp)
-            git diff --binary bc0199019f266a8fa1f0dff26bea6253842b8c12 f008f92bf04817f7632b91781f56650d15fff2af -- server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html > "$PATCH_FILE"
-            git apply --check "$PATCH_FILE"
-            git branch "briefing-watchlist-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
-            git apply "$PATCH_FILE"
+            rg -q 'async function marketBriefingFollowupDraft' server.js
+            rg -q 'original_briefing_text' server.js
+            rg -q 'preview-followup' public/admin-marketing.js
+            rg -q 'Shared watchlist' public/account-watchlist.html
+            rg -q 'Shared watchlist' public/demo-watchlist.html
+            python3 - <<'PY'
+            import pathlib
+            for name in ('server.js', 'public/admin-marketing.html', 'public/admin-marketing.js', 'public/account-watchlist.html', 'public/demo-watchlist.html'):
+                file = pathlib.Path(name)
+                data = file.read_bytes().replace(b'\r\n', b'\n').rstrip(b'\n') + b'\n'
+                file.write_bytes(data)
+            print('Normalized changed file line endings')
+            PY
             node --check server.js
             node --check public/admin-marketing.js
             git diff --check -- server.js public/admin-marketing.html public/admin-marketing.js public/account-watchlist.html public/demo-watchlist.html
