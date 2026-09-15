@@ -1716,14 +1716,14 @@ async function buildMarketBriefing(lead = {}) {
         const assets = await readLatestMarketSnapshots(interestTypes[interest] || [interest], 3).catch(() => []);
         const current = assets.filter((asset) => {
             const captured = new Date(asset.capturedAt || 0).getTime();
-            return captured && now - captured <= (interest === "crypto" ? 24 : 72) * 3600000 && captured <= now + 300000 && asset.price != null;
+            return captured && now - captured <= (interest === "crypto" ? 2 : 72) * 3600000 && captured <= now + 300000 && asset.price != null;
         });
         if (!current.length) continue;
         sections.push({ interest, assets: current.map((asset) => ({
             symbol: asset.symbol,
             name: asset.name || asset.symbol,
             price: briefingFormatPrice(asset.price, briefingQuotedCurrency(asset)),
-            change: Number.isFinite(Number(asset.changePct)) ? `${Number(asset.changePct) >= 0 ? "+" : ""}${Number(asset.changePct).toFixed(2)}%` : "—"
+            change: asset.changePct != null && Number.isFinite(Number(asset.changePct)) ? `${Number(asset.changePct) >= 0 ? "+" : ""}${Number(asset.changePct).toFixed(2)}%` : "—"
         })) });
     }
     const news = (await readLatestNewsSnapshots(12).catch(() => [])).filter((article) => {
@@ -10952,9 +10952,28 @@ async function marketBriefingFollowupDraft(lead = {}, req) {
     for (const item of selected) {
         const result = await dbPool.query(`select symbol, asset_name, asset_type, price_usd, change_pct, currency, captured_at
             from market_latest_snapshots where upper(symbol) = upper($1) order by captured_at desc limit 1`, [item.symbol]);
-        const row = result.rows[0];
+        let row = result.rows[0];
+        if (item.category === "CRYPTO" && row?.asset_name && now - new Date(row.captured_at || 0).getTime() > 2 * 3600000) {
+            const url = new URL("https://api.coingecko.com/api/v3/simple/price");
+            url.searchParams.set("names", row.asset_name);
+            url.searchParams.set("vs_currencies", "usd");
+            url.searchParams.set("include_24hr_change", "true");
+            url.searchParams.set("include_last_updated_at", "true");
+            url.searchParams.set("precision", "full");
+            const response = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "Autody/1.0 market briefing" }, signal: AbortSignal.timeout(8000) });
+            if (response.ok) {
+                const live = (await response.json())[row.asset_name];
+                const updated = Number(live?.last_updated_at) * 1000;
+                if (Number(live?.usd) > 0 && updated && now - updated <= 2 * 3600000 && updated <= now + 300000) {
+                    row = { ...row, price_usd: live.usd, change_pct: live.usd_24h_change, captured_at: new Date(updated) };
+                    await saveMarketSnapshots("coingecko-briefing", "crypto", [{ symbol: row.symbol, name: row.asset_name,
+                        assetType: "crypto", providerSymbol: row.symbol, price: live.usd,
+                        changePct: live.usd_24h_change, currency: "USD" }]);
+                }
+            }
+        }
         const captured = new Date(row?.captured_at || 0).getTime();
-        const maxAge = item.category === "CRYPTO" ? 24 : 72;
+        const maxAge = item.category === "CRYPTO" ? 2 : 72;
         if (!row || row.price_usd == null || !Number.isFinite(Number(row.price_usd)) || !captured || now - captured > maxAge * 3600000 || captured > now + 300000) {
             throw new Error(`A current quote for ${item.symbol} is unavailable. Refresh market data before previewing or sending.`);
         }
@@ -10962,7 +10981,7 @@ async function marketBriefingFollowupDraft(lead = {}, req) {
         if (!section) { section = { category: item.category, assets: [] }; sections.push(section); }
         section.assets.push({ symbol: row.symbol, name: row.asset_name || row.symbol,
             price: briefingFormatPrice(row.price_usd, briefingQuotedCurrency({ symbol: row.symbol, currency: row.currency })),
-            change: Number.isFinite(Number(row.change_pct)) ? `${Number(row.change_pct) >= 0 ? "+" : ""}${Number(row.change_pct).toFixed(2)}%` : "—" });
+            change: row.change_pct != null && Number.isFinite(Number(row.change_pct)) ? `${Number(row.change_pct) >= 0 ? "+" : ""}${Number(row.change_pct).toFixed(2)}%` : "—" });
     }
     const headlines = (await readLatestNewsSnapshots(20)).filter((article) => {
         const published = new Date(article.publishedAt || 0).getTime();
@@ -10971,7 +10990,6 @@ async function marketBriefingFollowupDraft(lead = {}, req) {
     const symbols = sections.flatMap((section) => section.assets.map((asset) => asset.symbol));
     const briefing = sections.map((section) => `${section.category}\n${section.assets.map((asset) => `• ${asset.name} (${asset.symbol}): ${asset.price}, ${asset.change}`).join("\n")}`).join("\n\n")
         + (headlines.length ? `\n\nMARKET HEADLINES\n${headlines.map((article) => `• ${briefingHeadline(article)}${article.source ? ` — ${article.source}` : ""}`).join("\n")}` : "");
-    const asOf = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(now);
     const accountUrl = hasAccount
         ? `${appBaseUrl(req)}/account-markets?briefing=review`
         : `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id || "")}&next=account-watchlist`;
@@ -10982,13 +11000,12 @@ async function marketBriefingFollowupDraft(lead = {}, req) {
         ? "Your account is ready. Open your markets page to choose which of these assets to add to your watchlist. You can accept or decline each one. Your account also includes $50,000 in Demo practice funds to explore the platform and try practice trades."
         : "Open your Autody account to keep the markets that interest you close. You can choose which of these assets to add to your watchlist. You’ll also have $50,000 in Demo practice funds to explore the platform and try practice trades. The Demo balance is for practice and isn’t a cash deposit.";
     const action = hasAccount ? "Review your markets" : "Open your account";
-    const text = `Hello,\n\n${introduction}\n\n${briefing}\n\nMarket prices and changes as of ${asOf} UTC.\n\n${invitation}\n\n${action}:\n${accountUrl}\n\nSee you in Autody,\nThe Autody Team`;
+    const text = `Hello,\n\n${introduction}\n\n${briefing}\n\n${invitation}\n\n${action}:\n${accountUrl}\n\nSee you in Autody,\nThe Autody Team`;
     const html = `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827;max-width:680px">
         <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
         <h1 style="margin:16px 0 10px">Follow your markets with Autody</h1>
         <p>${emailHtmlEscape(introduction)}</p>
         <div style="margin:20px 0;padding:18px;background:#f5f6fb;border-radius:10px">${emailHtmlEscape(briefing).replace(/\n/g, "<br>")}</div>
-        <p style="color:#4b5563;font-size:13px">Market prices and changes as of ${emailHtmlEscape(asOf)} UTC.</p>
         <p>${emailHtmlEscape(invitation)}</p>
         <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">${emailHtmlEscape(action)}</a></p>
         <p>See you in Autody,<br>The Autody Team</p>
