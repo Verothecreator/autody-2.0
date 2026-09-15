@@ -123,7 +123,6 @@ const ADMIN_ACCOUNT_PASSWORD = process.env.AUTODY_ADMIN_PASSWORD || process.env.
 const ADMIN_ACCOUNT_PASSWORD_SALT = process.env.AUTODY_ADMIN_PASSWORD_SALT || process.env.ADMIN_PASSWORD_SALT || "";
 const ADMIN_ACCOUNT_PASSWORD_HASH = process.env.AUTODY_ADMIN_PASSWORD_HASH || process.env.ADMIN_PASSWORD_HASH || "";
 const ADMIN_SESSION_SECRET = process.env.AUTODY_ADMIN_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET || ADMIN_RESET_KEY || ADMIN_ACCOUNT_PASSWORD_HASH || ADMIN_ACCOUNT_PASSWORD;
-const EMAIL_SUPPORT_INBOX_TO = normalizeEmail(process.env.EMAIL_SUPPORT_INBOX_TO || process.env.SUPPORT_INBOX_EMAIL || ADMIN_ACCOUNT_EMAIL || "");
 const MARKETING_SIGNING_SECRET = process.env.MARKETING_SIGNING_SECRET || ADMIN_SESSION_SECRET || RESEND_API_KEY;
 const ADMIN_KEY_BYPASS_ENABLED = process.env.AUTODY_ADMIN_KEY_BYPASS === "true";
 const ADMIN_SESSION_HOURS = Number(process.env.ADMIN_SESSION_HOURS || 2);
@@ -10759,14 +10758,15 @@ async function createSupportTicket(auth = {}, body = {}) {
 }
 
 async function sendSupportTicketInboxEmail(ticket = {}) {
-    if (!EMAIL_SUPPORT_INBOX_TO || !RESEND_API_KEY) return { delivered: false, provider: "none" };
+    const inboxTo = normalizeEmail(process.env.EMAIL_SUPPORT_INBOX_TO || process.env.SUPPORT_INBOX_EMAIL || ADMIN_ACCOUNT_EMAIL || "");
+    if (!inboxTo || !RESEND_API_KEY) return { delivered: false, provider: "none" };
     const topic = normalizeText(ticket.topic || ticket.category || "Support request");
     const contact = normalizeEmail(ticket.email);
     const text = `New Autody support ticket\n\nTicket: ${ticket.id}\nTopic: ${topic}\nFrom: ${ticket.name || "Unknown"} <${contact || "no email"}>\nPriority: ${ticket.priority}\n\n${ticket.message}\n\nOpen support inbox: https://autodytraded.com/admin-support`;
     const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: EMAIL_SUPPORT_FROM, to: EMAIL_SUPPORT_INBOX_TO,
+        body: JSON.stringify({ from: EMAIL_SUPPORT_FROM, to: inboxTo,
             subject: `Autody support: ${topic.slice(0, 80)}`, text,
             html: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827"><h1>New support ticket</h1><p><strong>Ticket:</strong> ${emailHtmlEscape(ticket.id)}<br><strong>Topic:</strong> ${emailHtmlEscape(topic)}<br><strong>From:</strong> ${emailHtmlEscape(contact || "No email")}</p><p style="white-space:pre-wrap">${emailHtmlEscape(ticket.message)}</p><p><a href="https://autodytraded.com/admin-support">Open support inbox</a></p></div>`,
             ...(contact ? { reply_to: contact } : {}) })

@@ -25,13 +25,13 @@ jobs:
             cd "$APP_DIR"
             git fetch origin main
             PATCH_FILE=$(mktemp)
-            git diff --binary 7d3ab340392cd6be0fafca68b80063a5b4f6da39 "${{ github.sha }}" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/ops-console.html public/sign-up.js public/styles.css > "$PATCH_FILE"
+            git diff --binary 7d3ab340392cd6be0fafca68b80063a5b4f6da39 "${{ github.sha }}" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/marketing-support.css public/ops-console.html public/sign-up.js > "$PATCH_FILE"
             git apply --check "$PATCH_FILE"
             git branch "lead-support-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
             git apply "$PATCH_FILE"
             rm -f "$PATCH_FILE"
-            git add -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/ops-console.html public/sign-up.js public/styles.css
-            git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" commit --only -m "Add lead follow-up and support inbox" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/ops-console.html public/sign-up.js public/styles.css
+            git add -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/marketing-support.css public/ops-console.html public/sign-up.js
+            git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" commit --only -m "Add lead follow-up and support inbox" -- server.js public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/marketing-support.css public/ops-console.html public/sign-up.js
             node --check server.js
             node --check public/admin-marketing.js
             node --check public/admin-support.js

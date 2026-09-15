@@ -8160,19 +8160,3 @@ body.account-body.theme-light .profile-kyc-modal-card {
   }
 }
 
-.briefing-watchlist-offer {
-  padding: 22px 26px;
-  margin: 0 0 24px;
-  border: 1px solid rgba(112, 121, 246, .5);
-  border-radius: 16px;
-  background: linear-gradient(120deg, rgba(73, 79, 164, .2), rgba(18, 24, 39, .95));
-}
-.briefing-watchlist-offer h2 { margin: 6px 0 8px; font-size: 22px; }
-.briefing-watchlist-offer p { margin: 8px 0; }
-.briefing-offer-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-.briefing-offer-error { color: #ff8c99; }
-.support-inbox-record { display: block; margin: 0 0 12px; padding: 20px; }
-.support-inbox-heading, .support-inbox-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
-.support-inbox-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
-.support-inbox-actions { margin-top: 18px; justify-content: flex-start; }
-.support-inbox-actions select { margin-left: 8px; }

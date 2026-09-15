@@ -188,6 +188,9 @@ async function loadBriefingWatchlistOffer() {
   if (!accountPageIsLive()) return;
   const main = document.querySelector(".app-main");
   if (!main) return;
+  if (!document.querySelector('link[href="marketing-support.css"]')) {
+    const stylesheet = document.createElement("link"); stylesheet.rel = "stylesheet"; stylesheet.href = "marketing-support.css"; document.head.append(stylesheet);
+  }
   try {
     const response = await fetch("/api/account/marketing/watchlist-offer", { cache: "no-store", headers: window.AutodyAuth?.headers?.() || {} });
     if (!response.ok) return;
