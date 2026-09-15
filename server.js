@@ -476,6 +476,14 @@ function jsonWatchlistForMode(db, mode = "demo", userId = PRACTICE_USER_ID) {
         db.watchlists[ownerId][watchMode].crypto = Array.from(new Set(db.watchlists[ownerId][watchMode].crypto || []));
         db.watchlists[ownerId][watchMode].stocks = Array.from(new Set(db.watchlists[ownerId][watchMode].stocks || []));
     });
+    if (ownerId !== PRACTICE_USER_ID) {
+        const shared = {
+            crypto: Array.from(new Set([...db.watchlists[ownerId].demo.crypto, ...db.watchlists[ownerId].live.crypto])),
+            stocks: Array.from(new Set([...db.watchlists[ownerId].demo.stocks, ...db.watchlists[ownerId].live.stocks]))
+        };
+        db.watchlists[ownerId].demo = shared;
+        db.watchlists[ownerId].live = shared;
+    }
     return db.watchlists[ownerId][normalizeWatchlistMode(mode)];
 }
 
@@ -1718,6 +1726,41 @@ async function markBriefingDelivered(email) {
     if (lead) { lead.lastBriefingAt = new Date().toISOString(); lead.briefingCount = Number(lead.briefingCount || 0) + 1; saveDemoDb(db); }
 }
 
+async function ensureMarketingBriefingColumns() {
+    await ensureMarketingLeadTables();
+    await dbPool.query(`
+        alter table marketing_leads add column if not exists original_briefing_subject text;
+        alter table marketing_leads add column if not exists original_briefing_text text;
+        alter table marketing_leads add column if not exists original_briefing_html text;
+        alter table marketing_leads add column if not exists original_briefing_sent_at timestamptz;
+        alter table marketing_leads add column if not exists original_briefing_provider_id text;
+    `);
+}
+
+async function saveOriginalMarketBriefing(email, message = {}) {
+    const normalized = normalizeEmail(email);
+    if (databaseConfigured()) {
+        await ensureMarketingBriefingColumns();
+        await dbPool.query(`update marketing_leads set
+            original_briefing_subject = $2, original_briefing_text = $3,
+            original_briefing_html = $4, original_briefing_sent_at = $5,
+            original_briefing_provider_id = $6, updated_at = now()
+            where email = $1 and original_briefing_text is null`,
+            [normalized, message.subject || "", message.text || "", message.html || "", message.sentAt || new Date(), message.providerId || null]);
+        return;
+    }
+    const db = loadDemoDb();
+    const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
+    if (lead && !lead.originalBriefingText) {
+        lead.originalBriefingSubject = message.subject || "";
+        lead.originalBriefingText = message.text || "";
+        lead.originalBriefingHtml = message.html || "";
+        lead.originalBriefingSentAt = message.sentAt || new Date().toISOString();
+        lead.originalBriefingProviderId = message.providerId || null;
+        saveDemoDb(db);
+    }
+}
+
 function briefingWatchlistSymbols(briefing = {}) {
     return Array.from(new Set((briefing.sections || []).flatMap((section) => (section.assets || []).map((asset) => normalizeTradeSymbol(asset.symbol))).filter(Boolean))).slice(0, 25);
 }
@@ -1854,6 +1897,7 @@ async function sendMarketLeadWelcomeEmail(lead = {}, req) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Market welcome email delivery failed.");
+    await saveOriginalMarketBriefing(email, { subject, text, html, sentAt: briefing.generatedAt, providerId: result?.id }).catch((err) => console.error("Original briefing storage failed:", err.message || err));
     await markBriefingDelivered(email).catch((err) => console.error("Briefing delivery tracking failed:", err.message || err));
     return { delivered: true, provider: "resend" };
 }
@@ -2472,12 +2516,12 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             limit 50
         `, [row.account_mode_id]),
         dbPool.query(`
-            select symbol, asset_type
+            select distinct on (upper(symbol)) symbol, asset_type
             from watchlists
             where profile_id = $1
-              and mode = $2
-            order by created_at asc
-        `, [row.profile_id, accountMode]),
+              and mode in ('demo', 'live')
+            order by upper(symbol), created_at asc
+        `, [row.profile_id]),
         dbPool.query(`
             select topic
             from research_preferences
@@ -9241,12 +9285,12 @@ function reduceWatchlistRows(rows = []) {
 async function getDatabaseWatchlist(mode = "demo", profileId = null) {
     const context = profileId ? { profile_id: profileId } : await getPracticeDbContext();
     const result = await dbPool.query(`
-        select symbol, asset_type
+        select distinct on (upper(symbol)) symbol, asset_type
         from watchlists
         where profile_id = $1
-          and mode = $2
-        order by created_at asc
-    `, [context.profile_id, normalizeWatchlistMode(mode)]);
+          and mode = any($2::text[])
+        order by upper(symbol), created_at asc
+    `, [context.profile_id, profileId ? ["demo", "live"] : [normalizeWatchlistMode(mode)]]);
     return reduceWatchlistRows(result.rows);
 }
 
@@ -10095,14 +10139,16 @@ async function addDatabaseWatchlistSymbol(symbol, mode = "demo", profileId = nul
     const asset = await resolveWatchlistAsset(symbol);
     const context = profileId ? { profile_id: profileId } : await getPracticeDbContext();
     const watchlistMode = normalizeWatchlistMode(mode);
+    const existing = await getDatabaseWatchlist(watchlistMode, profileId);
+    const alreadySaved = [...existing.crypto, ...existing.stocks].some((item) => normalizeTradeSymbol(item) === asset.symbol);
     const result = await dbPool.query(`
         insert into watchlists (profile_id, symbol, asset_type, mode)
-        values ($1, $2, $3, $4)
+        select $1, $2, $3, unnest($4::text[])
         on conflict (profile_id, symbol, mode) do nothing
         returning symbol
-    `, [context.profile_id, asset.symbol, tradeAssetType(asset), watchlistMode]);
+    `, [context.profile_id, asset.symbol, tradeAssetType(asset), profileId ? ["demo", "live"] : [watchlistMode]]);
 
-    const watchlist = await getDatabaseWatchlist(watchlistMode, context.profile_id);
+    const watchlist = await getDatabaseWatchlist(watchlistMode, profileId);
     const account = profileId
         ? await getDatabaseAccountByProfileId(profileId, watchlistMode)
         : await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist add`);
@@ -10111,7 +10157,7 @@ async function addDatabaseWatchlistSymbol(symbol, mode = "demo", profileId = nul
         asset,
         account: { ...account, watchlist },
         watchlist,
-        alreadySaved: !result.rows.length,
+        alreadySaved,
         source: "supabase"
     };
 }
@@ -10166,10 +10212,10 @@ async function removeDatabaseWatchlistSymbol(symbol, mode = "demo", profileId = 
     await dbPool.query(`
         delete from watchlists
         where profile_id = $1 and upper(symbol) = upper($2)
-          and mode = $3
-    `, [context.profile_id, lookup, watchlistMode]);
+          and mode = any($3::text[])
+    `, [context.profile_id, lookup, profileId ? ["demo", "live"] : [watchlistMode]]);
 
-    const watchlist = await getDatabaseWatchlist(watchlistMode, context.profile_id);
+    const watchlist = await getDatabaseWatchlist(watchlistMode, profileId);
     const account = profileId
         ? await getDatabaseAccountByProfileId(profileId, watchlistMode)
         : await getPracticeAccountAfterDatabaseWrite(`Supabase ${watchlistMode} watchlist remove`);
@@ -10776,6 +10822,127 @@ async function sendSupportTicketInboxEmail(ticket = {}) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.message || "Support inbox email delivery failed.");
     return { delivered: true, provider: "resend" };
+}
+
+async function originalMarketBriefingForLead(lead = {}) {
+    const email = normalizeEmail(lead.email);
+    if (!email) return null;
+    let saved = null;
+    if (databaseConfigured()) {
+        await ensureMarketingBriefingColumns();
+        const result = await dbPool.query(`select original_briefing_subject, original_briefing_text,
+            original_briefing_html, original_briefing_sent_at, original_briefing_provider_id
+            from marketing_leads where lower(email) = lower($1) limit 1`, [email]);
+        const row = result.rows[0];
+        if (row?.original_briefing_text) saved = {
+            subject: row.original_briefing_subject, text: row.original_briefing_text,
+            html: row.original_briefing_html, sentAt: row.original_briefing_sent_at,
+            providerId: row.original_briefing_provider_id
+        };
+    } else {
+        const row = (loadDemoDb().marketingLeads || []).find((item) => normalizeEmail(item.email) === email);
+        if (row?.originalBriefingText) saved = {
+            subject: row.originalBriefingSubject, text: row.originalBriefingText,
+            html: row.originalBriefingHtml, sentAt: row.originalBriefingSentAt,
+            providerId: row.originalBriefingProviderId
+        };
+    }
+    if (saved) return saved;
+    if (!RESEND_API_KEY) return null;
+    let after = "";
+    let matching = null;
+    for (let page = 0; page < 30 && !matching; page += 1) {
+        const url = new URL("https://api.resend.com/emails");
+        url.searchParams.set("limit", "100");
+        if (after) url.searchParams.set("after", after);
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${RESEND_API_KEY}` } });
+        if (!response.ok) throw new Error(`Original briefing lookup failed (HTTP ${response.status}).`);
+        const list = await response.json();
+        matching = (list.data || []).find((item) =>
+            (item.to || []).some((recipient) => normalizeEmail(recipient) === email)
+            && /Autody market briefing/i.test(item.subject || ""));
+        if (!list.has_more || !(list.data || []).length) break;
+        after = list.data[list.data.length - 1].id;
+    }
+    if (!matching) return null;
+    const response = await fetch(`https://api.resend.com/emails/${encodeURIComponent(matching.id)}`, {
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}` }
+    });
+    if (!response.ok) throw new Error(`Original briefing retrieval failed (HTTP ${response.status}).`);
+    const message = await response.json();
+    const original = {
+        subject: message.subject || "", text: message.text || "",
+        html: message.html || "", sentAt: message.created_at || matching.created_at,
+        providerId: message.id || matching.id
+    };
+    if (!original.text) return null;
+    await saveOriginalMarketBriefing(email, original);
+    return original;
+}
+
+function originalMarketBriefingContent(text = "") {
+    return String(text).split(/\n\n(?:Build your free personal watchlist|Create an account to save|Review your watchlist offer|Educational information only)[^\n]*:/i)[0].trim();
+}
+
+function originalMarketBriefingSymbols(text = "") {
+    return Array.from(new Set([...String(text).matchAll(/\(([A-Z0-9.-]{1,20})\):/g)]
+        .map((match) => normalizeTradeSymbol(match[1])).filter(Boolean))).slice(0, 25);
+}
+
+async function marketBriefingFollowupDraft(lead = {}, req) {
+    const original = await originalMarketBriefingForLead(lead);
+    if (!original?.text) return null;
+    const email = normalizeEmail(lead.email);
+    const hasAccount = await marketingAccountExists(email);
+    const sentAt = new Date(original.sentAt || Date.now());
+    const sentDate = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" })
+        .format(Number.isNaN(sentAt.getTime()) ? new Date() : sentAt);
+    const briefing = originalMarketBriefingContent(original.text);
+    const symbols = originalMarketBriefingSymbols(briefing);
+    const accountUrl = hasAccount
+        ? `${appBaseUrl(req)}/account-markets?briefing=review`
+        : `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id || "")}&next=account-watchlist`;
+    const unsubscribeUrl = `${appBaseUrl(req)}/marketing/unsubscribe?token=${encodeURIComponent(marketingUnsubscribeToken(email))}`;
+    const subject = "Your Autody briefing is ready — explore with $50,000 in Demo";
+    const introduction = `Here is the same Autody market briefing we emailed you on ${sentDate}. This is a snapshot from that date; check Autody for current market prices.`;
+    const invitation = hasAccount
+        ? "Open your account to accept or decline adding these briefing assets to your shared watchlist. You can also see how your ideas play out with $50,000 in Demo practice funds."
+        : "Create your free Autody account, choose whether to accept or decline these briefing assets for your shared watchlist, and see how your market ideas play out with $50,000 in Demo practice funds. Try practice trades without using real money. Demo funds cannot be withdrawn or transferred to Live.";
+    const action = hasAccount ? "Review your watchlist offer" : "Create your account";
+    const text = `Hello,\n\n${introduction}\n\n${briefing}\n\n${invitation}\n\n${action}:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
+    const html = `<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827;max-width:680px">
+        <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
+        <h1 style="margin:16px 0 10px">Your market briefing is ready</h1>
+        <p>${emailHtmlEscape(introduction)}</p>
+        <div style="margin:20px 0;padding:18px;background:#f5f6fb;border-radius:10px">${emailHtmlEscape(briefing).replace(/\n/g, "<br>")}</div>
+        <p>${emailHtmlEscape(invitation)}</p>
+        <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">${emailHtmlEscape(action)}</a></p>
+        <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results. <a href="${unsubscribeUrl}">Unsubscribe</a>.</p>
+      </div>`;
+    return { id: lead.id, email, subject, text, html, symbols, sourceSubject: original.subject, sourceSentAt: original.sentAt, accountUrl, unsubscribeUrl };
+}
+
+async function sendMarketBriefingFollowup(lead = {}, req) {
+    const draft = await marketBriefingFollowupDraft(lead, req);
+    if (!draft) return { delivered: false, error: "The original sent briefing could not be recovered." };
+    if (!RESEND_API_KEY) return { delivered: false, error: "Email delivery is unavailable." };
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+            from: EMAIL_MARKETS_FROM, to: draft.email, subject: draft.subject,
+            html: draft.html, text: draft.text,
+            headers: { "List-Unsubscribe": `<${draft.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+        })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.message || "Market follow-up delivery failed.");
+    const hasAccount = await marketingAccountExists(draft.email);
+    await updateMarketingLeadOffer(draft.email, draft.symbols, draft.symbols.length ? (hasAccount ? "pending" : "ready") : "none")
+        .catch((err) => console.error("Follow-up watchlist offer tracking failed:", err.message || err));
+    await markBriefingDelivered(draft.email)
+        .catch((err) => console.error("Follow-up delivery tracking failed:", err.message || err));
+    return { delivered: true, provider: "resend", originalSentAt: draft.sourceSentAt };
 }
 
 async function listAdminSupportTickets(body = {}) {
@@ -18648,10 +18815,45 @@ app.post("/api/admin/marketing/export", async (req, res) => {
   }
 });
 
+app.post("/api/admin/marketing/preview-followup", async (req, res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing preview is not authorized." });
+    const ids = Array.from(new Set((Array.isArray(body.ids) ? body.ids : []).map(normalizeText).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 50);
+    if (!ids.length) return res.status(400).json({ success: false, error: "Select at least one lead." });
+    let leads = [];
+    if (databaseConfigured()) {
+      await ensureMarketingLeadTables();
+      const result = await dbPool.query(`select id, email, interests, status from marketing_leads where id = any($1::uuid[]) and status in ('subscribed','converted')`, [ids]);
+      leads = result.rows;
+    } else {
+      leads = (loadDemoDb().marketingLeads || []).filter((lead) => ids.includes(lead.id) && ["subscribed", "converted"].includes(lead.status));
+    }
+    const drafts = [];
+    for (const lead of leads) {
+      try {
+        const draft = await marketBriefingFollowupDraft(lead, req);
+        drafts.push(draft ? {
+          id: draft.id, email: draft.email, subject: draft.subject, text: draft.text,
+          sourceSubject: draft.sourceSubject, sourceSentAt: draft.sourceSentAt,
+          symbols: draft.symbols
+        } : { id: lead.id, email: lead.email, error: "Original sent briefing unavailable." });
+      } catch (err) {
+        drafts.push({ id: lead.id, email: lead.email, error: err.message || "Preview unavailable." });
+      }
+    }
+    return res.json({ success: true, drafts });
+  } catch (err) {
+    console.error("Admin marketing follow-up preview failed:", err);
+    return res.status(err.status || 500).json({ success: false, error: err.message || "Follow-up preview failed." });
+  }
+});
+
 app.post("/api/admin/marketing/send-briefing", async (req, res) => {
   try {
     const body = parseJsonBody(req);
     if (!adminRequestAuthorized(req, body)) return res.status(403).json({ success: false, error: "Admin marketing delivery is not authorized." });
+    if (body.reviewed !== true) return res.status(400).json({ success: false, error: "Preview and review the original briefing follow-up before sending." });
     const ids = Array.from(new Set((Array.isArray(body.ids) ? body.ids : []).map(normalizeText).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 50);
     if (!ids.length) return res.status(400).json({ success: false, error: "Select at least one subscribed lead." });
     let leads = [];
@@ -18665,7 +18867,7 @@ app.post("/api/admin/marketing/send-briefing", async (req, res) => {
     }
     const deliveries = [];
     for (const lead of leads) {
-      const delivery = await sendMarketLeadWelcomeEmail(lead, req).catch((err) => ({ delivered: false, error: err.message || "Delivery failed" }));
+      const delivery = await sendMarketBriefingFollowup(lead, req).catch((err) => ({ delivered: false, error: err.message || "Delivery failed" }));
       deliveries.push({ id: lead.id, email: lead.email, ...delivery });
     }
     return res.json({ success: true, requested: ids.length, sent: deliveries.filter((item) => item.delivered).length, deliveries });
@@ -19094,3 +19296,4 @@ startServer().catch((err) => {
   console.error("Autody startup failed:", err);
   process.exit(1);
 });
+
