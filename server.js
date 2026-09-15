@@ -1440,9 +1440,6 @@ async function ensureMarketingLeadTables(client = dbPool) {
           unsubscribed_at timestamptz,
           last_briefing_at timestamptz,
           briefing_count integer not null default 0,
-          suggested_watchlist jsonb not null default '[]'::jsonb,
-          watchlist_offer_status text not null default 'none',
-          last_watchlist_offer_at timestamptz,
           converted_at timestamptz,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
@@ -1456,9 +1453,6 @@ async function ensureMarketingLeadTables(client = dbPool) {
         alter table marketing_leads add column if not exists unsubscribed_at timestamptz;
         alter table marketing_leads add column if not exists last_briefing_at timestamptz;
         alter table marketing_leads add column if not exists briefing_count integer not null default 0;
-        alter table marketing_leads add column if not exists suggested_watchlist jsonb not null default '[]'::jsonb;
-        alter table marketing_leads add column if not exists watchlist_offer_status text not null default 'none';
-        alter table marketing_leads add column if not exists last_watchlist_offer_at timestamptz;
 
         create table if not exists marketing_events (
           id uuid primary key,
@@ -1639,7 +1633,7 @@ async function listMarketingLeads(body = {}) {
             && (!interest || (lead.interests || []).includes(interest)) && (!search || normalizeEmail(lead.email).includes(search)));
         return { leads: all.slice(offset, offset + limit), total: all.length, limit, offset };
     }
-    await ensureMarketingLeadTables();
+    await ensureMarketingOfferColumns();
     const params = [];
     const clauses = [];
     if (status) { params.push(status); clauses.push(`status = $${params.length}`); }
@@ -1728,6 +1722,15 @@ function briefingWatchlistSymbols(briefing = {}) {
     return Array.from(new Set((briefing.sections || []).flatMap((section) => (section.assets || []).map((asset) => normalizeTradeSymbol(asset.symbol))).filter(Boolean))).slice(0, 25);
 }
 
+async function ensureMarketingOfferColumns() {
+    await ensureMarketingLeadTables();
+    await dbPool.query(`
+        alter table marketing_leads add column if not exists suggested_watchlist jsonb not null default '[]'::jsonb;
+        alter table marketing_leads add column if not exists watchlist_offer_status text not null default 'none';
+        alter table marketing_leads add column if not exists last_watchlist_offer_at timestamptz;
+    `);
+}
+
 async function marketingAccountExists(email) {
     const normalized = normalizeEmail(email);
     if (databaseConfigured()) {
@@ -1741,7 +1744,7 @@ async function marketingLeadForEmail(email, leadId = "") {
     const normalized = normalizeEmail(email);
     if (!normalized) return null;
     if (databaseConfigured()) {
-        await ensureMarketingLeadTables();
+        await ensureMarketingOfferColumns();
         const result = await dbPool.query("select id, email, interests, status, suggested_watchlist, watchlist_offer_status from marketing_leads where lower(email) = lower($1) and ($2::uuid is null or id = $2::uuid) limit 1", [normalized, /^[0-9a-f-]{36}$/i.test(leadId) ? leadId : null]);
         return result.rows[0] || null;
     }
@@ -1756,7 +1759,7 @@ function marketingLeadSymbols(lead = {}) {
 async function updateMarketingLeadOffer(email, symbols, status) {
     const normalized = normalizeEmail(email);
     if (databaseConfigured()) {
-        await ensureMarketingLeadTables();
+        await ensureMarketingOfferColumns();
         await dbPool.query("update marketing_leads set suggested_watchlist = $2::jsonb, watchlist_offer_status = $3, last_watchlist_offer_at = now(), updated_at = now() where lower(email) = lower($1)", [normalized, JSON.stringify(symbols), status]);
         return;
     }

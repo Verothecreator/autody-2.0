@@ -3,7 +3,7 @@ name: Deploy leads and support update once
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/deploy-leads-support-once.yml]
+    paths: [server.js, .github/workflows/deploy-leads-support-once.yml]
   workflow_dispatch:
 
 jobs:
