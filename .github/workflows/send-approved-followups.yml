@@ -1,0 +1,70 @@
+name: Send approved market follow-ups once
+
+on:
+  workflow_run:
+    workflows: ["Deploy VPS"]
+    types: [completed]
+
+jobs:
+  send:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_commit.message == 'Dispatch approved Autody follow-ups'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preview, check, and send the two approved emails
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST || vars.VPS_HOST || '162.213.249.146' }}
+          username: ${{ secrets.VPS_USER || vars.VPS_USER || 'root' }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          script: |
+            set -e
+            cd "${{ secrets.VPS_APP_DIR || vars.VPS_APP_DIR || '/var/www/autody-2.0' }}"
+            node <<'NODE'
+            require('dotenv').config();
+            const crypto = require('crypto');
+            const secret = process.env.AUTODY_ADMIN_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_RESET_KEY || process.env.ADMIN_ACCOUNT_PASSWORD_HASH || process.env.ADMIN_ACCOUNT_PASSWORD;
+            if (!secret) throw new Error('Admin session signing is unavailable');
+            const now = Date.now();
+            const payload = Buffer.from(JSON.stringify({ scope: 'autody-admin', exp: now + 10 * 60000 })).toString('base64url');
+            const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+            const authorization = `Bearer ${payload}.${signature}`;
+            const recipients = [
+              { id: 'f72678c2-699a-4365-bf5f-1c03a700454a', hash: 'e78a3b6946423d84f4ab08f84e844ce6c753a7c2d3a403da9d48c1c4b7b632c9', symbols: ['005380.KS','0005.HK','035420.KS','AI','2Z','AKT','ACWI','EWC','EWG','COMT','CORN','CPER'] },
+              { id: '310cdcbe-dbc9-4d1f-9e64-a7ee5d276bb8', hash: '6981957993422f4d3f7bc4a93172a9b56358bce45b9fe3e040ee8c18c67ca0b0', symbols: ['005380.KS','0005.HK','035420.KS','AI','2Z','APEPE','ACWI','EWC','EWG'] }
+            ];
+            const ids = recipients.map((item) => item.id);
+            async function post(path, body) {
+              const response = await fetch(`http://127.0.0.1:3000${path}`, {
+                method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+                body: JSON.stringify(body), signal: AbortSignal.timeout(45000)
+              });
+              const result = await response.json();
+              if (!response.ok || result.success !== true) throw new Error(`${path}: ${result.error || response.status}`);
+              return result;
+            }
+            (async () => {
+              const preview = await post('/api/admin/marketing/preview-followup', { ids });
+              if (preview.drafts?.length !== recipients.length) throw new Error('One or more selected leads are unavailable');
+              const reviewTokens = {};
+              for (const recipient of recipients) {
+                const draft = preview.drafts.find((item) => item.id === recipient.id);
+                if (!draft || draft.error || !draft.reviewToken) throw new Error('A current email preview is unavailable');
+                const emailHash = crypto.createHash('sha256').update(draft.email.toLowerCase()).digest('hex');
+                if (emailHash !== recipient.hash) throw new Error('Preview recipient does not match the approved contact');
+                if (draft.subject !== 'Open your Autody account to follow your markets') throw new Error('The account-opening subject changed');
+                if (draft.symbols.join('|') !== recipient.symbols.join('|')) throw new Error('The selected briefing assets changed');
+                if (now - Number(draft.generatedAt) > 5 * 60000) throw new Error('Market briefing preview is old');
+                const required = ['We’ve updated the markets you asked us to follow.', '$50,000 in Demo practice funds', 'The Demo balance is for practice and isn’t a cash deposit.', 'See you in Autody,\nThe Autody Team'];
+                if (!required.every((text) => draft.text.includes(text))) throw new Error('Customer email copy changed');
+                if (/Educational information only|Unsubscribe:|We corrected|Market prices and changes as of/i.test(draft.text)) throw new Error('A removed line returned to the email');
+                if (!draft.text.includes('₩') || !draft.text.includes('HK$')) throw new Error('Market currency labels are incomplete');
+                reviewTokens[draft.id] = draft.reviewToken;
+              }
+              console.log('Two refreshed customer emails passed review checks');
+              const result = await post('/api/admin/marketing/send-briefing', { ids, reviewed: true, reviewTokens });
+              console.log(`Email service accepted ${result.sent} of ${result.requested} approved follow-ups`);
+              if (result.sent !== recipients.length) throw new Error('One or more approved follow-ups were not accepted by the email service');
+            })().catch((error) => { console.error(error.message); process.exitCode = 1; });
+            NODE
