@@ -1706,22 +1706,30 @@ function briefingFormatPrice(value, currency = "USD") {
     return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: digits }).format(number);
 }
 
-
 async function buildMarketBriefing(lead = {}) {
-    const interestTypes = { stocks: ["stock"], crypto: ["crypto"], etfs: ["etf"], commodities: ["commodity"], economy: ["stock", "etf"] };
+    const interestTypes = { stocks: ["stock"], crypto: ["crypto"], etfs: ["etf"], commodities: ["commodity"] };
     const interests = Array.isArray(lead.interests) && lead.interests.length ? lead.interests : ["stocks", "crypto"];
     const sections = [];
+    const now = Date.now();
     for (const interest of interests.slice(0, 5)) {
+        if (interest === "economy") continue;
         const assets = await readLatestMarketSnapshots(interestTypes[interest] || [interest], 3).catch(() => []);
-        if (!assets.length) continue;
-        sections.push({ interest, assets: assets.map((asset) => ({
+        const current = assets.filter((asset) => {
+            const captured = new Date(asset.capturedAt || 0).getTime();
+            return captured && now - captured <= (interest === "crypto" ? 24 : 72) * 3600000 && captured <= now + 300000 && asset.price != null;
+        });
+        if (!current.length) continue;
+        sections.push({ interest, assets: current.map((asset) => ({
             symbol: asset.symbol,
             name: asset.name || asset.symbol,
             price: briefingFormatPrice(asset.price, briefingQuotedCurrency(asset)),
             change: Number.isFinite(Number(asset.changePct)) ? `${Number(asset.changePct) >= 0 ? "+" : ""}${Number(asset.changePct).toFixed(2)}%` : "—"
         })) });
     }
-    const news = await readLatestNewsSnapshots(4).catch(() => []);
+    const news = (await readLatestNewsSnapshots(12).catch(() => [])).filter((article) => {
+        const published = new Date(article.publishedAt || 0).getTime();
+        return published && now - published <= 24 * 3600000 && published <= now + 300000;
+    }).slice(0, 4);
     return { sections, news, generatedAt: new Date() };
 }
 
@@ -1734,6 +1742,13 @@ async function markBriefingDelivered(email) {
     const db = loadDemoDb();
     const lead = (db.marketingLeads || []).find((item) => normalizeEmail(item.email) === normalized);
     if (lead) { lead.lastBriefingAt = new Date().toISOString(); lead.briefingCount = Number(lead.briefingCount || 0) + 1; saveDemoDb(db); }
+}
+
+function briefingHeadline(article = {}) {
+    const title = normalizeText(article.title);
+    const source = normalizeText(article.source);
+    return source && title.toLowerCase().endsWith(` - ${source.toLowerCase()}`)
+        ? title.slice(0, -(source.length + 3)).trim() : title;
 }
 
 async function ensureMarketingBriefingColumns() {
@@ -1866,31 +1881,34 @@ async function sendMarketLeadWelcomeEmail(lead = {}, req) {
     if (!email) return { delivered: false, provider: "none", skipped: true };
     const interests = (lead.interests || []).map((value) => value.charAt(0).toUpperCase() + value.slice(1)).join(", ");
     const briefing = await buildMarketBriefing(lead);
+    if (!briefing.sections.length) return { delivered: false, provider: "none", error: "Current market quotes are unavailable." };
     const symbols = briefingWatchlistSymbols(briefing);
     const hasAccount = await marketingAccountExists(email);
     await updateMarketingLeadOffer(email, symbols, symbols.length ? (hasAccount ? "pending" : "ready") : "none");
     const accountUrl = hasAccount
         ? `${appBaseUrl(req)}/account-markets?briefing=review`
         : `${appBaseUrl(req)}/sign-up?lead=${encodeURIComponent(lead.id)}&next=account-watchlist`;
-    const actionText = hasAccount ? "Review your watchlist offer in Autody" : "Create an account to save these assets to your watchlist";
-    const buttonText = hasAccount ? "Accept or decline in Autody" : "Create account and save assets";
+    const actionText = hasAccount
+        ? "Open your account to choose which of these assets to add to your watchlist. You can accept or decline each one."
+        : "Open your Autody account to choose which of these assets to add to your watchlist. You’ll also have $50,000 in Demo practice funds to explore the platform and try practice trades. The Demo balance is for practice and isn’t a cash deposit.";
+    const buttonText = hasAccount ? "Review your markets" : "Open your account";
     const unsubscribeUrl = `${appBaseUrl(req)}/marketing/unsubscribe?token=${encodeURIComponent(marketingUnsubscribeToken(email))}`;
-    const subject = `Your Autody market briefing — ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(briefing.generatedAt)}`;
+    const subject = hasAccount ? "Your Autody account: choose the markets to follow" : "Open your Autody account to follow your markets";
     const marketText = briefing.sections.map((section) => `${section.interest.toUpperCase()}\n${section.assets.map((asset) => `• ${asset.name} (${asset.symbol}): ${asset.price}, ${asset.change}`).join("\n")}`).join("\n\n");
-    const newsText = briefing.news.length ? `\n\nMARKET HEADLINES\n${briefing.news.map((article) => `• ${article.title}${article.source ? ` — ${article.source}` : ""}`).join("\n")}` : "";
-    const text = `Your focused Autody market briefing\n\nMarkets selected: ${interests}\nPrices use each asset's quoted market currency where applicable.\n\n${marketText || "Your selected markets are ready to follow in Autody."}${newsText}\n\n${actionText}:\n${accountUrl}\n\nEducational information only; no profit or investment outcome is promised.\nUnsubscribe: ${unsubscribeUrl}`;
+    const newsText = briefing.news.length ? `\n\nMARKET HEADLINES\n${briefing.news.map((article) => `• ${briefingHeadline(article)}${article.source ? ` — ${article.source}` : ""}`).join("\n")}` : "";
+    const text = `Hello,\n\nHere is your Autody market briefing for ${interests}.\n\n${marketText || "Your selected markets are ready to follow in Autody."}${newsText}\n\n${actionText}\n\n${buttonText}:\n${accountUrl}\n\nSee you in Autody,\nThe Autody Team`;
     const sectionHtml = briefing.sections.map((section) => `<div style="margin:20px 0"><h2 style="font-size:17px;text-transform:capitalize">${emailHtmlEscape(section.interest)}</h2>${section.assets.map((asset) => `<div style="padding:10px 0;border-bottom:1px solid #e5e7eb"><strong>${emailHtmlEscape(asset.name)} (${emailHtmlEscape(asset.symbol)})</strong><br><span>${emailHtmlEscape(asset.price)} · ${emailHtmlEscape(asset.change)}</span></div>`).join("")}</div>`).join("");
-    const newsHtml = briefing.news.length ? `<div style="margin:22px 0"><h2 style="font-size:17px">Market headlines</h2>${briefing.news.map((article) => `<p><strong>${emailHtmlEscape(article.title)}</strong>${article.source ? `<br><span style="color:#6b7280">${emailHtmlEscape(article.source)}</span>` : ""}</p>`).join("")}</div>` : "";
+    const newsHtml = briefing.news.length ? `<div style="margin:22px 0"><h2 style="font-size:17px">Market headlines</h2>${briefing.news.map((article) => `<p><strong>${emailHtmlEscape(briefingHeadline(article))}</strong>${article.source ? `<br><span style="color:#6b7280">${emailHtmlEscape(article.source)}</span>` : ""}</p>`).join("")}</div>` : "";
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
         <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#5b5cf6;font-weight:800">Autody global markets</div>
-        <h1 style="margin:16px 0 10px">Your focused market briefing</h1>
-        <p>Prepared for <strong>${emailHtmlEscape(interests)}</strong>. Prices use each asset's quoted market currency where applicable.</p>
+        <h1 style="margin:16px 0 10px">Follow your markets with Autody</h1>
+        <p>Here is your Autody market briefing for <strong>${emailHtmlEscape(interests)}</strong>.</p>
         ${sectionHtml || "<p>Your selected markets are ready to follow inside Autody.</p>"}
         ${newsHtml}
-        <p>${emailHtmlEscape(actionText)}.</p>
+        <p>${emailHtmlEscape(actionText)}</p>
         <p><a href="${accountUrl}" style="display:inline-block;padding:12px 18px;background:#5b5fef;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">${buttonText}</a></p>
-        <p style="color:#4b5563;font-size:13px">Market information is educational and does not guarantee investment results. <a href="${unsubscribeUrl}">Unsubscribe</a>.</p>
+        <p>See you in Autody,<br>The Autody Team</p>
       </div>`;
     if (!RESEND_API_KEY) return { delivered: false, provider: "console" };
     const response = await fetch("https://api.resend.com/emails", {
@@ -10952,10 +10970,7 @@ async function marketBriefingFollowupDraft(lead = {}, req) {
     }).filter((article, index, articles) => articles.findIndex((other) => other.title === article.title) === index).slice(0, 4);
     const symbols = sections.flatMap((section) => section.assets.map((asset) => asset.symbol));
     const briefing = sections.map((section) => `${section.category}\n${section.assets.map((asset) => `• ${asset.name} (${asset.symbol}): ${asset.price}, ${asset.change}`).join("\n")}`).join("\n\n")
-        + (headlines.length ? `\n\nMARKET HEADLINES\n${headlines.map((article) => {
-            const title = article.title.replace(new RegExp(`\\s+-\\s+${String(article.source || "").replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`, "i"), "").trim();
-            return `• ${title}${article.source ? ` — ${article.source}` : ""}`;
-        }).join("\n")}` : "");
+        + (headlines.length ? `\n\nMARKET HEADLINES\n${headlines.map((article) => `• ${briefingHeadline(article)}${article.source ? ` — ${article.source}` : ""}`).join("\n")}` : "");
     const asOf = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(now);
     const accountUrl = hasAccount
         ? `${appBaseUrl(req)}/account-markets?briefing=review`
@@ -11024,7 +11039,6 @@ async function sendMarketBriefingFollowup(lead = {}, draft) {
         .catch((err) => console.error("Follow-up delivery tracking failed:", err.message || err));
     return { delivered: true, provider: "resend" };
 }
-
 
 async function listAdminSupportTickets(body = {}) {
     const status = ["open", "in_progress", "resolved"].includes(normalizeText(body.status)) ? normalizeText(body.status) : "";
