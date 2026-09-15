@@ -37,7 +37,7 @@ jobs:
             if ! git merge-file -p server.js "$SERVER_BASE" "$SERVER_NEW" > "$SERVER_MERGED"; then
               echo "Server merge needs review; no files were changed"
               python3 - "$SERVER_MERGED" <<'PY'
-            import pathlib, sys
+            import difflib, pathlib, sys
             lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
             starts = [i for i, line in enumerate(lines) if line.startswith('<<<<<<<')]
             for number, start in enumerate(starts, 1):
@@ -49,6 +49,10 @@ jobs:
                 print('OURS END:', '\n'.join(ours[-8:]))
                 print('THEIRS START:', '\n'.join(theirs[:8]))
                 print('THEIRS END:', '\n'.join(theirs[-8:]))
+                print('AFTER:', '\n'.join(lines[end + 1:end + 9]))
+                differences = list(difflib.unified_diff(ours, theirs, fromfile='live', tofile='github', lineterm=''))
+                print('DIFF LINES:', len(differences))
+                print('\n'.join(differences[:130]))
             PY
               exit 1
             fi
