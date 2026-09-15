@@ -29,7 +29,7 @@ jobs:
             git diff --binary 7d3ab340392cd6be0fafca68b80063a5b4f6da39 "${{ github.sha }}" -- public/admin-marketing.html public/admin-marketing.js public/admin-support.html public/admin-support.js public/demo-sidebar.js public/marketing-support.css public/ops-console.html public/sign-up.js > "$PATCH_FILE"
             SERVER_BASE=$(mktemp)
             SERVER_NEW=$(mktemp)
-            SERVER_MERGED=$(mktemp)
+            SERVER_MERGED=$(mktemp --suffix=.js)
             SERVER_BASE_SHA=$(git merge-base HEAD "${{ github.sha }}")
             echo "Server merge base: $SERVER_BASE_SHA"
             git show "$SERVER_BASE_SHA:server.js" > "$SERVER_BASE"
