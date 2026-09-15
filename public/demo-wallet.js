@@ -497,9 +497,10 @@ function renderHoldings(rows) {
   const expandedKey = selectedGroupKey();
   const renderedRows = rows.map((asset) => {
     const isActive = asset.symbol === selectedSymbol || (asset.isGroup && expandedKey === asset.key);
+    const showMainRowMove = asset.symbol !== "AU";
     const mainRow = `
       <div class="asset-table-row wallet-holding-row wallet-group-row ${isActive ? "active" : ""}" role="button" tabindex="0" data-wallet-symbol="${escapeHtml(asset.symbol)}">
-        ${renderAssetName(asset, true)}
+        ${renderAssetName(asset, showMainRowMove)}
         <span>${escapeHtml(formatBalance(asset))}</span>
         <span>${escapeHtml(formatMoney(asset.valueUsd))}</span>
         ${renderStatusCell(asset, asset.status || "Ready")}
