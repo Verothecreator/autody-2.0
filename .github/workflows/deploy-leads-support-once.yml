@@ -30,7 +30,9 @@ jobs:
             SERVER_BASE=$(mktemp)
             SERVER_NEW=$(mktemp)
             SERVER_MERGED=$(mktemp)
-            git show 7d3ab340392cd6be0fafca68b80063a5b4f6da39:server.js > "$SERVER_BASE"
+            SERVER_BASE_SHA=$(git merge-base HEAD "${{ github.sha }}")
+            echo "Server merge base: $SERVER_BASE_SHA"
+            git show "$SERVER_BASE_SHA:server.js" > "$SERVER_BASE"
             git show "${{ github.sha }}:server.js" > "$SERVER_NEW"
             if ! git merge-file -p server.js "$SERVER_BASE" "$SERVER_NEW" > "$SERVER_MERGED"; then
               echo "Server merge needs review; no files were changed"
