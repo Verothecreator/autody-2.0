@@ -92,8 +92,9 @@ test("owner can reply as support@ without an agent or ticket assignment", async 
   assert.equal(replied.success, true);
   assert.equal(replied.message.role, "support");
   assert.equal(h.sent.length, 1);
-  assert.equal(h.sent[0].body.from, "The Autody Support Team <support@autodytraded.com>");
+  assert.equal(h.sent[0].body.from, "Autody Support <support@autodytraded.com>");
   assert.equal(h.sent[0].body.reply_to, "support@autodytraded.com");
+  assert.equal(replied.message.agentName, "Autody Support");
   assert.doesNotMatch(h.sent[0].body.text, /^Hello,/);
   assert.match(h.sent[0].body.text, /\n\nThe Autody Support Team$/);
   assert.doesNotMatch(h.sent[0].body.text, /support-reply|Reply to this ticket/);

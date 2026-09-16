@@ -14,7 +14,7 @@ async function loadThreadMessages(ticket, container) {
   if (!data.messages.length) { container.append(supportNode("p", "No replies yet.", "admin-empty")); return; }
   data.messages.forEach((message) => {
     const entry = supportNode("article", "", "support-thread-entry " + (message.role === "customer" ? "from-customer" : "from-agent"));
-    entry.append(supportNode("strong", (message.role === "customer" ? "Customer" : message.agentName || "The Autody Support Team") + " · " + new Date(message.createdAt).toLocaleString()),
+    entry.append(supportNode("strong", (message.role === "customer" ? "Customer" : message.agentName || "Autody Support") + " · " + new Date(message.createdAt).toLocaleString()),
       supportNode("p", message.body, "support-inbox-message"));
     container.append(entry);
   });
@@ -24,7 +24,7 @@ function renderThread(ticket, container) {
   thread.append(supportNode("p", "Issue type: " + (ticket.category || "Other"), "support-issue-type"));
   thread.append(supportNode("p", ticket.message, "support-message support-customer-message"));
   const messages = supportNode("div", "Loading replies..."); thread.append(messages);
-  const label = supportNode("label", "Reply as The Autody Support Team <support@autodytraded.com>");
+  const label = supportNode("label", "Reply as Autody Support <support@autodytraded.com>");
   const textarea = document.createElement("textarea");
   textarea.rows = 5; textarea.maxLength = 4000; textarea.placeholder = "Write a clear, helpful response for the customer.";
   label.append(textarea); thread.append(label);
@@ -36,7 +36,7 @@ function renderThread(ticket, container) {
   previewButton.addEventListener("click", () => {
     if (!textarea.value.trim()) return supportNotice("Write a reply first.", "error");
     preview.replaceChildren(supportNode("strong", "Customer email preview"),
-      supportNode("p", "From: The Autody Support Team <support@autodytraded.com>"),
+      supportNode("p", "From: Autody Support <support@autodytraded.com>"),
       supportNode("p", "Subject: Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "") + " [Case " + ticket.id.slice(0, 8) + "]"),
       supportNode("p", textarea.value.trim(), "support-inbox-message"),
       supportNode("p", "The Autody Support Team", "support-inbox-message"));

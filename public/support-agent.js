@@ -32,7 +32,7 @@ async function loadAgentThread(ticket, container) {
   container.append(agentNode("p", ticket.message, "support-thread-entry from-customer support-inbox-message"));
   data.messages.forEach((message) => {
     const entry = agentNode("article", "", "support-thread-entry " + (message.role === "customer" ? "from-customer" : "from-agent"));
-    entry.append(agentNode("strong", (message.role === "customer" ? "Customer" : message.agentName || "The Autody Support Team") + " · " + new Date(message.createdAt).toLocaleString()),
+    entry.append(agentNode("strong", (message.role === "customer" ? "Customer" : message.agentName || "Autody Support") + " · " + new Date(message.createdAt).toLocaleString()),
       agentNode("p", message.body, "support-inbox-message"));
     container.append(entry);
   });
