@@ -48,7 +48,26 @@ jobs:
             cd "$APP_DIR"
             git remote set-url origin "$REPO_URL"
             git fetch origin main
-            git pull --ff-only origin main
+            BACKUP_LABEL="deployment-backup-$(date -u +%Y%m%dT%H%M%SZ)"
+            LIVE_DEMO_BACKUP="/tmp/${BACKUP_LABEL}-demo-db.json"
+            if [ -f data/demo-db.json ]; then
+              cp data/demo-db.json "$LIVE_DEMO_BACKUP"
+            fi
+            if [ -n "$(git status --porcelain)" ]; then
+              git stash push --include-untracked -m "$BACKUP_LABEL"
+            fi
+            if git merge-base --is-ancestor HEAD origin/main; then
+              git merge --ff-only origin/main
+            else
+              git branch "$BACKUP_LABEL" HEAD
+              echo "Saved divergent VPS commits in $BACKUP_LABEL before syncing with GitHub main."
+              git log --oneline origin/main..HEAD
+              git reset --hard origin/main
+            fi
+            if [ -f "$LIVE_DEMO_BACKUP" ]; then
+              cp "$LIVE_DEMO_BACKUP" data/demo-db.json
+              rm "$LIVE_DEMO_BACKUP"
+            fi
             npm install --omit=dev --no-package-lock
 
             # Reset the owner's practice support inbox once, before receiving resumes.
