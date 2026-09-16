@@ -68,6 +68,18 @@ jobs:
               cp "$LIVE_DEMO_BACKUP" data/demo-db.json
               rm "$LIVE_DEMO_BACKUP"
             fi
+
+            # Preserve the working site's appearance from before the support deployment.
+            SITE_BACKUP="deployment-backup-20260916T011900Z"
+            git rev-parse --verify "$SITE_BACKUP^{commit}" >/dev/null
+            git diff --name-only --diff-filter=ACMRT origin/main "$SITE_BACKUP" | while IFS= read -r site_file; do
+              case "$site_file" in
+                .github/workflows/*|data/*|support-agents*|clear-practice-support*|public/admin-support*|public/support-agent*|public/support-reply*|public/marketing-support.css)
+                  continue ;;
+              esac
+              git checkout "$SITE_BACKUP" -- "$site_file"
+              echo "Restored prior site file: $site_file"
+            done
             npm install --omit=dev --no-package-lock
 
             # Reset the owner's practice support inbox once, before receiving resumes.
