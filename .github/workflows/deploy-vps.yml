@@ -82,8 +82,7 @@ jobs:
             done
             for site_file in public/styles.css public/global-markets.html public/global-markets.js; do
               echo "RESTORED_ASSET_BEGIN:$site_file"
-              git show "$SITE_BACKUP:$site_file" | base64 -w0
-              echo
+              git show "$SITE_BACKUP:$site_file" | gzip -c | base64 -w0 | fold -w 4000
               echo "RESTORED_ASSET_END:$site_file"
             done
             npm install --omit=dev --no-package-lock
