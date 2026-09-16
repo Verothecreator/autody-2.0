@@ -92,8 +92,10 @@ test("owner can reply as support@ without an agent or ticket assignment", async 
   assert.equal(replied.success, true);
   assert.equal(replied.message.role, "support");
   assert.equal(h.sent.length, 1);
-  assert.equal(h.sent[0].body.from, "Autody Support <support@autodytraded.com>");
+  assert.equal(h.sent[0].body.from, "The Autody Support Team <support@autodytraded.com>");
   assert.equal(h.sent[0].body.reply_to, "support@autodytraded.com");
+  assert.doesNotMatch(h.sent[0].body.text, /^Hello,/);
+  assert.match(h.sent[0].body.text, /\n\nThe Autody Support Team$/);
   assert.doesNotMatch(h.sent[0].body.text, /support-reply|Reply to this ticket/);
   const repeated = await h.call("/api/support-team/reply", {
     ticketId: h.ticketId, requestId, message: "Thanks for contacting us."
@@ -221,6 +223,8 @@ test("closing a case sends one plain closure email for the chosen reason", async
   }, { owner: true });
   assert.equal(resolved.ticket.status, "resolved");
   assert.match(h.sent.at(-1).body.text, /resolved and closed/);
+  assert.doesNotMatch(h.sent.at(-1).body.text, /^Hello,/);
+  assert.match(h.sent.at(-1).body.text, /\n\nThe Autody Support Team$/);
   assert.doesNotMatch(h.sent.at(-1).body.text, /support-reply|secure link/);
   await h.call("/api/support-team/status", { ticketId: h.ticketId,
     status: "resolved", requestId: id }, { owner: true });

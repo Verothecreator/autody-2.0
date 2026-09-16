@@ -76,8 +76,8 @@ function agentTicket(ticket) {
         preview.replaceChildren(agentNode("strong", "Email preview"),
           agentNode("p", "From: " + agentState.agent.name + " <" + agentState.agent.senderEmail + ">"),
           agentNode("p", "Subject: Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "") + " [Case " + ticket.id.slice(0, 8) + "]"),
-          agentNode("p", "Hello,"), agentNode("p", textarea.value.trim(), "support-inbox-message"),
-          agentNode("p", agentState.agent.name + "\nAutody Support", "support-inbox-message"));
+          agentNode("p", textarea.value.trim(), "support-inbox-message"),
+          agentNode("p", agentState.agent.name + "\nThe Autody Support Team", "support-inbox-message"));
         preview.hidden = false;
       });
       const send = agentNode("button", "Send to customer", "btn"); send.type = "button";

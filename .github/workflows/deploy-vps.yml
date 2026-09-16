@@ -48,47 +48,16 @@ jobs:
             cd "$APP_DIR"
             git remote set-url origin "$REPO_URL"
             git fetch origin main
-            TARGET_SHA="${{ github.sha }}"
-            DEPLOY_SHA_FILE="$APP_DIR/.github-last-deployed-sha"
-            if git merge-base --is-ancestor "$TARGET_SHA" HEAD; then
-              echo "VPS already contains this GitHub commit"
-            elif git merge-base --is-ancestor HEAD "$TARGET_SHA"; then
-              git merge --ff-only "$TARGET_SHA"
-            else
-              BASE_SHA=$(cat "$DEPLOY_SHA_FILE" 2>/dev/null || printf '%s' '4055314280d409dbeb9fcbd6f4a897f05e4b7f52')
-              git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA" || { echo "Invalid deployed GitHub marker"; exit 1; }
-              PATCH_FILE=$(mktemp)
-              git diff --binary "$BASE_SHA" "$TARGET_SHA" -- . ':(exclude).github/workflows' > "$PATCH_FILE"
-              if [ -s "$PATCH_FILE" ]; then
-                if ! git diff --cached --quiet; then
-                  STAGED_PATHS=$(git diff --cached --name-only)
-                  EXPECTED_PATHS=$(printf "public/admin-marketing.html\npublic/admin-marketing.js")
-                  if [ "$(cat "$DEPLOY_SHA_FILE" 2>/dev/null)" = "8dd3d926283986668e20767f9ee87aac456b29c6" ] && [ "$STAGED_PATHS" = "$EXPECTED_PATHS" ]; then
-                    FAILED_PATCH=$(mktemp)
-                    git diff --cached --binary > "$FAILED_PATCH"
-                    git apply --reverse --index --check "$FAILED_PATCH"
-                    git apply --reverse --index "$FAILED_PATCH"
-                    rm -f "$FAILED_PATCH"
-                    echo "Reversed the two files staged by the failed marketing page deploy"
-                  else
-                    echo "VPS has staged edits; deployment stopped"
-                    exit 1
-                  fi
-                fi
-                git apply --index --check "$PATCH_FILE"
-                git branch "deploy-backup-${{ github.run_id }}-${{ github.run_attempt }}" HEAD
-                git apply --index "$PATCH_FILE"
-                if ! git diff --cached --check || ! node --check server.js; then
-                  git apply --reverse --index "$PATCH_FILE"
-                  echo "Checked update failed; staged patch reversed"
-                  exit 1
-                fi
-                git -c user.name="Autody Deploy" -c user.email="deploy@autodytraded.com" commit -m "Apply checked GitHub update $TARGET_SHA"
-              else
-                echo "No application file changes in this GitHub commit"
-              fi
-            fi
+            git pull --ff-only origin main
             npm install --omit=dev --no-package-lock
+
+            # Reset the owner's practice support inbox once, before receiving resumes.
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 stop "$APP_NAME" >/dev/null 2>&1 || true
+            elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^autody.service'; then
+              systemctl stop autody || true
+            fi
+            node clear-practice-support.js
 
             set_env_value() {
               key="$1"
@@ -141,4 +110,3 @@ jobs:
               pm2 logs "$APP_NAME" --lines 80 --nostream || true
             fi
             curl --fail --silent --show-error http://127.0.0.1:3000/api/live/status
-            printf '%s\n' "$TARGET_SHA" > "$DEPLOY_SHA_FILE"

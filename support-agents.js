@@ -10,6 +10,8 @@ function registerSupportAgentRoutes(app, deps) {
   const agentDomain = "autodytraded.com";
   const codeMinutes = 5;
   const sessionHours = 8;
+  const teamName = "The Autody Support Team";
+  const teamFrom = teamName + " <support@autodytraded.com>";
 
   function fail(status, message) {
     const error = new Error(message);
@@ -93,6 +95,10 @@ function registerSupportAgentRoutes(app, deps) {
         created_at timestamptz not null default now()
       );
       create index if not exists support_inbound_message_idx on support_inbound_emails (message_id);
+      create table if not exists support_cleared_inbound_emails (
+        id uuid primary key,
+        cleared_at timestamptz not null default now()
+      );
       create table if not exists support_ticket_merges (
         old_ticket_id uuid primary key,
         canonical_ticket_id uuid not null references support_tickets(id) on delete cascade,
@@ -109,6 +115,7 @@ function registerSupportAgentRoutes(app, deps) {
     data.supportAgentChallenges = Array.isArray(data.supportAgentChallenges) ? data.supportAgentChallenges : [];
     data.supportMessages = Array.isArray(data.supportMessages) ? data.supportMessages : [];
     data.supportInboundEmails = Array.isArray(data.supportInboundEmails) ? data.supportInboundEmails : [];
+    data.supportClearedInboundEmails = Array.isArray(data.supportClearedInboundEmails) ? data.supportClearedInboundEmails : [];
     data.supportTicketMerges = Array.isArray(data.supportTicketMerges) ? data.supportTicketMerges : [];
     data.supportTickets = Array.isArray(data.supportTickets) ? data.supportTickets : [];
     return data;
@@ -245,7 +252,7 @@ function registerSupportAgentRoutes(app, deps) {
     const raw = email.text || String(email.html || "").replace(/<br\s*\/?\s*>/gi, "\n")
       .replace(/<\/p\s*>/gi, "\n\n").replace(/<[^>]*>/g, " ")
       .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-    return String(raw || "").split(/\n\s*(?:On .{4,180} wrote:|From: Autody Support|>)/i)[0]
+    return String(raw || "").split(/\n\s*(?:On .{4,180} wrote:|From: (?:The )?Autody Support(?: Team)?|>)/i)[0]
       .replace(/\r/g, "").trim().slice(0, 4000);
   }
   async function resendGet(path) {
@@ -260,14 +267,16 @@ function registerSupportAgentRoutes(app, deps) {
   async function inboundExists(id) {
     if (databaseConfigured()) {
       await ensureTables();
-      return Boolean((await dbPool.query("select 1 from support_inbound_emails where id = $1", [id])).rows[0]);
+      return Boolean((await dbPool.query(`select 1 from support_inbound_emails where id = $1
+        union all select 1 from support_cleared_inbound_emails where id = $1 limit 1`, [id])).rows[0]);
     }
-    return jsonData().supportInboundEmails.some((row) => row.id === id);
+    const data = jsonData();
+    return data.supportInboundEmails.some((row) => row.id === id) || data.supportClearedInboundEmails.includes(id);
   }
   function normalizedTopic(value) {
     return String(value || "").replace(/\[Case [0-9a-f]{8}\]/gi, "")
       .replace(/^(?:(?:re|fw|fwd):\s*)+/i, "")
-      .replace(/\s*\|\s*Autody Support\s*$/i, "")
+      .replace(/\s*\|\s*(?:The )?Autody Support(?: Team)?\s*$/i, "")
       .replace(/\s+/g, " ").trim().toLowerCase();
   }
   async function recentCustomerTickets(from) {
@@ -437,7 +446,7 @@ function registerSupportAgentRoutes(app, deps) {
     if (databaseConfigured()) await dbPool.query("insert into support_inbound_emails (id, ticket_id, message_id) values ($1, $2, $3) on conflict (id) do nothing", [id, ticket.id, email.message_id || null]);
     else { const data = jsonData(); if (!data.supportInboundEmails.some((row) => row.id === id)) data.supportInboundEmails.push({ id, ticketId: ticket.id, messageId: email.message_id || null }); saveDemoDb(data); }
     const alertTo = normalizeEmail(process.env.EMAIL_SUPPORT_INBOX_TO || adminEmail);
-    if (alertTo && resendApiKey) await sendEmail({ from: supportFrom, to: alertTo,
+    if (alertTo && resendApiKey) await sendEmail({ from: teamFrom, to: alertTo,
       subject: (isNew ? "New" : "Customer reply to") + " Autody support case [Case " + ticket.id.slice(0, 8) + "]",
       text: "A customer sent an email to " + supportAddress + ".\n\nFrom: " + from +
         "\nSubject: " + (email.subject || "") + "\n\nOpen the support inbox: https://autodytraded.com/admin-support",
@@ -579,7 +588,7 @@ function registerSupportAgentRoutes(app, deps) {
         saveDemoDb(data);
       }
       try {
-        await sendEmail({ from: supportFrom, to: loginEmail,
+        await sendEmail({ from: teamFrom, to: loginEmail,
           subject: "Your Autody support agent access code",
           text: "Your Autody support agent access code is " + code + ". It expires in 5 minutes.",
           html: "<p>Your Autody support agent access code is <strong>" + code + "</strong>. It expires in 5 minutes.</p>"
@@ -644,7 +653,7 @@ function registerSupportAgentRoutes(app, deps) {
           left join support_agents a on a.id = t.assigned_agent_id
           where ($1::uuid is null or t.assigned_agent_id = $1::uuid)
             and ($2::text = '' or t.status = $2)
-            and ($3::text = '' or lower(t.contact_email || ' ' || t.topic || ' ' || t.message) like $3)
+            and ($3::text = '' or lower(t.contact_email || ' ' || t.category || ' ' || t.topic || ' ' || t.message) like $3)
           order by t.created_at desc limit $4`,
           [user.role === "agent" ? user.agent.id : null, status, search ? "%" + search + "%" : "", limit])).rows;
       } else {
@@ -652,7 +661,7 @@ function registerSupportAgentRoutes(app, deps) {
         tickets = data.supportTickets.filter((row) =>
           (user.role !== "agent" || row.assignedAgentId === user.agent.id) &&
           (!status || row.status === status) &&
-          (!search || (row.email + " " + row.topic + " " + row.message).toLowerCase().includes(search))).slice(0, limit)
+          (!search || (row.email + " " + row.category + " " + row.topic + " " + row.message).toLowerCase().includes(search))).slice(0, limit)
           .map((row) => ({ ...row, agentName: data.supportAgents.find((agent) => agent.id === row.assignedAgentId)?.name || "" }));
       }
       return res.json({ success: true, tickets: tickets.map(displayTicket), role: user.role });
@@ -670,7 +679,7 @@ function registerSupportAgentRoutes(app, deps) {
       else { const data = jsonData(); const row = data.supportTickets.find((x) => x.id === ticket.id); row.assignedAgentId = agentId; row.updatedAt = new Date().toISOString(); saveDemoDb(data); }
       if (agent && agentId !== (ticket.assigned_agent_id ?? ticket.assignedAgentId) && resendApiKey) {
         const loginEmail = agent.login_email ?? agent.loginEmail;
-        await sendEmail({ from: supportFrom, to: loginEmail,
+        await sendEmail({ from: teamFrom, to: loginEmail,
           subject: "Autody support ticket assigned",
           text: "A customer support ticket has been assigned to you.\n\nTopic: " + (ticket.topic || ticket.category) +
             "\n\nOpen your support queue: " + appBaseUrl(req) + "/support-agent",
@@ -698,12 +707,12 @@ function registerSupportAgentRoutes(app, deps) {
         if (!prior) {
           const subject = "Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "").slice(0, 100) +
             " [Case " + ticket.id.slice(0, 8) + "]";
-          const resendId = await sendEmail({ from: supportFrom, to, reply_to: supportAddress, subject,
-            text: "Hello,\n\n" + text + "\n\nAutody Support",
-            html: "<div style='font-family:Arial,sans-serif;line-height:1.55;color:#111827'><p>Hello,</p><p>" + safe(text) + "</p><p>Autody Support</p></div>"
+          const resendId = await sendEmail({ from: teamFrom, to, reply_to: supportAddress, subject,
+            text: text + "\n\n" + teamName,
+            html: "<div style='font-family:Arial,sans-serif;line-height:1.55;color:#111827'><p>" + safe(text) + "</p><p>" + safe(teamName) + "</p></div>"
           }, requestId);
           await saveMessage({ id: requestId, ticketId: ticket.id, role: "support", agentId: null,
-            agentName: "Autody Support", body: text, resendId, createdAt: new Date().toISOString() });
+            agentName: teamName, body: text, resendId, createdAt: new Date().toISOString() });
         }
       }
       if (databaseConfigured()) await dbPool.query("update support_tickets set status = $2, updated_at = now(), resolved_at = case when $2 in ('resolved', 'closed_no_response') then now() else null end where id = $1", [ticket.id, status]);
@@ -731,15 +740,15 @@ function registerSupportAgentRoutes(app, deps) {
       if (prior) return res.json({ success: true, message: displayMessage(prior), alreadySent: true });
       const to = normalizeEmail(ticket.contact_email ?? ticket.email);
       if (!to) fail(400, "This ticket has no customer email.");
-      const name = user.role === "admin" ? "Autody Support" : normalizeText(sender.name).replace(/[<>\r\n]/g, "").slice(0, 80);
-      const from = user.role === "admin" ? supportFrom : name + " <" + (sender.sender_email ?? sender.senderEmail) + ">";
+      const name = user.role === "admin" ? teamName : normalizeText(sender.name).replace(/[<>\r\n]/g, "").slice(0, 80);
+      const from = user.role === "admin" ? teamFrom : name + " <" + (sender.sender_email ?? sender.senderEmail) + ">";
       const subject = "Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "").slice(0, 100) +
         " [Case " + ticket.id.slice(0, 8) + "]";
-      const emailText = "Hello,\n\n" + text + "\n\n" + (user.role === "admin" ? "Autody Support" : name + "\nAutody Support");
+      const emailText = text + "\n\n" + (user.role === "admin" ? teamName : name + "\n" + teamName);
       const html = "<div style='font-family:Arial,sans-serif;line-height:1.55;color:#111827'>" +
-        "<p>Hello,</p><p style='white-space:pre-wrap'>" + safe(text) + "</p>" +
+        "<p style='white-space:pre-wrap'>" + safe(text) + "</p>" +
         "<p>" + safe(name) +
-        (user.role === "admin" ? "" : "<br>Autody Support") + "</p></div>";
+        (user.role === "admin" ? "" : "<br>" + safe(teamName)) + "</p></div>";
       const replyTo = normalizeEmail(user.role === "admin" ? "support@autodytraded.com" :
         process.env.EMAIL_SUPPORT_REPLY_TO || "support@autodytraded.com");
       const inboundIds = (await messagesFor(ticket.id)).map((row) => row.message_id ?? row.messageId).filter(Boolean);
@@ -783,7 +792,7 @@ function registerSupportAgentRoutes(app, deps) {
       const alertTo = normalizeEmail(agent?.login_email ?? agent?.loginEmail ?? process.env.EMAIL_SUPPORT_INBOX_TO ?? adminEmail);
       const queueUrl = appBaseUrl(req) + (agent ? "/support-agent" : "/admin-support");
       if (resendApiKey && alertTo) {
-        await sendEmail({ from: supportFrom, to: alertTo, subject: "Customer replied to an Autody support ticket",
+        await sendEmail({ from: teamFrom, to: alertTo, subject: "Customer replied to an Autody support ticket",
           text: "A customer replied to ticket " + ticket.id + ".\n\n" + text + "\n\nOpen the support queue: " + queueUrl,
           html: "<p>A customer replied to ticket " + safe(ticket.id) + ".</p><p style='white-space:pre-wrap'>" + safe(text) +
             "</p><p><a href='" + safe(queueUrl) + "'>Open the support queue</a></p>"

@@ -10,6 +10,7 @@
 .briefing-offer-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .briefing-offer-error { color: #ff8c99; }
 .support-inbox-record { display: block; margin: 0 0 12px; padding: 20px; }
+.support-issue-type { display: inline-block; margin: 10px 0; padding: 6px 10px; border: 1px solid rgba(112, 121, 246, .45); border-radius: 8px; color: #c4c8ff; font-weight: 700; }
 .support-inbox-heading, .support-inbox-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .support-inbox-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
 .support-inbox-actions { margin-top: 18px; justify-content: flex-start; }
