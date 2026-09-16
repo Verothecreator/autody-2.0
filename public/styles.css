@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 40152)
-Total output lines: 8189
-
 :root {
   --bg: #0b0d12;
   --surface: #12151c;
@@ -22,29 +19,19 @@ Total output lines: 8189
 .campaign-body { background: #080b18; color: #f7f8ff; }
 .campaign-header { background: rgba(8, 11, 24, 0.88); backdrop-filter: blur(18px); }
 .campaign-hero { min-height: calc(100vh - 80px); padding: 88px 0 96px; background: radial-gradient(circle at 12% 15%, rgba(91, 95, 239, .24), transparent 34%), radial-gradient(circle at 88% 20%, rgba(27, 185, 153, .13), transparent 28%), #080b18; }
-.in-app-browser-note { position: relative; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 24px; align-items: center; max-width: 1180px; margin: 18px auto 0; padding: 16px 20px; color: #eef1ff; background: #141a32; border: 1px solid #3a456f; border-radius: 16px; }
-.in-app-browser-note[hidden] { display: none; }
-.in-app-browser-note p { margin: 5px 0 0; color: #aeb6d0; line-height: 1.45; }
-.in-app-browser-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.in-app-browser-copy-status { grid-column: 1 / -1; margin: 0 !important; font-size: 13px; }
-.campaign-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(340px, .75fr); column-gap: clamp(42px, 7vw, 100px); row-gap: 30px; align-items: start; }
-.campaign-copy { grid-column: 1; }
-.campaign-details { grid-column: 1; }
+.campaign-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(340px, .75fr); gap: clamp(42px, 7vw, 100px); align-items: center; }
 .campaign-copy h1 { max-width: 790px; margin: 10px 0 22px; font-size: clamp(48px, 7vw, 86px); line-height: .98; letter-spacing: -.055em; }
 .campaign-lead { max-width: 680px; color: #b9bfd3; font-size: clamp(18px, 2vw, 22px); line-height: 1.6; }
 .campaign-proof { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 38px; }
 .campaign-proof span { border: 1px solid #303753; background: rgba(21, 26, 48, .72); border-radius: 999px; padding: 9px 13px; color: #d9dcff; font-size: 13px; }
-.campaign-value-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 650px; }
+.campaign-value-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .campaign-value-grid article { min-height: 150px; padding: 20px; background: rgba(16, 21, 42, .72); border: 1px solid #242c4a; border-radius: 18px; }
 .campaign-value-grid strong, .campaign-value-grid span { display: block; }
 .campaign-value-grid strong { margin-bottom: 10px; color: #fff; }
 .campaign-value-grid span { color: #9fa7bd; font-size: 14px; line-height: 1.55; }
-.campaign-form-card { grid-column: 2; grid-row: 1 / span 2; scroll-margin-top: 20px; padding: clamp(25px, 4vw, 38px); border: 1px solid #343d63; border-radius: 26px; background: linear-gradient(160deg, rgba(24, 30, 58, .98), rgba(12, 16, 34, .98)); box-shadow: 0 32px 80px rgba(0,0,0,.38); }
+.campaign-form-card { padding: clamp(25px, 4vw, 38px); border: 1px solid #343d63; border-radius: 26px; background: linear-gradient(160deg, rgba(24, 30, 58, .98), rgba(12, 16, 34, .98)); box-shadow: 0 32px 80px rgba(0,0,0,.38); }
 .campaign-form-card h2 { margin: 8px 0 8px; font-size: 34px; }
 .campaign-form-card > p { color: #aab1c6; line-height: 1.55; }
-.campaign-offer-list { margin: 14px 0 24px; padding: 0; list-style: none; color: #d6daea; }
-.campaign-offer-list li { position: relative; margin: 10px 0; padding-left: 25px; line-height: 1.45; }
-.campaign-offer-list li::before { content: "\2713"; position: absolute; left: 0; color: #7dffbd; font-weight: 800; }
 .campaign-form { display: grid; gap: 17px; margin-top: 25px; }
 .campaign-form > label:not(.campaign-consent) { display: grid; gap: 8px; font-weight: 700; }
 .campaign-form input[type="email"], .campaign-form select { width: 100%; min-height: 50px; padding: 0 14px; color: #f7f8ff; background: #0a0f23; border: 1px solid #3b456c; border-radius: 11px; font: inherit; }
@@ -64,9 +51,8 @@ Total output lines: 8189
 .campaign-status[data-type="success"] { color: #59d9b2; }
 .campaign-status[data-type="error"] { color: #ff8f9c; }
 .campaign-fine-print { margin: 15px 0 0 !important; font-size: 12px; color: #7f879f !important; }
-.mobile-inline-briefing-cta, .mobile-sticky-briefing-cta { display: none; }
-@media (max-width: 960px) { .campaign-body { padding-bottom: 74px; } .campaign-grid { grid-template-columns: 1fr; row-gap: 24px; } .campaign-copy, .campaign-details, .campaign-form-card { grid-column: 1; } .campaign-copy { grid-row: 1; } .campaign-form-card { grid-row: 2; } .campaign-details { grid-row: 3; } .mobile-inline-briefing-cta { display: inline-flex; margin-top: 22px; } .mobile-sticky-briefing-cta { position: fixed; z-index: 110; right: 14px; bottom: 12px; left: 14px; display: flex; justify-content: center; box-shadow: 0 12px 30px rgba(0,0,0,.45); } .campaign-value-grid { grid-template-columns: 1fr; } .campaign-value-grid article { min-height: auto; } }
-@media (max-width: 560px) { .campaign-hero { padding: 42px 0 56px; } .campaign-copy h1 { font-size: 46px; } .campaign-interest-grid { grid-template-columns: 1fr; } .in-app-browser-note { grid-template-columns: 1fr; margin: 12px 14px 0; } }
+@media (max-width: 960px) { .campaign-grid { grid-template-columns: 1fr; } .campaign-value-grid { grid-template-columns: 1fr; } .campaign-value-grid article { min-height: auto; } }
+@media (max-width: 560px) { .campaign-hero { padding: 58px 0 72px; } .campaign-copy h1 { font-size: 46px; } .campaign-interest-grid { grid-template-columns: 1fr; } }
 
 * {
   box-sizing: border-box;
@@ -3931,7 +3917,37 @@ body.account-body.theme-light .profile-kyc-modal-card {
   white-space: normal;
 }
 
-.platform-picker-option:…152 tokens truncated…ding {
+.platform-picker-option:hover,
+.platform-picker-option.is-selected {
+  border-color: rgba(93, 95, 239, 0.42);
+  background: rgba(93, 95, 239, 0.18);
+}
+
+.platform-picker-empty {
+  padding: 10px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ticket-form input:focus,
+.ticket-form select:focus {
+  border-color: rgba(93, 95, 239, 0.8);
+  box-shadow: 0 0 0 3px rgba(93, 95, 239, 0.16);
+}
+
+.ticket-form input[readonly] {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.035);
+  cursor: default;
+}
+
+.order-amount-row,
+.live-amount-row {
+  position: relative;
+  display: block;
+}
+
+.live-amount-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
