@@ -36,9 +36,8 @@ function renderThread(ticket, container) {
     if (!textarea.value.trim()) return supportNotice("Write a reply first.", "error");
     preview.replaceChildren(supportNode("strong", "Customer email preview"),
       supportNode("p", "From: Autody Support <support@autodytraded.com>"),
-      supportNode("p", "Subject: Re: " + (ticket.topic || ticket.category || "Your request") + " | Autody Support"),
+      supportNode("p", "Subject: Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "") + " [Case " + ticket.id.slice(0, 8) + "]"),
       supportNode("p", "Hello,"), supportNode("p", textarea.value.trim(), "support-inbox-message"),
-      supportNode("p", "Reply to this ticket: [customer's secure link]"),
       supportNode("p", "Autody Support", "support-inbox-message"));
     preview.hidden = false;
   });
@@ -69,10 +68,16 @@ function ticketCard(ticket) {
   const actions = supportNode("div", "", "support-inbox-actions");
   const statusLabel = supportNode("label", "Status ");
   const status = document.createElement("select");
-  [["open", "Open"], ["in_progress", "In progress"], ["resolved", "Resolved"]].forEach(([value, label]) => status.append(new Option(label, value)));
+  [["open", "Open"], ["in_progress", "In progress"], ["resolved", "Resolved — email customer"],
+    ["closed_no_response", "Closed for no response — email customer"]].forEach(([value, label]) => status.append(new Option(label, value)));
   status.value = ticket.status || "open";
+  let pendingStatus = null;
   status.addEventListener("change", async () => {
-    try { await opsPost("/api/support-team/status", { ticketId: ticket.id, status: status.value }); ticket.status = status.value; supportNotice("Ticket status saved.", "success"); }
+    const next = status.value;
+    if (!pendingStatus || pendingStatus.target !== next) pendingStatus = { target: next, id: crypto.randomUUID() };
+    try { await opsPost("/api/support-team/status", { ticketId: ticket.id, status: next, requestId: pendingStatus.id });
+      ticket.status = next; pendingStatus = null;
+      supportNotice(["resolved", "closed_no_response"].includes(next) ? "Case closed and customer emailed." : "Ticket status saved.", "success"); }
     catch (error) { status.value = ticket.status; supportNotice(error.message, "error"); }
   });
   statusLabel.append(status); actions.append(statusLabel);
@@ -95,29 +100,17 @@ async function loadSupportInbox() {
   else list.append(supportNode("p", "No support tickets match these filters.", "admin-empty"));
   supportNotice("Support inbox updated.", "success");
 }
+async function syncAndLoadSupportInbox() {
+  let syncError = "";
+  try { await opsPost("/api/support-team/sync-email"); }
+  catch (error) { syncError = error.message; }
+  await loadSupportInbox();
+  if (syncError) supportNotice("Resend receiving could not sync: " + syncError, "error");
+}
 (async () => {
   if (!await opsRequireSession()) return;
-  const emailForm = document.getElementById("support-email-import");
-  let emailRequestId = null;
-  emailForm.addEventListener("input", () => { emailRequestId = null; });
-  emailForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const button = emailForm.querySelector("button[type='submit']");
-    emailRequestId ||= crypto.randomUUID();
-    try {
-      button.disabled = true;
-      await opsPost("/api/support-team/import-email", {
-        requestId: emailRequestId, email: emailForm.elements.email.value.trim(),
-        name: emailForm.elements.name.value.trim(), subject: emailForm.elements.subject.value.trim(),
-        message: emailForm.elements.message.value.trim()
-      });
-      emailForm.reset(); emailRequestId = null;
-      await loadSupportInbox(); supportNotice("Email saved as a ticket. Open its conversation to reply.", "success");
-    } catch (error) { supportNotice(error.message, "error"); }
-    finally { button.disabled = false; }
-  });
-  document.getElementById("support-refresh").addEventListener("click", () => loadSupportInbox().catch((error) => supportNotice(error.message, "error")));
+  document.getElementById("support-refresh").addEventListener("click", () => syncAndLoadSupportInbox().catch((error) => supportNotice(error.message, "error")));
   document.getElementById("support-status").addEventListener("change", () => loadSupportInbox().catch((error) => supportNotice(error.message, "error")));
   document.getElementById("support-search").addEventListener("keydown", (event) => { if (event.key === "Enter") loadSupportInbox().catch((error) => supportNotice(error.message, "error")); });
-  loadSupportInbox().catch((error) => supportNotice(error.message, "error"));
+  syncAndLoadSupportInbox().catch((error) => supportNotice(error.message, "error"));
 })();

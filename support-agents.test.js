@@ -12,6 +12,8 @@ function makeHarness() {
     status: "open", priority: "Normal", createdAt: new Date().toISOString()
   }], supportAgents: [], supportMessages: [], supportAgentChallenges: [] };
   const sent = [];
+  const received = [];
+  const receivedDetails = new Map();
   registerSupportAgentRoutes(app, {
     dbPool: null, databaseConfigured: () => false,
     loadDemoDb: () => structuredClone(data), saveDemoDb: (next) => { data = next; },
@@ -24,7 +26,9 @@ function makeHarness() {
     adminSessionSecret: "test-secret", resendApiKey: "test-api-key",
     adminEmail: "owner@example.com", supportFrom: "Autody Support <support@autodytraded.com>",
     appBaseUrl: () => "https://autodytraded.com",
-    fetch: async (_url, options) => {
+    fetch: async (url, options) => {
+      if (url.includes("/emails/receiving?")) return { ok: true, json: async () => ({ object: "list", data: received, has_more: false }) };
+      if (url.includes("/emails/receiving/")) return { ok: true, json: async () => receivedDetails.get(url.split("/").at(-1)) };
       sent.push({ body: JSON.parse(options.body), headers: options.headers });
       return { ok: true, json: async () => ({ id: "email-" + sent.length }) };
     }
@@ -37,10 +41,10 @@ function makeHarness() {
     await handlers.get(path)(req, res);
     return { status: res.statusCode, ...res.payload };
   }
-  return { call, ticketId, sent, data: () => data };
+  return { call, ticketId, sent, received, receivedDetails, data: () => data };
 }
 
-test("owner creates an agent, assigns a ticket, and the agent replies while customers can continue the thread", async () => {
+test("agent access remains scoped and its replies stay in the case email thread", async () => {
   const h = makeHarness();
   const created = await h.call("/api/support-team/agents/save", {
     name: "Stella Ray", senderEmail: "stella.ray@autodytraded.com", loginEmail: "stella@example.com"
@@ -67,12 +71,10 @@ test("owner creates an agent, assigns a ticket, and the agent replies while cust
   }, { token: verified.token });
   assert.equal(repeat.alreadySent, true);
   assert.equal(h.sent.filter((mail) => mail.body.to === "customer@example.com").length, 1);
-  const link = h.sent.find((mail) => mail.body.to === "customer@example.com").body.text.match(/https:\/\/autodytraded\.com\/support-reply\?\S+/)[0];
-  const token = new URL(link).searchParams.get("token");
-  const customer = await h.call("/api/support/reply", { ticketId: h.ticketId, token, message: "Thank you. I still need help." });
-  assert.equal(customer.success, true);
+  assert.doesNotMatch(h.sent.at(-1).body.text, /support-reply|Reply to this ticket/);
+  assert.match(h.sent.at(-1).body.subject, /\[Case b2a946dc\]/);
   const thread = await h.call("/api/support-team/thread", { ticketId: h.ticketId }, { token: verified.token });
-  assert.deepEqual(thread.messages.map((message) => message.role), ["agent", "customer"]);
+  assert.deepEqual(thread.messages.map((message) => message.role), ["agent"]);
   const invalid = await h.call("/api/support/thread", { ticketId: h.ticketId, token: "wrong" });
   assert.equal(invalid.status, 403);
 });
@@ -92,7 +94,7 @@ test("owner can reply as support@ without an agent or ticket assignment", async 
   assert.equal(h.sent.length, 1);
   assert.equal(h.sent[0].body.from, "Autody Support <support@autodytraded.com>");
   assert.equal(h.sent[0].body.reply_to, "support@autodytraded.com");
-  assert.match(h.sent[0].body.text, /support-reply\?/);
+  assert.doesNotMatch(h.sent[0].body.text, /support-reply|Reply to this ticket/);
   const repeated = await h.call("/api/support-team/reply", {
     ticketId: h.ticketId, requestId, message: "Thanks for contacting us."
   }, { owner: true });
@@ -118,6 +120,63 @@ test("owner can save a received email as a ticket and answer it once", async () 
   }, { owner: true });
   assert.equal(answered.success, true);
   assert.equal(h.sent[0].body.to, "new@example.com");
+});
+
+test("received mail becomes a case and ordinary email replies reopen it", async () => {
+  const h = makeHarness();
+  const firstId = "b99b5dad-383e-41ca-b4f9-62d9bb62fe1b";
+  h.received.push({ id: firstId, to: ["support@autodytraded.com"],
+    from: "Client <client@example.com>", subject: "Account access" });
+  h.receivedDetails.set(firstId, { id: firstId, from: "Client <client@example.com>",
+    to: ["support@autodytraded.com"], subject: "Account access",
+    text: "I cannot access my account.", message_id: "<initial@example.com>", headers: { from: "Client <client@example.com>" } });
+  const denied = await h.call("/api/support-team/sync-email");
+  assert.equal(denied.status, 403);
+  const synced = await h.call("/api/support-team/sync-email", {}, { owner: true });
+  assert.equal(synced.imported, 1);
+  assert.equal(h.data().supportTickets.find((ticket) => ticket.id === firstId).email, "client@example.com");
+  const repeat = await h.call("/api/support-team/sync-email", {}, { owner: true });
+  assert.equal(repeat.imported, 0);
+  await h.call("/api/support-team/reply", { ticketId: firstId,
+    requestId: "e3898727-d985-42c3-8718-f1a4fe20210d", message: "We can help you regain access." }, { owner: true });
+  const customerEmail = h.sent.find((item) => item.body.to === "client@example.com").body;
+  assert.equal(customerEmail.headers["In-Reply-To"], "<initial@example.com>");
+  assert.match(customerEmail.subject, /\[Case b99b5dad\]/);
+  assert.equal(customerEmail.reply_to, "support@autodytraded.com");
+  await h.call("/api/support-team/status", { ticketId: firstId,
+    status: "resolved", requestId: "89a2807b-5082-4482-8b42-5856b7d96512" }, { owner: true });
+  const replyId = "e94e9a8c-b62d-4d43-bb0a-316bed846095";
+  h.received.unshift({ id: replyId, to: ["support@autodytraded.com"],
+    from: "client@example.com", subject: "Re: Account access [Case b99b5dad]" });
+  h.receivedDetails.set(replyId, { id: replyId, to: ["support@autodytraded.com"],
+    from: "client@example.com", subject: "Re: Account access [Case b99b5dad]",
+    text: "I still need help.\nOn Monday Autody Support wrote:\n> old response",
+    message_id: "<reply@example.com>", headers: { "in-reply-to": "<initial@example.com>" } });
+  const ingested = await h.call("/api/support-team/sync-email", {}, { owner: true });
+  assert.equal(ingested.imported, 1);
+  assert.equal(h.data().supportTickets.filter((ticket) => ticket.email === "client@example.com").length, 1);
+  assert.equal(h.data().supportTickets.find((ticket) => ticket.id === firstId).status, "open");
+  const thread = await h.call("/api/support-team/thread", { ticketId: firstId }, { owner: true });
+  assert.equal(thread.messages.at(-1).body, "I still need help.");
+});
+
+test("closing a case sends one plain closure email for the chosen reason", async () => {
+  const h = makeHarness();
+  const id = "40eaf18d-8d4e-4d49-961d-61e1963ca22e";
+  const resolved = await h.call("/api/support-team/status", {
+    ticketId: h.ticketId, status: "resolved", requestId: id
+  }, { owner: true });
+  assert.equal(resolved.ticket.status, "resolved");
+  assert.match(h.sent.at(-1).body.text, /resolved and closed/);
+  assert.doesNotMatch(h.sent.at(-1).body.text, /support-reply|secure link/);
+  await h.call("/api/support-team/status", { ticketId: h.ticketId,
+    status: "resolved", requestId: id }, { owner: true });
+  assert.equal(h.sent.length, 1);
+  await h.call("/api/support-team/status", { ticketId: h.ticketId, status: "open" }, { owner: true });
+  await h.call("/api/support-team/status", { ticketId: h.ticketId,
+    status: "closed_no_response", requestId: "e62a3fae-0acf-4da8-b1b2-870317d8c068" }, { owner: true });
+  assert.match(h.sent.at(-1).body.text, /not heard back/);
+  assert.equal(h.sent.at(-1).body.reply_to, "support@autodytraded.com");
 });
 
 test("agent access stays limited to assigned tickets and stops when the owner deactivates the profile", async () => {

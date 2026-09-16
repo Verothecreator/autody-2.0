@@ -11,20 +11,11 @@
 <body class="app-page">
   <main class="container" style="padding:40px 20px 80px">
     <div class="section-heading"><div><p class="eyebrow">Support control</p><h1>Support inbox</h1><p>Read customer requests and reply as Autody Support from support@autodytraded.com. Keep each conversation with its ticket.</p></div><a class="btn btn-ghost" href="ops-console.html">Back to operations</a></div>
-    <p class="app-card" style="margin:24px 0">Requests submitted through Autody appear here. Customers can answer your email using the secure ticket link. For messages sent directly to support@autodytraded.com, open Resend's Emails → Receiving tab, save the message below, then reply from its ticket.</p>
-    <details class="app-card" style="margin:24px 0"><summary>Save an email received in Resend as a ticket</summary>
-      <form id="support-email-import" class="support-agent-form" style="margin-top:16px">
-        <label>Sender email<input name="email" type="email" required placeholder="customer@example.com" /></label>
-        <label>Sender name<input name="name" type="text" maxlength="120" placeholder="Customer name (optional)" /></label>
-        <label>Subject<input name="subject" type="text" maxlength="160" placeholder="Question about my account" /></label>
-        <label style="grid-column:1/-1">Their message<textarea name="message" rows="5" maxlength="4000" required placeholder="Paste the customer's email here"></textarea></label>
-        <button class="btn" type="submit">Save request</button>
-      </form>
-    </details>
+    <p class="app-card" style="margin:24px 0">Customer emails sent to support@autodytraded.com sync into this inbox. Reply here as Autody Support; customers can answer the same email. Choosing Resolved or Closed for no response sends a closure notice.</p>
     <section class="app-card" style="margin:24px 0">
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
         <label>Search<input id="support-search" type="search" placeholder="Email, topic, or message" /></label>
-        <label>Status<select id="support-status"><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option></select></label>
+        <label>Status<select id="support-status"><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed_no_response">Closed for no response</option></select></label>
         <button class="btn" id="support-refresh" type="button">Refresh</button>
       </div>
       <p id="support-notice" class="campaign-status" role="status"></p>

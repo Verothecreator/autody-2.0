@@ -75,9 +75,8 @@ function agentTicket(ticket) {
         if (!textarea.value.trim()) return agentNotice("Write a reply first.", "error");
         preview.replaceChildren(agentNode("strong", "Email preview"),
           agentNode("p", "From: " + agentState.agent.name + " <" + agentState.agent.senderEmail + ">"),
-          agentNode("p", "Subject: Re: " + (ticket.topic || ticket.category || "Your request") + " | Autody Support"),
+          agentNode("p", "Subject: Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "") + " [Case " + ticket.id.slice(0, 8) + "]"),
           agentNode("p", "Hello,"), agentNode("p", textarea.value.trim(), "support-inbox-message"),
-          agentNode("p", "Reply to this ticket: [customer's secure link]"),
           agentNode("p", agentState.agent.name + "\nAutody Support", "support-inbox-message"));
         preview.hidden = false;
       });

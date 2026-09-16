@@ -84,7 +84,15 @@ function registerSupportAgentRoutes(app, deps) {
         resend_id text,
         created_at timestamptz not null default now()
       );
+      alter table support_messages add column if not exists message_id text;
       create index if not exists support_messages_ticket_idx on support_messages (ticket_id, created_at asc);
+      create table if not exists support_inbound_emails (
+        id uuid primary key,
+        ticket_id uuid not null references support_tickets(id) on delete cascade,
+        message_id text,
+        created_at timestamptz not null default now()
+      );
+      create index if not exists support_inbound_message_idx on support_inbound_emails (message_id);
       `);
     })().catch((error) => { tablesReady = null; throw error; });
     await tablesReady;
@@ -94,6 +102,7 @@ function registerSupportAgentRoutes(app, deps) {
     data.supportAgents = Array.isArray(data.supportAgents) ? data.supportAgents : [];
     data.supportAgentChallenges = Array.isArray(data.supportAgentChallenges) ? data.supportAgentChallenges : [];
     data.supportMessages = Array.isArray(data.supportMessages) ? data.supportMessages : [];
+    data.supportInboundEmails = Array.isArray(data.supportInboundEmails) ? data.supportInboundEmails : [];
     data.supportTickets = Array.isArray(data.supportTickets) ? data.supportTickets : [];
     return data;
   }
@@ -203,9 +212,9 @@ function registerSupportAgentRoutes(app, deps) {
     if (databaseConfigured()) {
       await ensureTables();
       await dbPool.query(`insert into support_messages
-        (id, ticket_id, author_role, author_agent_id, agent_name, body, resend_id)
-        values ($1, $2, $3, $4, $5, $6, $7) on conflict (id) do nothing`,
-      [message.id, message.ticketId, message.role, message.agentId, message.agentName, message.body, message.resendId]);
+        (id, ticket_id, author_role, author_agent_id, agent_name, body, resend_id, message_id)
+        values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing`,
+      [message.id, message.ticketId, message.role, message.agentId, message.agentName, message.body, message.resendId, message.messageId || null]);
       return;
     }
     const data = jsonData();
@@ -218,6 +227,136 @@ function registerSupportAgentRoutes(app, deps) {
       return (await dbPool.query("select * from support_messages where id = $1 and ticket_id = $2", [id, ticketId])).rows[0] || null;
     }
     return jsonData().supportMessages.find((row) => row.id === id && row.ticketId === ticketId) || null;
+  }
+
+  const supportAddress = "support@autodytraded.com";
+  function emailAddress(value) {
+    const raw = String(value || "").trim();
+    return normalizeEmail(raw.match(/<([^<>]+)>/)?.[1] || raw);
+  }
+  function emailBody(email) {
+    const raw = email.text || String(email.html || "").replace(/<br\s*\/?\s*>/gi, "\n")
+      .replace(/<\/p\s*>/gi, "\n\n").replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    return String(raw || "").split(/\n\s*(?:On .{4,180} wrote:|From: Autody Support|>)/i)[0]
+      .replace(/\r/g, "").trim().slice(0, 4000);
+  }
+  async function resendGet(path) {
+    if (!resendApiKey) fail(503, "Resend receiving is not connected.");
+    const response = await sendFetch("https://api.resend.com/" + path, {
+      headers: { Authorization: "Bearer " + resendApiKey }
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) fail(502, result.message || "Resend receiving could not be read.");
+    return result;
+  }
+  async function inboundExists(id) {
+    if (databaseConfigured()) {
+      await ensureTables();
+      return Boolean((await dbPool.query("select 1 from support_inbound_emails where id = $1", [id])).rows[0]);
+    }
+    return jsonData().supportInboundEmails.some((row) => row.id === id);
+  }
+  async function ticketForInbound(email, from) {
+    const caseCode = String(email.subject || "").match(/\[Case ([0-9a-f]{8})\]/i)?.[1]?.toLowerCase();
+    let ticket = null;
+    if (caseCode) {
+      if (databaseConfigured()) {
+        await ensureTables();
+        ticket = (await dbPool.query("select * from support_tickets where left(id::text, 8) = $1 and lower(contact_email) = $2 order by created_at desc limit 1", [caseCode, from])).rows[0] || null;
+      } else ticket = jsonData().supportTickets.find((row) => row.id?.startsWith(caseCode) && emailAddress(row.email) === from) || null;
+    }
+    if (ticket) return ticket;
+    const ids = String(email.headers?.["in-reply-to"] || email.headers?.references || "")
+      .match(/<[^<>]{3,250}>/g) || [];
+    for (const messageId of ids.slice(-10).reverse()) {
+      let ticketId;
+      if (databaseConfigured()) {
+        await ensureTables();
+        ticketId = (await dbPool.query("select ticket_id from support_inbound_emails where message_id = $1 order by created_at desc limit 1", [messageId])).rows[0]?.ticket_id;
+      } else ticketId = jsonData().supportInboundEmails.find((row) => row.messageId === messageId)?.ticketId;
+      if (ticketId) {
+        ticket = await ticketById(ticketId);
+        if (ticket && emailAddress(ticket.contact_email ?? ticket.email) === from) return ticket;
+      }
+    }
+    return null;
+  }
+  async function processInbound(summary) {
+    const id = String(summary?.id || "");
+    if (!validId(id) || !Array.isArray(summary.to) ||
+      !summary.to.some((item) => emailAddress(item) === supportAddress) || await inboundExists(id)) return false;
+    const email = await resendGet("emails/receiving/" + id);
+    const from = emailAddress(email.from);
+    const body = emailBody(email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from) || from === supportAddress || body.length < 2) return false;
+    let ticket = await ticketForInbound(email, from);
+    const isNew = !ticket;
+    if (!ticket) {
+      const topic = normalizeText(email.subject).replace(/\[Case [0-9a-f]{8}\]/ig, "").slice(0, 160) || "Email support request";
+      const created = { id, accountMode: "public", category: "Email", topic,
+        name: normalizeText(email.headers?.from || "").replace(/<[^>]+>/g, "").trim().slice(0, 120),
+        email: from, priority: "normal", message: body, status: "open",
+        createdAt: email.created_at || new Date().toISOString(), updatedAt: new Date().toISOString() };
+      if (databaseConfigured()) {
+        await ensureTables();
+        await dbPool.query(`insert into support_tickets
+          (id, account_mode, category, topic, contact_name, contact_email, priority, message, status)
+          values ($1, 'public', 'Email', $2, $3, $4, 'normal', $5, 'open')
+          on conflict (id) do nothing`, [id, topic, created.name, from, body]);
+      } else { const data = jsonData(); if (!data.supportTickets.some((row) => row.id === id)) data.supportTickets.unshift(created); saveDemoDb(data); }
+      ticket = await ticketById(id);
+    } else {
+      await saveMessage({ id, ticketId: ticket.id, role: "customer", agentId: null,
+        agentName: "", body, resendId: null, messageId: email.message_id || null,
+        createdAt: email.created_at || new Date().toISOString() });
+      if (databaseConfigured()) await dbPool.query("update support_tickets set status = 'open', resolved_at = null, updated_at = now() where id = $1", [ticket.id]);
+      else { const data = jsonData(); const row = data.supportTickets.find((x) => x.id === ticket.id); row.status = "open"; row.updatedAt = new Date().toISOString(); saveDemoDb(data); }
+    }
+    if (databaseConfigured()) await dbPool.query("insert into support_inbound_emails (id, ticket_id, message_id) values ($1, $2, $3) on conflict (id) do nothing", [id, ticket.id, email.message_id || null]);
+    else { const data = jsonData(); if (!data.supportInboundEmails.some((row) => row.id === id)) data.supportInboundEmails.push({ id, ticketId: ticket.id, messageId: email.message_id || null }); saveDemoDb(data); }
+    const alertTo = normalizeEmail(process.env.EMAIL_SUPPORT_INBOX_TO || adminEmail);
+    if (alertTo && resendApiKey) await sendEmail({ from: supportFrom, to: alertTo,
+      subject: (isNew ? "New" : "Customer reply to") + " Autody support case [Case " + ticket.id.slice(0, 8) + "]",
+      text: "A customer sent an email to " + supportAddress + ".\n\nFrom: " + from +
+        "\nSubject: " + (email.subject || "") + "\n\nOpen the support inbox: https://autodytraded.com/admin-support",
+      html: "<p>A customer sent an email to " + safe(supportAddress) + ".</p><p>From: " + safe(from) +
+        "</p><p>Subject: " + safe(email.subject) + "</p><p><a href='https://autodytraded.com/admin-support'>Open the support inbox</a></p>"
+    }, id).catch((error) => console.error("Support inbound alert failed:", error.message));
+    return true;
+  }
+  let syncing = null;
+  async function syncInbound() {
+    if (syncing) return syncing;
+    syncing = (async () => {
+      let after = "", imported = 0;
+      const rows = [];
+      for (let page = 0; page < 10; page++) {
+        const query = new URLSearchParams({ limit: "100", ...(after ? { after } : {}) });
+        const result = await resendGet("emails/receiving?" + query);
+        if (!Array.isArray(result.data)) fail(502, "Resend returned an invalid receiving list.");
+        rows.push(...result.data);
+        const relevant = result.data.filter((row) => Array.isArray(row.to) &&
+          row.to.some((item) => emailAddress(item) === supportAddress));
+        if (relevant.length && await inboundExists(relevant.at(-1).id)) break;
+        if (!result.has_more || !result.data.length) break;
+        after = result.data.at(-1).id;
+      }
+      for (const row of rows.reverse()) if (await processInbound(row)) imported++;
+      return imported;
+    })().finally(() => { syncing = null; });
+    return syncing;
+  }
+  app.post("/api/support-team/sync-email", async (req, res) => {
+    try { const body = parseJsonBody(req); requireOwner(req, body);
+      return res.json({ success: true, imported: await syncInbound() });
+    } catch (error) { return sendError(res, error); }
+  });
+  if (resendApiKey) {
+    const interval = setInterval(() => syncInbound().catch((error) => console.error("Support inbound sync failed:", error.message)), 60000);
+    interval.unref?.();
+    const initial = setTimeout(() => syncInbound().catch((error) => console.error("Support inbound sync failed:", error.message)), 10000);
+    initial.unref?.();
   }
 
   app.post("/api/support-team/agents", async (req, res) => {
@@ -424,8 +563,28 @@ function registerSupportAgentRoutes(app, deps) {
       const body = parseJsonBody(req), user = await actor(req, body);
       const ticket = await ticketById(body.ticketId); canWorkTicket(user, ticket);
       const status = String(body.status || "");
-      if (!["open", "in_progress", "resolved"].includes(status)) fail(400, "Choose a valid ticket status.");
-      if (databaseConfigured()) await dbPool.query("update support_tickets set status = $2, updated_at = now(), resolved_at = case when $2 = 'resolved' then now() else null end where id = $1", [ticket.id, status]);
+      if (!["open", "in_progress", "resolved", "closed_no_response"].includes(status)) fail(400, "Choose a valid ticket status.");
+      if (user.role === "admin" && status !== ticket.status && ["resolved", "closed_no_response"].includes(status)) {
+        const requestId = String(body.requestId || "");
+        if (!validId(requestId)) fail(400, "Retry the closure from the support inbox.");
+        const to = normalizeEmail(ticket.contact_email ?? ticket.email);
+        if (!to) fail(400, "This ticket has no customer email.");
+        const text = status === "resolved"
+          ? "Your support case has been resolved and closed. If you need more help, reply to this email and we will reopen it."
+          : "We have not heard back from you, so we have closed your support case for now. Reply to this email if you still need help and we will reopen it.";
+        const prior = await existingMessage(requestId, ticket.id);
+        if (!prior) {
+          const subject = "Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "").slice(0, 100) +
+            " [Case " + ticket.id.slice(0, 8) + "]";
+          const resendId = await sendEmail({ from: supportFrom, to, reply_to: supportAddress, subject,
+            text: "Hello,\n\n" + text + "\n\nAutody Support",
+            html: "<div style='font-family:Arial,sans-serif;line-height:1.55;color:#111827'><p>Hello,</p><p>" + safe(text) + "</p><p>Autody Support</p></div>"
+          }, requestId);
+          await saveMessage({ id: requestId, ticketId: ticket.id, role: "support", agentId: null,
+            agentName: "Autody Support", body: text, resendId, createdAt: new Date().toISOString() });
+        }
+      }
+      if (databaseConfigured()) await dbPool.query("update support_tickets set status = $2, updated_at = now(), resolved_at = case when $2 in ('resolved', 'closed_no_response') then now() else null end where id = $1", [ticket.id, status]);
       else { const data = jsonData(); const row = data.supportTickets.find((x) => x.id === ticket.id); row.status = status; row.updatedAt = new Date().toISOString(); saveDemoDb(data); }
       return res.json({ success: true, ticket: displayTicket(await ticketById(ticket.id)) });
     } catch (error) { return sendError(res, error); }
@@ -452,17 +611,25 @@ function registerSupportAgentRoutes(app, deps) {
       if (!to) fail(400, "This ticket has no customer email.");
       const name = user.role === "admin" ? "Autody Support" : normalizeText(sender.name).replace(/[<>\r\n]/g, "").slice(0, 80);
       const from = user.role === "admin" ? supportFrom : name + " <" + (sender.sender_email ?? sender.senderEmail) + ">";
-      const link = customerUrl(req, ticket);
-      const subject = "Re: " + (ticket.topic || ticket.category || "Your request").slice(0, 120) + " | Autody Support";
-      const emailText = "Hello,\n\n" + text + "\n\nReply to this ticket: " + link + "\n\n" + (user.role === "admin" ? "Autody Support" : name + "\nAutody Support");
+      const subject = "Re: " + (ticket.topic || ticket.category || "Your request").replace(/^Re:\s*/i, "").slice(0, 100) +
+        " [Case " + ticket.id.slice(0, 8) + "]";
+      const emailText = "Hello,\n\n" + text + "\n\n" + (user.role === "admin" ? "Autody Support" : name + "\nAutody Support");
       const html = "<div style='font-family:Arial,sans-serif;line-height:1.55;color:#111827'>" +
         "<p>Hello,</p><p style='white-space:pre-wrap'>" + safe(text) + "</p>" +
-        "<p><a href='" + safe(link) + "'>Reply to this ticket</a></p><p>" + safe(name) +
+        "<p>" + safe(name) +
         (user.role === "admin" ? "" : "<br>Autody Support") + "</p></div>";
       const replyTo = normalizeEmail(user.role === "admin" ? "support@autodytraded.com" :
         process.env.EMAIL_SUPPORT_REPLY_TO || "support@autodytraded.com");
+      const inboundIds = (await messagesFor(ticket.id)).map((row) => row.message_id ?? row.messageId).filter(Boolean);
+      const initial = databaseConfigured()
+        ? (await dbPool.query("select message_id from support_inbound_emails where ticket_id = $1 order by created_at asc limit 1", [ticket.id])).rows[0]?.message_id
+        : jsonData().supportInboundEmails.find((row) => row.ticketId === ticket.id)?.messageId;
+      if (initial) inboundIds.unshift(initial);
+      const headers = inboundIds.length ? {
+        "In-Reply-To": inboundIds.at(-1), "References": inboundIds.slice(-10).join(" ")
+      } : undefined;
       const resendId = await sendEmail({ from, to, subject, text: emailText, html,
-        ...(replyTo ? { reply_to: replyTo } : {}) }, id);
+        ...(replyTo ? { reply_to: replyTo } : {}), ...(headers ? { headers } : {}) }, id);
       await saveMessage({ id, ticketId: ticket.id, role: user.role === "admin" ? "support" : "agent", agentId: sender?.id || null,
         agentName: name, body: text, resendId, createdAt: new Date().toISOString() });
       return res.json({ success: true, message: displayMessage(await existingMessage(id, ticket.id)) });
