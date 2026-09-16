@@ -10,7 +10,7 @@ function makeHarness() {
     id: ticketId, name: "Customer", email: "customer@example.com",
     category: "Access", topic: "Watchlist question", message: "Please help with my watchlist",
     status: "open", priority: "Normal", createdAt: new Date().toISOString()
-  }], supportAgents: [], supportMessages: [], supportAgentChallenges: [] };
+  }], supportAgents: [], supportMessages: [], supportAgentChallenges: [], supportInboundEmails: [] };
   const sent = [];
   const received = [];
   const receivedDetails = new Map();
@@ -160,6 +160,59 @@ test("received mail becomes a case and ordinary email replies reopen it", async 
   assert.equal(thread.messages.at(-1).body, "I still need help.");
 });
 
+test("reply without the case tag stays in the same box, while a new subject starts a new case", async () => {
+  const h = makeHarness();
+  const replyId = "418fdf2b-4eb7-41b1-90fc-c449d0c8ad7e";
+  h.received.push({ id: replyId, to: ["support@autodytraded.com"],
+    from: "customer@example.com", subject: "Re: Watchlist question" });
+  h.receivedDetails.set(replyId, { id: replyId, from: "customer@example.com",
+    to: ["support@autodytraded.com"], subject: "Re: Watchlist question",
+    text: "The watchlist still shows the old symbols.",
+    message_id: "<watchlist-reply@example.com>", headers: { "in-reply-to": "<outbound@example.com>" } });
+  const synced = await h.call("/api/support-team/sync-email", {}, { owner: true });
+  assert.equal(synced.imported, 1);
+  assert.equal(h.data().supportTickets.length, 1);
+  const thread = await h.call("/api/support-team/thread", { ticketId: h.ticketId }, { owner: true });
+  assert.equal(thread.messages.at(-1).body, "The watchlist still shows the old symbols.");
+  const newId = "1e03f59c-e842-43d1-a80b-d99c86b42dba";
+  h.received.unshift({ id: newId, to: ["support@autodytraded.com"],
+    from: "customer@example.com", subject: "Billing question" });
+  h.receivedDetails.set(newId, { id: newId, from: "customer@example.com",
+    to: ["support@autodytraded.com"], subject: "Billing question",
+    text: "I have a different billing question.", message_id: "<billing@example.com>", headers: {} });
+  await h.call("/api/support-team/sync-email", {}, { owner: true });
+  assert.equal(h.data().supportTickets.length, 2);
+});
+
+test("existing duplicate case boxes combine their messages into the first case", async () => {
+  const h = makeHarness();
+  const duplicateId = "2ec7a1f2-c917-40f7-b22e-4ae2d94360e7";
+  const secondMessageId = "7048196a-e407-4b61-98eb-957b9b0304c4";
+  h.data().supportTickets.push({ id: duplicateId, name: "Customer", email: "customer@example.com",
+    category: "Email", topic: "Re: Watchlist question", message: "The issue is still there.",
+    status: "open", priority: "normal", createdAt: new Date(Date.now() + 1000).toISOString() });
+  h.data().supportMessages.push({ id: secondMessageId, ticketId: duplicateId,
+    role: "support", agentId: null, agentName: "Autody Support", body: "We are investigating.",
+    createdAt: new Date(Date.now() + 2000).toISOString() });
+  h.data().supportInboundEmails.push({ id: duplicateId, ticketId: duplicateId,
+    messageId: "<duplicate@example.com>" });
+  const inbox = await h.call("/api/support-team/tickets", {}, { owner: true });
+  assert.equal(inbox.tickets.length, 1);
+  assert.equal(inbox.tickets[0].id, h.ticketId);
+  const thread = await h.call("/api/support-team/thread", { ticketId: h.ticketId }, { owner: true });
+  assert.deepEqual(thread.messages.map((message) => message.body), ["The issue is still there.", "We are investigating."]);
+  assert.equal(h.data().supportInboundEmails[0].ticketId, h.ticketId);
+  const nextId = "84cf38b6-1f81-4533-bda4-3a0214376378";
+  h.received.push({ id: nextId, from: "customer@example.com",
+    to: ["support@autodytraded.com"], subject: "Re: Watchlist question [Case 2ec7a1f2]" });
+  h.receivedDetails.set(nextId, { id: nextId, from: "customer@example.com",
+    to: ["support@autodytraded.com"], subject: "Re: Watchlist question [Case 2ec7a1f2]",
+    text: "One more question on this issue.", message_id: "<later@example.com>", headers: {} });
+  await h.call("/api/support-team/sync-email", {}, { owner: true });
+  assert.equal(h.data().supportTickets.length, 1);
+  assert.equal(h.data().supportMessages.at(-1).ticketId, h.ticketId);
+});
+
 test("closing a case sends one plain closure email for the chosen reason", async () => {
   const h = makeHarness();
   const id = "40eaf18d-8d4e-4d49-961d-61e1963ca22e";
@@ -177,6 +230,8 @@ test("closing a case sends one plain closure email for the chosen reason", async
     status: "closed_no_response", requestId: "e62a3fae-0acf-4da8-b1b2-870317d8c068" }, { owner: true });
   assert.match(h.sent.at(-1).body.text, /not heard back/);
   assert.equal(h.sent.at(-1).body.reply_to, "support@autodytraded.com");
+  const filtered = await h.call("/api/support-team/tickets", { status: "closed_no_response" }, { owner: true });
+  assert.deepEqual(filtered.tickets.map((ticket) => ticket.id), [h.ticketId]);
 });
 
 test("agent access stays limited to assigned tickets and stops when the owner deactivates the profile", async () => {

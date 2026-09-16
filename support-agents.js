@@ -93,6 +93,12 @@ function registerSupportAgentRoutes(app, deps) {
         created_at timestamptz not null default now()
       );
       create index if not exists support_inbound_message_idx on support_inbound_emails (message_id);
+      create table if not exists support_ticket_merges (
+        old_ticket_id uuid primary key,
+        canonical_ticket_id uuid not null references support_tickets(id) on delete cascade,
+        contact_email text not null,
+        created_at timestamptz not null default now()
+      );
       `);
     })().catch((error) => { tablesReady = null; throw error; });
     await tablesReady;
@@ -103,6 +109,7 @@ function registerSupportAgentRoutes(app, deps) {
     data.supportAgentChallenges = Array.isArray(data.supportAgentChallenges) ? data.supportAgentChallenges : [];
     data.supportMessages = Array.isArray(data.supportMessages) ? data.supportMessages : [];
     data.supportInboundEmails = Array.isArray(data.supportInboundEmails) ? data.supportInboundEmails : [];
+    data.supportTicketMerges = Array.isArray(data.supportTicketMerges) ? data.supportTicketMerges : [];
     data.supportTickets = Array.isArray(data.supportTickets) ? data.supportTickets : [];
     return data;
   }
@@ -257,6 +264,104 @@ function registerSupportAgentRoutes(app, deps) {
     }
     return jsonData().supportInboundEmails.some((row) => row.id === id);
   }
+  function normalizedTopic(value) {
+    return String(value || "").replace(/\[Case [0-9a-f]{8}\]/gi, "")
+      .replace(/^(?:(?:re|fw|fwd):\s*)+/i, "")
+      .replace(/\s*\|\s*Autody Support\s*$/i, "")
+      .replace(/\s+/g, " ").trim().toLowerCase();
+  }
+  async function recentCustomerTickets(from) {
+    if (databaseConfigured()) {
+      await ensureTables();
+      return (await dbPool.query(`select * from support_tickets
+        where lower(contact_email) = $1 and
+          (status in ('open', 'in_progress') or updated_at > now() - interval '90 days')
+        order by created_at asc limit 50`, [from])).rows;
+    }
+    return jsonData().supportTickets.filter((row) => emailAddress(row.email) === from &&
+      (["open", "in_progress"].includes(row.status) ||
+        Date.parse(row.updatedAt || row.createdAt) > Date.now() - 90 * 86400000))
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)).slice(0, 50);
+  }
+  async function mergeDuplicateTicket(original, duplicate) {
+    const originalId = original.id, duplicateId = duplicate.id;
+    if (databaseConfigured()) {
+      const client = await dbPool.connect();
+      try {
+        await client.query("begin");
+        await client.query(`insert into support_messages
+          (id, ticket_id, author_role, author_agent_id, agent_name, body, message_id, created_at)
+          values ($1, $2, 'customer', null, '', $3,
+            (select message_id from support_inbound_emails where id = $1), $4)
+          on conflict (id) do nothing`, [duplicateId, originalId, duplicate.message, duplicate.created_at]);
+        await client.query("update support_messages set ticket_id = $1 where ticket_id = $2", [originalId, duplicateId]);
+        await client.query("update support_inbound_emails set ticket_id = $1 where ticket_id = $2", [originalId, duplicateId]);
+        await client.query(`insert into support_ticket_merges (old_ticket_id, canonical_ticket_id, contact_email)
+          values ($1, $2, $3) on conflict (old_ticket_id) do nothing`,
+        [duplicateId, originalId, emailAddress(duplicate.contact_email)]);
+        await client.query(`update support_tickets set
+          status = case when status in ('resolved', 'closed_no_response') and $2 in ('open', 'in_progress') then 'open' else status end,
+          resolved_at = case when status in ('resolved', 'closed_no_response') and $2 in ('open', 'in_progress') then null else resolved_at end,
+          updated_at = now() where id = $1`, [originalId, duplicate.status]);
+        await client.query("delete from support_tickets where id = $1", [duplicateId]);
+        await client.query("commit");
+      } catch (error) { await client.query("rollback"); throw error; }
+      finally { client.release(); }
+      return;
+    }
+    const data = jsonData();
+    const keep = data.supportTickets.find((row) => row.id === originalId);
+    const remove = data.supportTickets.find((row) => row.id === duplicateId);
+    if (!keep || !remove) return;
+    if (!data.supportMessages.some((row) => row.id === duplicateId)) data.supportMessages.push({
+      id: duplicateId, ticketId: originalId, role: "customer", agentId: null, agentName: "",
+      body: remove.message, messageId: data.supportInboundEmails.find((row) => row.id === duplicateId)?.messageId || null,
+      createdAt: remove.createdAt
+    });
+    data.supportMessages.forEach((row) => { if (row.ticketId === duplicateId) row.ticketId = originalId; });
+    data.supportInboundEmails.forEach((row) => { if (row.ticketId === duplicateId) row.ticketId = originalId; });
+    data.supportTicketMerges.push({ oldTicketId: duplicateId, canonicalTicketId: originalId,
+      email: emailAddress(remove.email) });
+    if (["resolved", "closed_no_response"].includes(keep.status) && ["open", "in_progress"].includes(remove.status)) keep.status = "open";
+    keep.updatedAt = new Date().toISOString();
+    data.supportTickets = data.supportTickets.filter((row) => row.id !== duplicateId);
+    saveDemoDb(data);
+  }
+  let consolidation = null, lastConsolidatedAt = 0;
+  async function consolidateTickets() {
+    if (consolidation) return consolidation;
+    if (Date.now() - lastConsolidatedAt < 60000) return 0;
+    consolidation = (async () => {
+      if (databaseConfigured()) await ensureTables();
+      const tickets = databaseConfigured()
+        ? (await dbPool.query("select * from support_tickets where created_at > now() - interval '14 days' order by created_at asc")).rows
+        : jsonData().supportTickets.filter((row) => Date.parse(row.createdAt) > Date.now() - 14 * 86400000)
+          .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      const groups = new Map();
+      for (const ticket of tickets) {
+        const email = emailAddress(ticket.contact_email ?? ticket.email);
+        const topic = normalizedTopic(ticket.topic);
+        if (!email || !topic || topic === "email support request") continue;
+        const key = email + "\n" + topic;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(ticket);
+      }
+      let merged = 0;
+      for (const group of groups.values()) {
+        let original = group[0];
+        for (const duplicate of group.slice(1)) {
+          const firstAt = Date.parse(original.created_at ?? original.createdAt);
+          const nextAt = Date.parse(duplicate.created_at ?? duplicate.createdAt);
+          if (nextAt - firstAt > 7 * 86400000) { original = duplicate; continue; }
+          await mergeDuplicateTicket(original, duplicate);
+          merged++;
+        }
+      }
+      lastConsolidatedAt = Date.now();
+      return merged;
+    })().finally(() => { consolidation = null; });
+    return consolidation;
+  }
   async function ticketForInbound(email, from) {
     const caseCode = String(email.subject || "").match(/\[Case ([0-9a-f]{8})\]/i)?.[1]?.toLowerCase();
     let ticket = null;
@@ -265,6 +370,13 @@ function registerSupportAgentRoutes(app, deps) {
         await ensureTables();
         ticket = (await dbPool.query("select * from support_tickets where left(id::text, 8) = $1 and lower(contact_email) = $2 order by created_at desc limit 1", [caseCode, from])).rows[0] || null;
       } else ticket = jsonData().supportTickets.find((row) => row.id?.startsWith(caseCode) && emailAddress(row.email) === from) || null;
+      if (!ticket) {
+        const mergedId = databaseConfigured()
+          ? (await dbPool.query(`select canonical_ticket_id from support_ticket_merges
+              where left(old_ticket_id::text, 8) = $1 and contact_email = $2 limit 1`, [caseCode, from])).rows[0]?.canonical_ticket_id
+          : jsonData().supportTicketMerges.find((row) => row.oldTicketId?.startsWith(caseCode) && row.email === from)?.canonicalTicketId;
+        if (mergedId) ticket = await ticketById(mergedId);
+      }
     }
     if (ticket) return ticket;
     const ids = String(email.headers?.["in-reply-to"] || email.headers?.references || "")
@@ -280,6 +392,15 @@ function registerSupportAgentRoutes(app, deps) {
         if (ticket && emailAddress(ticket.contact_email ?? ticket.email) === from) return ticket;
       }
     }
+    const recent = await recentCustomerTickets(from);
+    const topic = normalizedTopic(email.subject);
+    const replyLike = /^(?:(?:re|fw|fwd):\s*)/i.test(String(email.subject || "")) ||
+      Boolean(email.headers?.["in-reply-to"] || email.headers?.references);
+    const matching = topic ? recent.filter((row) => normalizedTopic(row.topic) === topic) : [];
+    if (matching.length && (replyLike || matching.some((row) => ["open", "in_progress"].includes(row.status))))
+      return matching.find((row) => ["open", "in_progress"].includes(row.status)) || matching.at(-1);
+    const active = recent.filter((row) => ["open", "in_progress"].includes(row.status));
+    if (replyLike && active.length === 1) return active[0];
     return null;
   }
   async function processInbound(summary) {
@@ -512,7 +633,8 @@ function registerSupportAgentRoutes(app, deps) {
   app.post("/api/support-team/tickets", async (req, res) => {
     try {
       const body = parseJsonBody(req), user = await actor(req, body);
-      const status = ["open", "in_progress", "resolved"].includes(body.status) ? body.status : "";
+      if (user.role === "admin") await consolidateTickets().catch((error) => console.error("Support case consolidation failed:", error.message));
+      const status = ["open", "in_progress", "resolved", "closed_no_response"].includes(body.status) ? body.status : "";
       const search = normalizeText(body.search).toLowerCase().slice(0, 120);
       const limit = Math.min(500, Math.max(1, Number(body.limit) || 100));
       let tickets;
