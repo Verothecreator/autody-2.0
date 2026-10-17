@@ -79,13 +79,16 @@ else {
  });
  test('buy then profitable sale cannot launder reward credit into withdrawable USD',async()=>{
   const p=await member({cash:10,promo:10});
-  await server.placeDatabaseLiveOrder({side:'buy',symbol:'BTC',notionalUsd:9.97},auth(p),market({BTC:100}));
+  const impacts=[];
+  const quotes=prices=>({...market(prices),applyMarketImpact:async(...args)=>{impacts.push(args);}});
+  await server.placeDatabaseLiveOrder({side:'buy',symbol:'BTC',notionalUsd:9.97},auth(p),quotes({BTC:100}));
   const h=(await pool.query("select * from holdings where wallet_id=$1 and symbol='BTC'",[p.walletId])).rows[0];
   assert.equal(Number(h.promotional_quantity),Number(h.quantity));
   await assert.rejects(inTransaction(c=>server.debitDbWalletAsset(c,p.walletId,'BTC',Number(h.quantity))),/can only be used within Autody/);
-  await server.placeDatabaseLiveOrder({side:'sell',symbol:'BTC',quantity:Number(h.quantity)},auth(p),market({BTC:200}));
+  await server.placeDatabaseLiveOrder({side:'sell',symbol:'BTC',quantity:Number(h.quantity)},auth(p),quotes({BTC:200}));
   const b=await balance(p);assert.ok(Number(b.cash_balance)>10);assert.equal(Number(b.cash_balance),Number(b.promotional_cash));
   await assert.rejects(inTransaction(c=>r.assertWithdrawable(c,p.walletId,'USD',0.01)),/can only be used within Autody/);
+  assert.equal(impacts.length,0,'Promotional trades must not move controlled market prices for other accounts');
  });
  test('swaps preserve promotional units and protect real funds in a mixed holding',async()=>{
   const p=await member({cash:30,promo:10});

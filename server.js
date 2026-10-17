@@ -9978,7 +9978,7 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             await adjustDbCash(client, context.wallet_id, -(trade.notionalUsd + feeUsd));
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
             await referrals.addHoldingRestriction(client, context.wallet_id, asset.symbol, trade.quantity, referralShare);
-            marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "live-buy" });
+            marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd * (1 - referralShare), source: "live-buy" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
                 assetType: tradeAssetType(asset),
@@ -9999,7 +9999,7 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             realizedDelta += result.realizedProfitLoss - feeUsd;
             await adjustDbCash(client, context.wallet_id, trade.notionalUsd - feeUsd);
             await referrals.creditSaleRestriction(client, context.wallet_id, trade.notionalUsd - feeUsd, referralShare);
-            marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "live-sell" });
+            marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd * (1 - referralShare), source: "live-sell" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
                 assetType: tradeAssetType(asset),
@@ -10027,13 +10027,13 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             const referralShare = await referrals.takeHoldingRestriction(client, context.wallet_id, fromAsset.symbol, fromQuantity);
             const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
             realizedDelta += sellResult.realizedProfitLoss - feeUsd;
-            marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "live-swap-out" });
+            marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd: notionalUsd * (1 - referralShare), source: "live-swap-out" });
 
             const toQuantity = netNotionalUsd / toAsset.price;
             await assertDatabaseAuFirstPurchaseMinimum(client, context, toAsset, { quantity: toQuantity, notionalUsd: netNotionalUsd });
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, netNotionalUsd);
             await referrals.addHoldingRestriction(client, context.wallet_id, toAsset.symbol, toQuantity, referralShare);
-            marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd, source: "live-swap-in" });
+            marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd * (1 - referralShare), source: "live-swap-in" });
             order = await insertDbOrder(client, context, {
                 symbol: toAsset.symbol,
                 assetType: tradeAssetType(toAsset),
@@ -10052,6 +10052,7 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
         await client.query("commit");
 
         for (const impact of marketImpacts) {
+            if (!(impact.notionalUsd > 0)) continue;
             await applyMarketImpact(impact.symbol, impact.side, impact.notionalUsd, impact.source).catch((err) => {
                 console.error("Admin controlled live trade impact failed:", err.message || err);
             });
@@ -19478,6 +19479,8 @@ app.get('*', (req, res) => {
 
 async function startServer() {
   await initializeDatabase();
+  // A failed reward migration must fail deployment rather than expose a partial wallet model.
+  if (databaseConfigured()) await ensureSignUpSchemaReady();
 
   app.listen(PORT, () => {
     console.log(`Autody is running at http://localhost:${PORT}`);
