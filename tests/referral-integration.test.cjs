@@ -225,4 +225,21 @@ else {
   assert.equal(Number((await balance(recipient)).cash_balance),1);
   await assert.rejects(server.createDatabaseWithdrawalRequest(auth(p),{type:'external',asset:'USD',amount:2,destination:'test-only'}),/Not enough USD/);
  });
+ test('admin support sessions do not create shared-device fraud signals',async()=>{
+  const previous=process.env.REFERRAL_RISK_HASH_SECRET;
+  process.env.REFERRAL_RISK_HASH_SECRET='isolated-test-device-secret';
+  const first=await member(),second=await member();
+  async function session(p,support){const token=crypto.randomBytes(32).toString('hex');await pool.query(`insert into app_sessions(profile_id,token_hash,expires_at,is_support)
+    values($1,$2,now()+interval '1 hour',$3)`,[p.id,crypto.createHash('sha256').update(token).digest('hex'),support]);return token;}
+  const http=server.app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));
+  try {
+   const url=`http://127.0.0.1:${http.address().port}/api/account/referrals`;
+   const response=await fetch(url,{headers:{Authorization:`Bearer ${await session(first,false)}`}});
+   assert.equal(response.status,200);const cookie=response.headers.get('set-cookie').split(';')[0];
+   const support=await fetch(url,{headers:{Authorization:`Bearer ${await session(second,true)}`,Cookie:cookie}});assert.equal(support.status,200);
+   assert.equal((await pool.query("select count(*)::int as n from referral_signals where profile_id=$1 and kind='device'",[second.id])).rows[0].n,0);
+   const normal=await fetch(url,{headers:{Authorization:`Bearer ${await session(second,false)}`,Cookie:cookie}});assert.equal(normal.status,200);
+   assert.equal(await rules.riskStatus(pool,second.id),'review','A real customer session still participates in device checks');
+  } finally {await new Promise(resolve=>http.close(resolve));if(previous===undefined)delete process.env.REFERRAL_RISK_HASH_SECRET;else process.env.REFERRAL_RISK_HASH_SECRET=previous;}
+ });
 }

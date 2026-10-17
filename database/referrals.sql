@@ -39,6 +39,14 @@ alter table referral_rewards enable row level security;
 alter table referral_rewards add column if not exists released_at timestamptz;
 alter table referral_rewards add column if not exists legacy_group boolean not null default false;
 alter table wallets add column if not exists referral_lots_initialized boolean not null default false;
+alter table app_sessions add column if not exists is_support boolean not null default false;
+do $$ begin
+  if to_regclass('public.admin_account_events') is not null then
+    update app_sessions s set is_support=true from admin_account_events e
+    where e.profile_id=s.profile_id and e.action='impersonate'
+      and e.created_at between s.created_at-interval '10 seconds' and s.created_at+interval '10 seconds';
+  end if;
+end $$;
 
 -- Each reward keeps its own restricted funds through purchases, sales and swaps.
 -- The legacy origin protects any older restricted balance without an award ledger.

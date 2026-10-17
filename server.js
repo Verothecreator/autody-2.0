@@ -10379,8 +10379,8 @@ async function createDatabaseSupportSession(profileId, sessionHours = 4) {
 
     await dbPool.query("delete from app_sessions where expires_at <= now()");
     await dbPool.query(`
-        insert into app_sessions (profile_id, token_hash, created_at, expires_at)
-        values ($1, $2, $3, $4)
+        insert into app_sessions (profile_id, token_hash, created_at, expires_at, is_support)
+        values ($1, $2, $3, $4, true)
     `, [profileId, tokenHash, now.toISOString(), expiresAt.toISOString()]);
 
     return {
@@ -10750,6 +10750,7 @@ async function databaseProfileFromSessionToken(token) {
             p.email,
             p.display_name,
             p.created_at,
+            s.is_support,
             pv.first_name,
             pv.last_name,
             pv.legal_name,
@@ -10798,6 +10799,7 @@ async function authenticatedAccountContext(req) {
                 source: "supabase",
                 profileId: profile.id,
                 userId: profile.id,
+                isSupportSession: profile.is_support === true,
                 user: databasePublicUser(profile)
             };
         }
@@ -18700,8 +18702,10 @@ app.get("/api/account/referrals", async (req, res) => {
     if (auth.source !== "supabase") throw demoTradeError(503, "Referral rewards require your live account database.");
     await ensureSignUpSchemaReady();
     assertLiveAccountOperational(await getPracticeDbContext(dbPool, auth.profileId, "live"), "Referral rewards");
-    const signals = referralRequestSignals(req, res);
-    await referralRules.recordSignal(dbPool, auth.profileId, 'device', signals.device);
+    if (!auth.isSupportSession) {
+      const signals = referralRequestSignals(req, res);
+      await referralRules.recordSignal(dbPool, auth.profileId, 'device', signals.device);
+    }
     await referralRules.refreshRisk(dbPool, auth.profileId);
     const program = await referrals.summary(dbPool, auth.profileId, appBaseUrl(req));
     return res.json({ success: true, program });
