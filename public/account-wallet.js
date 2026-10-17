@@ -654,7 +654,7 @@ function liveRenderDetail(asset) {
     rows.push(liveDetailRow("Unrealized P/L", formatLiveWalletMoney(asset.unrealizedProfitLoss), liveWalletMoveClass(asset.unrealizedProfitLoss)));
   }
   if (!asset.isGroup && Number(asset.promotionalBalance || asset.promotionalQuantity || 0) > 0) {
-    rows.push(liveDetailRow("Platform-only rewards", asset.symbol === "USD" ? formatLiveWalletMoney(asset.promotionalBalance) : `${formatLiveWalletNumber(asset.promotionalQuantity, 10)} ${asset.symbol}`));
+    rows.push(liveDetailRow("Locked referral rewards", asset.symbol === "USD" ? formatLiveWalletMoney(asset.promotionalBalance) : `${formatLiveWalletNumber(asset.promotionalQuantity, 10)} ${asset.symbol}`));
     rows.push(liveDetailRow("Own funds before withdrawal checks", asset.symbol === "USD" ? formatLiveWalletMoney(asset.withdrawableBalance) : `${formatLiveWalletNumber(asset.withdrawableQuantity, 10)} ${asset.symbol}`));
   }
   if (!asset.isGroup) rows.push(liveDetailRow("Status", asset.status || "Ready"));
@@ -728,10 +728,10 @@ function renderLiveWallet() {
   });
   setLiveWalletText("live-wallet-topbar", balanceText);
   setLiveWalletText("live-wallet-cash", formatLiveWalletMoney(liveWalletState.cashBalance));
-  setLiveWalletText("live-wallet-cash-note", liveWalletState.promotionalCash > 0 ? `${formatLiveWalletMoney(liveWalletState.promotionalCash)} is platform-only referral credit` : "USD available for purchases");
+  setLiveWalletText("live-wallet-cash-note", liveWalletState.promotionalCash > 0 ? `${formatLiveWalletMoney(liveWalletState.promotionalCash)} is referral rewards awaiting withdrawal eligibility` : "USD available for purchases");
   const referralNote = document.getElementById("wallet-referral-note");
   if (referralNote) referralNote.hidden = !liveWalletState.holdings.some(item => Number(item.promotionalQuantity || item.promotionalBalance || 0) > 0);
-  setLiveWalletText("wallet-referral-summary", `Platform-only credit: ${formatLiveWalletMoney(liveWalletState.promotionalCash)} · USD from your own funds: ${formatLiveWalletMoney(liveWalletState.withdrawableCash)}`);
+  setLiveWalletText("wallet-referral-summary", `Locked referral rewards: ${formatLiveWalletMoney(liveWalletState.promotionalCash)} · USD eligible before withdrawal checks: ${formatLiveWalletMoney(liveWalletState.withdrawableCash)}`);
   setLiveWalletText("live-wallet-total", formatLiveWalletMoney(liveWalletState.totalValue));
   setLiveWalletText("live-wallet-positions", String(liveWalletState.positionsCount));
   setLiveWalletText("live-wallet-positions-label", liveWalletState.positionsCount ? "Assets currently held" : "No assets held yet");

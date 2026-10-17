@@ -1,9 +1,10 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const rules = require('./referral-eligibility');
 const schema = fs.readFileSync(path.join(__dirname, 'database', 'referrals.sql'), 'utf8');
 const REWARD_USD = 10;
-const RESTRICTION = 'Referral rewards and the assets or proceeds funded by them can only be used within Autody. They cannot be withdrawn or sent to another account or wallet.';
+const RESTRICTION = 'Your referral reward is not eligible for withdrawal yet. Both you and your friend must each have at least $1,000 in confirmed deposits, 3 qualifying trades, approved identity verification and 90 days since your first verified deposit. Rewards under review remain restricted.';
 function failure(status, message) {
   return Object.assign(new Error(message), { status, statusCode: status });
 }
@@ -45,7 +46,11 @@ async function codeForProfile(client, profileId) {
   [profileId, crypto.randomBytes(10).toString('hex').toUpperCase()]);
   return result.rows[0].code;
 }
-async function attach(client, profileId, code, email, phone) {
+async function attach(client, profileId, code, email, phone, signals = {}) {
+  await rules.recordSignal(client,profileId,'email',identityHash(canonicalEmail(email)));
+  await rules.recordSignal(client,profileId,'phone',identityHash(phoneKey(phone)));
+  await rules.recordSignal(client,profileId,'device',signals.device);
+  await rules.recordSignal(client,profileId,'signup_ip',signals.ip);
   if (!code) return;
   const inviter = await eligibleCode(client, code);
   if (!inviter) throw failure(400, 'This referral link is unavailable. Remove the referral to continue without a reward.');
@@ -55,6 +60,7 @@ async function attach(client, profileId, code, email, phone) {
   try {
     await client.query(`insert into referrals(inviter_profile_id,invitee_profile_id,invitee_email_hash,invitee_phone_hash,referral_code)
       values($1,$2,$3,$4,$5)`, [inviter.profile_id,profileId,identityHash(canonicalEmail(email)),identityHash(phoneKey(phone)),normalizeCode(code)]);
+    for (const id of [inviter.profile_id,profileId].sort()) await rules.refreshRisk(client,id);
   } catch (err) {
     if (err.code === '23505') throw failure(409, 'This email or phone number has already participated in a referral. Each new member may receive one welcome reward.');
     throw err;
@@ -77,14 +83,20 @@ async function settleOne(pool, referralId) {
       where r.id=$1 and r.status='pending' for update of r`, [referralId]);
     const referral = result.rows[0];
     if (!referral) { await client.query('commit'); return false; }
+    for (const profileId of [referral.inviter_profile_id,referral.invitee_profile_id].sort()) await rules.refreshRisk(client,profileId);
+    if ((await rules.riskStatus(client,referral.inviter_profile_id))!=='clear' || (await rules.riskStatus(client,referral.invitee_profile_id))!=='clear') {
+      await client.query('commit'); return false;
+    }
     const wallets = await client.query(`select w.id,am.profile_id from wallets w join account_modes am on am.id=w.account_mode_id
       where am.mode='live' and am.profile_id=any($1::uuid[]) order by w.id for update of w`, [[referral.inviter_profile_id, referral.invitee_profile_id]]);
     if (wallets.rows.length !== 2) throw failure(503, 'Referral wallets are not ready. Please try again.');
     for (const wallet of wallets.rows) {
+      await rules.ensureLots(client,wallet.id);
       const role = wallet.profile_id === referral.inviter_profile_id ? 'inviter' : 'invitee';
       const award = await client.query(`insert into referral_rewards(referral_id,profile_id,role) values($1,$2,$3)
         on conflict(referral_id,role) do nothing returning id`, [referral.id,wallet.profile_id,role]);
       if (!award.rows.length) throw failure(409, 'Referral reward requires review.');
+      await rules.addLots(client,wallet.id,'USD',10,[{origin:award.rows[0].id,rewardId:award.rows[0].id,quantity:'10'}]);
       await client.query(`update wallets set cash_balance=cash_balance+10,promotional_cash=promotional_cash+10,updated_at=now() where id=$1`, [wallet.id]);
       await syncUsdHolding(client, wallet.id);
     }
@@ -106,46 +118,68 @@ async function settleForProfile(pool, profileId) {
 async function summary(pool, profileId, baseUrl) {
   const code = await codeForProfile(pool, profileId);
   await settleForProfile(pool, profileId);
+  await rules.releaseForProfile(pool,profileId);
   const stats = await pool.query(`select count(*)::int as invited,
     count(*) filter(where status='pending')::int as pending,
     count(*) filter(where status='rewarded')::int as rewarded from referrals where inviter_profile_id=$1`, [profileId]);
-  const rewards = await pool.query(`select id,role,amount_usd,created_at from referral_rewards where profile_id=$1 order by created_at desc limit 50`, [profileId]);
+  const rewards = await pool.query(`select id,role,amount_usd,created_at,released_at from referral_rewards where profile_id=$1 order by created_at desc limit 50`, [profileId]);
   const total = await pool.query(`select coalesce(sum(amount_usd),0) as amount from referral_rewards where profile_id=$1`, [profileId]);
   const wallet = await pool.query(`select w.promotional_cash from wallets w join account_modes am on am.id=w.account_mode_id where am.profile_id=$1 and am.mode='live'`, [profileId]);
   return { code, link:`${baseUrl.replace(/\/$/,'')}/sign-up?ref=${encodeURIComponent(code)}`, rewardUsd:REWARD_USD,
     ...stats.rows[0], totalEarned:Number(total.rows[0].amount), promotionalCash:Number(wallet.rows[0]?.promotional_cash||0),
-    rewards:rewards.rows.map(r=>({id:r.id,role:r.role,amountUsd:Number(r.amount_usd),createdAt:r.created_at})), restriction:RESTRICTION };
+    rewards:rewards.rows.map(r=>({id:r.id,role:r.role,amountUsd:Number(r.amount_usd),createdAt:r.created_at,releasedAt:r.released_at})), restriction:RESTRICTION };
 }
 async function spendCash(client, walletId, cost) {
+  await rules.releaseForWallet(client,walletId);
   const amount = cents(cost)/100;
   if (!(amount > 0)) throw failure(400, 'Enter a valid order amount.');
   const result = await client.query('select cash_balance,reserved_cash,promotional_cash from wallets where id=$1 for update', [walletId]);
   const wallet = result.rows[0];
   if (!wallet || cents(wallet.cash_balance)-cents(wallet.reserved_cash)<cents(amount)) throw failure(400, 'Not enough USD available for this order.');
   const used = Math.min(cents(wallet.promotional_cash),cents(amount))/100;
+  const lots = await rules.takeLots(client,walletId,'USD',used);
   await client.query('update wallets set promotional_cash=promotional_cash-$2 where id=$1', [walletId,used]);
-  return used/amount;
+  return {share:used/amount,lots};
 }
-async function addHoldingRestriction(client, walletId, symbol, quantity, share) {
+async function addHoldingRestriction(client, walletId, symbol, quantity, funding) {
+  const {share,lots} = funding;
   const restricted = restrictedPortion(quantity, share, 10);
-  if (restricted > 0) await client.query(`update holdings set promotional_quantity=least(quantity,promotional_quantity+$3::numeric)
-    where wallet_id=$1 and upper(symbol)=upper($2)`, [walletId,symbol,restricted]);
+  if (restricted > 0) {
+    const added = await client.query(`with previous as materialized (
+      select promotional_quantity from holdings where wallet_id=$1 and upper(symbol)=upper($2) for update
+    ), changed as (
+      update holdings h set promotional_quantity=least(h.quantity,h.promotional_quantity+$3::numeric)
+      from previous where h.wallet_id=$1 and upper(h.symbol)=upper($2) returning h.promotional_quantity
+    ) select changed.promotional_quantity-previous.promotional_quantity as allocated from changed,previous`, [walletId,symbol,restricted]);
+    if (!added.rows[0]) throw failure(503,'Referral-funded asset allocation is unavailable.');
+    await rules.addLots(client,walletId,symbol,added.rows[0].allocated,lots);
+  }
 }
 async function takeHoldingRestriction(client, walletId, symbol, quantity) {
+  await rules.releaseForWallet(client,walletId);
   quantity = Number(Number(quantity).toFixed(10));
   const result = await client.query('select quantity,promotional_quantity from holdings where wallet_id=$1 and upper(symbol)=upper($2) for update', [walletId,symbol]);
   const holding = result.rows[0];
   const total = Number(holding?.quantity||0), promotional = Number(holding?.promotional_quantity||0);
   if (!(quantity > 0) || quantity > total) throw failure(400, `Not enough ${symbol} available for this order.`);
   const restricted = Math.min(promotional, restrictedPortion(quantity, total > 0 ? promotional/total : 0, 10));
+  const lots = await rules.takeLots(client,walletId,symbol,restricted);
   if (restricted > 0) await client.query('update holdings set promotional_quantity=greatest(0,promotional_quantity-$3::numeric) where wallet_id=$1 and upper(symbol)=upper($2)', [walletId,symbol,restricted]);
-  return Math.min(1, restricted/quantity);
+  return {share:Math.min(1, restricted/quantity),lots};
 }
-async function creditSaleRestriction(client, walletId, proceeds, share) {
+async function creditSaleRestriction(client, walletId, proceeds, funding) {
+  const {share,lots} = funding;
   const restricted = restrictedPortion(cents(proceeds)/100, share);
+  await rules.addLots(client,walletId,'USD',restricted,lots);
   if (restricted > 0) await client.query('update wallets set promotional_cash=promotional_cash+$2,updated_at=now() where id=$1', [walletId,restricted]);
 }
 async function assertWithdrawable(client, walletId, symbol, amount) {
+  await rules.releaseForWallet(client,walletId);
+  const member = await client.query(`select am.profile_id from wallets w join account_modes am on am.id=w.account_mode_id
+    where w.id=$1 and exists(select 1 from referral_rewards r where r.profile_id=am.profile_id)`, [walletId]);
+  if (member.rows[0] && (await rules.riskStatus(client,member.rows[0].profile_id))!=='clear') {
+    throw failure(403,'Withdrawals and transfers are temporarily restricted while we review your account activity. Please contact support.');
+  }
   const usd = symbol === 'USD';
   if (usd && Math.abs(Number(amount)*100-Math.round(Number(amount)*100))>1e-7) throw failure(400, 'USD transfers must use whole cents.');
   const result = usd
@@ -153,7 +187,7 @@ async function assertWithdrawable(client, walletId, symbol, amount) {
         $2::numeric>0 and $2::numeric<=greatest(cash_balance-reserved_cash-promotional_cash,0) as allowed from wallets where id=$1 for update`, [walletId,amount])
     : await client.query(`select greatest(quantity-promotional_quantity,0) as available,
         $3::numeric>0 and $3::numeric<=greatest(quantity-promotional_quantity,0) as allowed from holdings where wallet_id=$1 and upper(symbol)=upper($2) for update`, [walletId,symbol,amount]);
-  if (!result.rows[0]?.allowed) throw failure(403, `${RESTRICTION} Available from your own funds: ${Number(result.rows[0]?.available||0)} ${symbol}.`);
+  if (!result.rows[0]?.allowed) throw failure(403, `${RESTRICTION} Available for this request: ${Number(result.rows[0]?.available||0)} ${symbol}.`);
 }
 module.exports = { REWARD_USD, RESTRICTION, ensureSchema, canonicalEmail, normalizeCode, restrictedPortion,
   eligibleCode, codeForProfile, attach, settleForProfile, settleOne, summary, spendCash,

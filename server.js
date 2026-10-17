@@ -8,6 +8,8 @@ const { Pool } = require("pg");
 const QRCode = require("qrcode");
 const fetch = global.fetch || require("node-fetch");
 const referrals = require("./referrals");
+const referralRules = require("./referral-eligibility");
+const { isIP } = require("node:net");
 const bip39 = require("bip39");
 const { BIP32Factory } = require("bip32");
 const ecc = require("tiny-secp256k1");
@@ -59,7 +61,7 @@ const DEMO_DB_STORE = path.join(__dirname, "data", "demo-db.json");
 const DATABASE_SCHEMA_STORE = path.join(__dirname, "database", "schema.sql");
 const PRACTICE_USER_ID = "practice-user";
 const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
-const ACCOUNT_TERMS_VERSION = "2026-10-17";
+const ACCOUNT_TERMS_VERSION = "2026-10-17-referrals-v2";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 15000);
 const DB_SLOW_RETRY_MS = Number(process.env.DB_SLOW_RETRY_MS || 30 * 1000);
@@ -838,6 +840,25 @@ function createVerificationCodeRecord(channel, destination, options = {}) {
         hash: verificationCodeHash(code, salt),
         expiresAt: new Date(Date.now() + ttlMs).toISOString()
     };
+}
+
+function referralRequestSignals(req, res) {
+    const secret = process.env.REFERRAL_RISK_HASH_SECRET || ADMIN_SESSION_SECRET || SUPABASE_SERVICE_ROLE_KEY;
+    if (!secret) return {};
+    const hash = value => crypto.createHmac('sha256', secret).update(`referral-risk:${value}`).digest('hex');
+    const cookie = String(req.headers?.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith('autody_referral_device='));
+    let device = cookie ? cookie.slice('autody_referral_device='.length) : '';
+    const [token, signature] = device.split('.');
+    if (!/^[a-f0-9]{32}$/.test(token || '') || signature !== hash(`cookie:${token}`)) {
+        const next = crypto.randomBytes(16).toString('hex');
+        device = `${next}.${hash(`cookie:${next}`)}`;
+        res.cookie('autody_referral_device', device, {httpOnly:true,secure:appBaseUrl(req).startsWith('https:'),sameSite:'lax',maxAge:180*86400000,path:'/'});
+    }
+    const remote = String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+    // Only a local reverse proxy may supply a forwarding header; use its appended hop.
+    const forwarded = String(req.headers?.['x-forwarded-for'] || '').split(',').pop().trim();
+    const ip = ['127.0.0.1','::1'].includes(remote) && isIP(forwarded) ? forwarded : remote;
+    return {device:hash(`device:${device.split('.')[0]}`),ip:isIP(ip) ? hash(`ip:${ip}`) : ''};
 }
 
 function appBaseUrl(req) {
@@ -2467,7 +2488,10 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     await ensureSignUpSchemaReady();
 
     const accountMode = normalizeWatchlistMode(mode);
-    if (accountMode === "live") await referrals.settleForProfile(dbPool, profileId);
+    if (accountMode === "live") {
+        await referrals.settleForProfile(dbPool, profileId);
+        await referralRules.releaseForProfile(dbPool, profileId);
+    }
 
     let accountResult = await dbPool.query(`
         select
@@ -3042,7 +3066,7 @@ async function buildLiveWalletSnapshot(account) {
         changePct: null,
         url: liveWalletHoldingUrl({ symbol: "USD" }),
         status: numberValue(account.user?.cashBalance, baseCash.valueUsd) > 0 ? "Available" : "Awaiting deposit",
-        detail: numberValue(account.user?.promotionalCash, 0) > 0 ? "Includes platform-only referral credit" : "Verified funds",
+        detail: numberValue(account.user?.promotionalCash, 0) > 0 ? "Includes referral rewards awaiting withdrawal eligibility" : "Verified funds",
         promotionalBalance: numberValue(account.user?.promotionalCash, 0),
         withdrawableBalance: Math.max(0, numberValue(account.user?.cashBalance, baseCash.balance) - numberValue(account.user?.promotionalCash, 0) - numberValue(account.user?.reservedCash, 0))
     };
@@ -9966,6 +9990,7 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
         let order;
         let realizedDelta = 0;
         let fee = null;
+        let referralFunding = { share: 0, lots: [] };
         const marketImpacts = [];
 
         if (side === "buy") {
@@ -9974,10 +9999,11 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
             await assertDatabaseAuFirstPurchaseMinimum(client, context, asset, trade);
-            const referralShare = await referrals.spendCash(client, context.wallet_id, trade.notionalUsd + feeUsd);
+            referralFunding = await referrals.spendCash(client, context.wallet_id, trade.notionalUsd + feeUsd);
+            const referralShare = referralFunding.share;
             await adjustDbCash(client, context.wallet_id, -(trade.notionalUsd + feeUsd));
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
-            await referrals.addHoldingRestriction(client, context.wallet_id, asset.symbol, trade.quantity, referralShare);
+            await referrals.addHoldingRestriction(client, context.wallet_id, asset.symbol, trade.quantity, referralFunding);
             marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd * (1 - referralShare), source: "live-buy" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
@@ -9994,11 +10020,12 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             const trade = calculateTradeSize(body, proceedsPrice);
             await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
-            const referralShare = await referrals.takeHoldingRestriction(client, context.wallet_id, asset.symbol, trade.quantity);
+            referralFunding = await referrals.takeHoldingRestriction(client, context.wallet_id, asset.symbol, trade.quantity);
+            const referralShare = referralFunding.share;
             const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity, { proceedsPrice });
             realizedDelta += result.realizedProfitLoss - feeUsd;
             await adjustDbCash(client, context.wallet_id, trade.notionalUsd - feeUsd);
-            await referrals.creditSaleRestriction(client, context.wallet_id, trade.notionalUsd - feeUsd, referralShare);
+            await referrals.creditSaleRestriction(client, context.wallet_id, trade.notionalUsd - feeUsd, referralFunding);
             marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd * (1 - referralShare), source: "live-sell" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
@@ -10024,7 +10051,8 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             const fromAsset = await resolveAsset(fromSymbol);
             assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
             const fromQuantity = notionalUsd / fromAsset.price;
-            const referralShare = await referrals.takeHoldingRestriction(client, context.wallet_id, fromAsset.symbol, fromQuantity);
+            referralFunding = await referrals.takeHoldingRestriction(client, context.wallet_id, fromAsset.symbol, fromQuantity);
+            const referralShare = referralFunding.share;
             const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
             realizedDelta += sellResult.realizedProfitLoss - feeUsd;
             marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd: notionalUsd * (1 - referralShare), source: "live-swap-out" });
@@ -10032,7 +10060,7 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             const toQuantity = netNotionalUsd / toAsset.price;
             await assertDatabaseAuFirstPurchaseMinimum(client, context, toAsset, { quantity: toQuantity, notionalUsd: netNotionalUsd });
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, netNotionalUsd);
-            await referrals.addHoldingRestriction(client, context.wallet_id, toAsset.symbol, toQuantity, referralShare);
+            await referrals.addHoldingRestriction(client, context.wallet_id, toAsset.symbol, toQuantity, referralFunding);
             marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd * (1 - referralShare), source: "live-swap-in" });
             order = await insertDbOrder(client, context, {
                 symbol: toAsset.symbol,
@@ -10047,6 +10075,7 @@ async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
             throw demoTradeError(400, "Choose buy, sell, or swap.");
         }
 
+        await referralRules.recordTrade(client, auth.profileId, order, referralFunding.share);
         await recordDatabasePlatformFee(client, context, order, { ...fee, side, symbol: order.symbol });
         await refreshDbPerformance(client, context, realizedDelta);
         await client.query("commit");
@@ -11374,6 +11403,8 @@ async function createKycSubmission(auth, body = {}) {
     await uploadKycObject(documentPath, documentFile);
     if (documentBackFile && documentBackPath) await uploadKycObject(documentBackPath, documentBackFile);
     await uploadKycObject(selfiePath, selfieFile);
+    await referralRules.recordSignal(dbPool, profileId, 'document', crypto.createHash('sha256').update(documentFile.bytes).digest('hex'));
+    await referralRules.refreshRisk(dbPool, profileId);
     await dbPool.query(`
         insert into kyc_submissions (
             id, profile_id, account_mode, document_type, status,
@@ -11937,7 +11968,7 @@ async function createDatabaseAccount(signUp) {
 
         const demoAccount = await seedAccountWallet(client, profile.id, "demo", 50000);
         await seedAccountWallet(client, profile.id, "live", 0);
-        await referrals.attach(client, profile.id, signUp.referralCode, signUp.email, signUp.phone);
+        await referrals.attach(client, profile.id, signUp.referralCode, signUp.email, signUp.phone, signUp.referralSignals);
 
         await client.query(`
             insert into demo_performance (account_mode_id, portfolio_value, starting_balance)
@@ -17751,6 +17782,28 @@ app.post("/api/admin/news/publish", async (req, res) => {
   }
 });
 
+app.post('/api/admin/referrals/overview', async (req,res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req,body)) return res.status(403).json({success:false,error:'Referral review is not authorized.'});
+    await ensureSignUpSchemaReady();
+    const result = await dbPool.query(`select c.profile_id,p.email,c.status,c.reasons,c.review_note,c.updated_at
+      from referral_risk_controls c join profiles p on p.id=c.profile_id
+      order by (c.status<>'clear') desc,c.updated_at desc limit 150`);
+    return res.json({success:true,reviews:result.rows});
+  } catch(err) { return sendDemoError(res,err,'Could not load referral reviews.'); }
+});
+
+app.post('/api/admin/referrals/review', async (req,res) => {
+  try {
+    const body = parseJsonBody(req);
+    if (!adminRequestAuthorized(req,body)) return res.status(403).json({success:false,error:'Referral review is not authorized.'});
+    await ensureSignUpSchemaReady();
+    await referralRules.review(dbPool,body.profileId,body.status,body.note);
+    return res.json({success:true});
+  } catch(err) { return sendDemoError(res,err,'Could not save referral review.'); }
+});
+
 app.post("/api/admin/accounts/overview", async (req, res) => {
   try {
     let body = {};
@@ -18109,6 +18162,7 @@ app.post("/api/auth/sign-up", async (req, res) => {
 
     const signUp = parseSignUpPayload(body);
     signUp.referralCode = referrals.normalizeCode(body.referralCode);
+    signUp.referralSignals = referralRequestSignals(req, res);
     if (signUp.referralCode && !databaseConfigured()) throw signUpError(503, "Referrals are temporarily unavailable. Please try again shortly.");
     signUp.leadId = /^[0-9a-f-]{36}$/i.test(normalizeText(body.leadId)) ? normalizeText(body.leadId) : "";
     let created = null;
@@ -18633,6 +18687,7 @@ app.get("/api/referrals/validate", async (req, res) => {
   try {
     if (!databaseConfigured()) throw demoTradeError(503, "Referrals are temporarily unavailable.");
     await ensureSignUpSchemaReady();
+    referralRequestSignals(req, res);
     const code = referrals.normalizeCode(req.query.code);
     const valid = /^[A-F0-9]{20}$/.test(code) && Boolean(await referrals.eligibleCode(dbPool, code));
     return res.json({ success: true, valid, rewardUsd: referrals.REWARD_USD });
@@ -18645,6 +18700,9 @@ app.get("/api/account/referrals", async (req, res) => {
     if (auth.source !== "supabase") throw demoTradeError(503, "Referral rewards require your live account database.");
     await ensureSignUpSchemaReady();
     assertLiveAccountOperational(await getPracticeDbContext(dbPool, auth.profileId, "live"), "Referral rewards");
+    const signals = referralRequestSignals(req, res);
+    await referralRules.recordSignal(dbPool, auth.profileId, 'device', signals.device);
+    await referralRules.refreshRisk(dbPool, auth.profileId);
     const program = await referrals.summary(dbPool, auth.profileId, appBaseUrl(req));
     return res.json({ success: true, program });
   } catch (err) { return sendDemoError(res, err, "Referral rewards are temporarily unavailable."); }

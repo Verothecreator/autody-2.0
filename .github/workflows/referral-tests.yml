@@ -28,11 +28,13 @@ jobs:
         run: |
           node --check server.js
           node --check referrals.js
+          node --check referral-eligibility.js
           node --check public/sign-up.js
           node --check public/account-referrals.js
           node --check public/account-wallet.js
           node --check public/live-account.js
           node --check public/demo-sidebar.js
+          node --check public/admin-accounts.js
       - name: Test referral awards, money restrictions and withdrawal rules
         env:
           REFERRAL_TEST_DATABASE_URL: postgresql://postgres:referral-test-only@127.0.0.1:5432/autody_referral_test

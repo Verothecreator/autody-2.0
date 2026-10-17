@@ -6,6 +6,8 @@
 .referral-link-row input { width:100%; min-width:0; padding:14px; border:1px solid #303b50; border-radius:10px; background:#0c111b; color:#e9ebff; font:inherit; }
 .referral-link-row button { flex-shrink:0; }
 .referral-message { min-height:24px; margin:10px 0 0; font-size:13px; }
+.referral-simple { max-width:860px; }
+[data-settings-panel="referrals"]>label,.referral-simple>label { display:block; margin:20px 0 10px; color:var(--muted); font-size:13px; }
 .referral-reward-mark { align-self:center; text-align:center; border:1px solid rgba(140,125,255,.3); border-radius:24px; padding:30px 12px; background:rgba(89,77,220,.09); }
 .referral-reward-mark>span,.referral-reward-mark small { font-size:10px; letter-spacing:1.5px; color:#aea5ff; }
 .referral-reward-mark strong { display:block; margin:14px 0; font-size:70px; line-height:1; letter-spacing:-3px; }

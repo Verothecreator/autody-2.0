@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Autody Live Account | Settings</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="referrals.css" />
 </head>
 <body class="account-body" data-settings-mode="live">
   <div class="app-layout">
@@ -60,7 +61,7 @@
             </button>
             <button class="settings-menu-row" type="button" data-settings-section="referrals" data-settings-search-text="referrals invite friends rewards bonus credit link 10">
               <svg class="settings-row-icon" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13" cy="11" r="4"/><path d="M5 27v-3a8 8 0 0 1 16 0v3M24 7a4 4 0 0 1 0 8M26 20v8M22 24h8"/></svg>
-              <span><strong>Referrals</strong><small>Invite friends and earn platform credit</small></span>
+              <span><strong>Referrals</strong><small>Invite friends and earn $10 rewards</small></span>
               <span class="settings-chevron" aria-hidden="true"></span>
             </button>
             <button class="settings-menu-row" type="button" data-settings-section="notifications" data-settings-search-text="notifications alerts orders markets news deposits withdrawals price research">
@@ -122,23 +123,10 @@
           </article>
 
           <article class="app-card settings-detail-panel" data-settings-panel="referrals" hidden>
-            <div class="card-heading">
-              <div>
-                <span class="muted-label">Referrals</span>
-                <h2>Give $10. Get $10.</h2>
-                <p class="card-intro">Invite a new member with your personal link. Once they create an eligible account and verify their email, you each receive $10 in platform-only credit.</p>
-              </div>
-            </div>
-            <div class="settings-list">
-              <div class="settings-item">
-                <span><strong>Your invitations and rewards</strong><small>Copy your personal link, check your referral credit, and view your reward history.</small></span>
-                <a href="account-referrals" class="settings-inline-link">Open Referrals</a>
-              </div>
-              <div class="settings-item">
-                <span><strong>For use on Autody only</strong><small>Referral credit and the assets or proceeds it funds cannot be withdrawn or sent to another account or wallet. Referral credit does not count as a verified deposit.</small></span>
-                <a href="terms#referral-rewards" class="settings-inline-link">Read Terms</a>
-              </div>
-            </div>
+            <div class="card-heading"><div><span class="muted-label">Invite friends</span><h2>Give $10. Get $10.</h2><p class="card-intro">Invite a new member with your personal link. You both get $10 to use on Autody. Withdrawal eligibility applies.</p></div></div>
+            <label for="referral-link">Your invitation link</label>
+            <div class="referral-link-row"><input id="referral-link" readonly value="Loading your link..." spellcheck="false" /><button type="button" class="btn" id="copy-referral-link" disabled>Copy link</button></div>
+            <p id="referral-message" class="referral-message" role="status" aria-live="polite"></p>
           </article>
 
           <article class="app-card settings-detail-panel" data-settings-panel="notifications" hidden>
@@ -278,5 +266,6 @@
   <script src="demo-sidebar.js"></script>
   <script src="live-account.js"></script>
   <script src="demo-settings.js"></script>
+  <script src="account-referrals.js"></script>
 </body>
 </html>

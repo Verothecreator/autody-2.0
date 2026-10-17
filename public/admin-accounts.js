@@ -126,6 +126,7 @@ async function loadAccountsData() {
   accountsCache = Array.isArray(data.accounts) ? data.accounts : [];
   renderAccountKpis(data);
   renderAccountsTable(accountsCache);
+  await loadReferralReviews();
   const generated = data.generatedAt ? accountFormatDate(data.generatedAt) : "now";
   accountNotice(`Account data loaded. Last refresh ${generated}.`, "success");
 }
@@ -221,6 +222,32 @@ async function bootAccountsPortal() {
     runAccountCommand(button);
   });
   loadAccountsData().catch((err) => accountNotice(err.message || "Could not load account data.", "error"));
+}
+
+async function loadReferralReviews() {
+  const target = document.getElementById('referral-reviews');
+  const data = await opsPost('/api/admin/referrals/overview', {});
+  target.replaceChildren();
+  if (!data.reviews.length) { target.textContent='No referral activity needs review.'; return; }
+  for (const review of data.reviews) {
+    const row=document.createElement('div');row.className='settings-item';
+    const copy=document.createElement('span'),title=document.createElement('strong'),detail=document.createElement('small');
+    title.textContent=`${review.email} · ${review.status}`;
+    detail.textContent=review.reasons.map(reason=>reason.replace(/_/g,' ')).join(', ');
+    copy.append(title,detail);row.append(copy);
+    for (const [status,label] of [['clear','Clear review'],['blocked','Block rewards']]) {
+      const button=document.createElement('button');button.type='button';button.className='btn btn-ghost';button.textContent=label;
+      button.addEventListener('click',async()=>{
+        const note=prompt(`Review note for ${review.email}:`);
+        if (!note?.trim()) return;
+        button.disabled=true;
+        try { await opsPost('/api/admin/referrals/review',{profileId:review.profile_id,status,note});await loadReferralReviews(); }
+        catch(err) { accountNotice(err.message||'Could not save referral review.','error');button.disabled=false; }
+      });
+      row.append(button);
+    }
+    target.append(row);
+  }
 }
 
 bootAccountsPortal();

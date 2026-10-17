@@ -608,7 +608,7 @@ async function setMaxLiveSendAmount() {
     const mode = currentSendAmountMode();
     const max = mode === "usd" ? liveSendValueForSymbol(wallet, asset) : liveSendBalanceForSymbol(wallet, asset);
     amountInput.value = mode === "usd" ? formatLiveSendUsd(Math.floor(max * 100) / 100) : formatLiveSendAmount(max);
-    if (!max) showLiveNotice(`No withdrawable ${asset} balance is available. Referral-funded balances stay on Autody.`, "warning");
+    if (!max) showLiveNotice(`No withdrawable ${asset} balance is available. Referral rewards unlock for withdrawal once you and your friend qualify.`, "warning");
   } catch (err) {
     showLiveNotice(err.message || "Could not load the available balance.", "warning");
   } finally {

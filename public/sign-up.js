@@ -342,8 +342,8 @@ if (activeSignupReferral) {
   fetch('/api/referrals/validate?code=' + encodeURIComponent(activeSignupReferral), {cache:'no-store'})
     .then(response => {if(!response.ok) throw new Error('Invitation check unavailable.');return response.json();})
     .then(data => {
-      document.getElementById('signup-referral-title').textContent = data.valid ? 'You and your friend each get $10 in platform credit.' : 'This invitation is unavailable.';
-      document.getElementById('signup-referral-detail').textContent = data.valid ? 'Your reward arrives after email verification. Referral credit and everything it funds stay on Autody and cannot be withdrawn or transferred.' : 'Try another link, or continue without a referral.';
+      document.getElementById('signup-referral-title').textContent = data.valid ? 'You and your friend each get $10.' : 'This invitation is unavailable.';
+      document.getElementById('signup-referral-detail').textContent = data.valid ? 'Your reward arrives after email verification and eligibility checks. Use it to trade; withdrawals unlock once you both qualify.' : 'Try another link, or continue without a referral.';
     }).catch(() => {document.getElementById('signup-referral-title').textContent = 'We could not check your invitation.';document.getElementById('signup-referral-detail').textContent = 'Try again shortly to keep your referral reward.';});
 }
 document.getElementById('remove-signup-referral')?.addEventListener('click', () => {
