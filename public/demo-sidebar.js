@@ -102,11 +102,6 @@ function ensureDemoSidebarTools() {
     marketsLink.classList.add("active");
     marketsLink.setAttribute("aria-current", "location");
   }
-  if (accountPageIsLive() && !sidebar.querySelector('.app-nav a[href="account-referrals"]')) {
-    const link = document.createElement('a');link.href = 'account-referrals';link.textContent = 'Referrals';
-    if (/\/account-referrals(?:\.html)?$/.test(location.pathname)) {link.classList.add('active');link.setAttribute('aria-current','page');}
-    sidebar.querySelector('.app-nav')?.append(link);
-  }
   prepareDemoNavLabels(sidebar);
   prepareDemoActionLabels(sidebar);
 
@@ -148,7 +143,7 @@ function ensureDemoSidebarTools() {
     const bottomTools = document.createElement("div");
     bottomTools.className = "sidebar-bottom-tools";
     bottomTools.setAttribute("aria-label", "Settings");
-    bottomTools.innerHTML = sidebarIconMarkup(settingsHref, "Settings", settingsIcon, page === settingsHref);
+    bottomTools.innerHTML = sidebarIconMarkup(settingsHref, "Settings", settingsIcon, page === settingsHref || page === "account-referrals");
     actions.insertAdjacentElement("beforebegin", bottomTools);
   }
 
