@@ -33,8 +33,18 @@ jobs:
                   --resolve autodytraded.com:443:199.192.23.71 \
                   https://autodytraded.com/api/db/status > /tmp/database.json
                 python3 -c 'import json; s=json.load(open("/tmp/database.json")); assert s.get("success") and s.get("configured") and s.get("provider")=="supabase-postgres", s'
+                curl --fail --silent --show-error --max-time 25 \
+                  --resolve autodytraded.com:443:199.192.23.71 \
+                  'https://autodytraded.com/api/referrals/validate?code=INVALID' > /tmp/referral.json
+                python3 -c 'import json; s=json.load(open("/tmp/referral.json")); assert s.get("success") and s.get("valid") is False, s'
+                STATUS=$(curl --silent --show-error --max-time 25 -o /tmp/private-referral.json -w '%{http_code}' \
+                  --resolve autodytraded.com:443:199.192.23.71 https://autodytraded.com/api/account/referrals)
+                test "$STATUS" = 401
+                curl --fail --silent --show-error --max-time 25 \
+                  --resolve autodytraded.com:443:199.192.23.71 https://autodytraded.com/terms > /tmp/terms.html
+                python3 -c 's=open("/tmp/terms.html").read(); assert "referral-rewards" in s and "permanently ban your account and any other accounts involved" in s'
                 cat /tmp/deployment.json
-                echo 'Autody deployment and database connection verified.'
+                echo 'Autody deployment, database, referral endpoint, private access and terms verified.'
                 exit 0
               fi
             fi
