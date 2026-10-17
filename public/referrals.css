@@ -1,0 +1,28 @@
+.referral-hero { display:grid; grid-template-columns:minmax(0,1fr) 220px; gap:40px; padding:36px; margin-bottom:22px; background:linear-gradient(125deg,rgba(87,75,230,.15),rgba(15,21,29,.9)); }
+.referral-hero h2 { font-size:clamp(32px,4vw,52px); margin:8px 0 16px; letter-spacing:-1.5px; }
+.referral-hero p,.referral-rules p,.referral-rules li { color:#abb5c5; line-height:1.7; }
+.referral-hero label { display:block; margin:24px 0 10px; font-size:13px; color:#d8def0; }
+.referral-link-row { display:flex; gap:10px; }
+.referral-link-row input { width:100%; min-width:0; padding:14px; border:1px solid #303b50; border-radius:10px; background:#0c111b; color:#e9ebff; font:inherit; }
+.referral-link-row button { flex-shrink:0; }
+.referral-message { min-height:24px; margin:10px 0 0; font-size:13px; }
+.referral-reward-mark { align-self:center; text-align:center; border:1px solid rgba(140,125,255,.3); border-radius:24px; padding:30px 12px; background:rgba(89,77,220,.09); }
+.referral-reward-mark>span,.referral-reward-mark small { font-size:10px; letter-spacing:1.5px; color:#aea5ff; }
+.referral-reward-mark strong { display:block; margin:14px 0; font-size:70px; line-height:1; letter-spacing:-3px; }
+.referral-reward-mark strong span { display:block; margin-top:10px; font-size:16px; font-weight:400; letter-spacing:0; color:#c2c8db; }
+.referral-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin-bottom:22px; }
+.referral-metrics small { color:#95a1b5; line-height:1.5; }
+.referral-rules ol { padding-left:20px; }
+.referral-rules li { margin-bottom:12px; }
+.referral-rules p { font-size:13px; }
+.referral-history-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:17px 0; border-bottom:1px solid #263040; }
+.referral-history-row strong,.referral-history-row small { display:block; }
+.referral-history-row small { margin-top:5px; color:#95a1b5; font-size:12px; }
+.referral-history-amount { color:#bbb2ff; white-space:nowrap; }
+.referral-muted { color:#95a1b5; }
+.referral-signup { margin:0 0 20px; padding:18px; border:1px solid #675ce0; border-radius:12px; background:rgba(92,78,224,.1); color:#dfe2ff; line-height:1.6; }
+.referral-signup small { display:block; margin-top:6px; color:#aab4c8; }
+.referral-signup button { margin-top:8px; }
+.wallet-referral-note { margin-bottom:22px; padding:18px 22px; border:1px solid #463f78; border-radius:14px; background:rgba(92,78,224,.07); }
+.wallet-referral-note p { margin:7px 0; color:#aab4c8; font-size:13px; line-height:1.6; }
+@media(max-width:900px) { .referral-hero { grid-template-columns:1fr; gap:20px; padding:24px; }.referral-reward-mark { display:none; }.referral-metrics { grid-template-columns:1fr; }.referral-link-row { flex-wrap:wrap; }.referral-link-row button { width:100%; } }

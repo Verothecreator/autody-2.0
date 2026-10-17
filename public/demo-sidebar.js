@@ -16,6 +16,7 @@ function sidebarIconMarkup(href, label, icon, active = false) {
 }
 
 const demoNavIcons = {
+  Referrals: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="7" r="3"/><path d="M2 21v-3a6 6 0 0 1 12 0v3M17 7v8M13 11h8"/></svg>`,
   Overview: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Z"/><path d="M14 20h6V4h-6v16Z"/><path d="M4 20h6v-3H4v3Z"/></svg>`,
   Wallet: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H19a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6.5A2.5 2.5 0 0 1 4 16.5v-9Z"/><path d="M16 12h4"/><path d="M7 5v14"/></svg>`,
   Markets: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17 9 12l4 4 7-9"/><path d="M14 7h6v6"/></svg>`,
@@ -100,6 +101,11 @@ function ensureDemoSidebarTools() {
   if (marketsLink && /\/account-rankings(?:\.html)?$/.test(location.pathname)) {
     marketsLink.classList.add("active");
     marketsLink.setAttribute("aria-current", "location");
+  }
+  if (accountPageIsLive() && !sidebar.querySelector('.app-nav a[href="account-referrals"]')) {
+    const link = document.createElement('a');link.href = 'account-referrals';link.textContent = 'Referrals';
+    if (/\/account-referrals(?:\.html)?$/.test(location.pathname)) {link.classList.add('active');link.setAttribute('aria-current','page');}
+    sidebar.querySelector('.app-nav')?.append(link);
   }
   prepareDemoNavLabels(sidebar);
   prepareDemoActionLabels(sidebar);

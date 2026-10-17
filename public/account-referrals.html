@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autody | Referrals</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="referrals.css" />
+</head>
+<body class="app-body" data-account-mode="live">
+  <div class="app-layout">
+    <aside class="app-sidebar">
+      <a href="account" class="app-brand"><img src="Autody-Logo.png" alt="" class="brand-mark" /><span>Autody</span></a>
+      <nav class="app-nav" aria-label="Account navigation">
+        <a href="account">Overview</a><a href="account-wallet.html">Wallet</a>
+        <a href="account-markets.html">Markets</a><a href="account-orders.html">Orders</a>
+        <a href="account-watchlist.html">Watchlist</a><a href="account-research.html">Research</a>
+        <a href="account-referrals" class="active" aria-current="page">Referrals</a>
+      </nav>
+      <div class="sidebar-profile"><span>Platform-only referral credit</span><strong id="referral-sidebar-balance" data-static-profile>Loading…</strong></div>
+      <div class="sidebar-actions"><a href="demo-account" class="btn sidebar-return">Open Demo</a><a href="sign-in" class="btn btn-ghost sidebar-return" data-live-sign-out>Sign Out</a></div>
+    </aside>
+    <main class="app-main">
+      <header class="app-topbar"><div><p class="eyebrow">Invite friends</p><h1>Referrals</h1><p class="app-subtitle">Explore Autody together. Your rewards stay on the platform.</p></div></header>
+      <section class="app-card referral-hero">
+        <div><p class="eyebrow">A little more to explore</p><h2>Give $10. Get $10.</h2>
+          <p>Invite a new member with your personal link. Once they create an eligible account and verify their email, you each receive $10 in platform-only credit.</p>
+          <label for="referral-link">Your invitation link</label>
+          <div class="referral-link-row"><input id="referral-link" readonly value="Loading your link…" spellcheck="false" /><button type="button" class="btn" id="copy-referral-link" disabled>Copy link</button></div>
+          <p id="referral-message" class="referral-message" role="status" aria-live="polite"></p>
+        </div><div class="referral-reward-mark" aria-hidden="true"><span>YOU + YOUR FRIEND</span><strong>$10<span>each</span></strong><small>PLATFORM CREDIT</small></div>
+      </section>
+      <section class="referral-metrics" aria-label="Referral rewards summary">
+        <div class="app-card mini-metric"><span class="muted-label">Available referral credit</span><strong id="referral-credit">—</strong><small>For use on Autody only</small></div>
+        <div class="app-card mini-metric"><span class="muted-label">Total rewards earned</span><strong id="referral-earned">—</strong><small>Includes your welcome reward, if eligible</small></div>
+        <div class="app-card mini-metric"><span class="muted-label">Successful invitations</span><strong id="referral-completed">—</strong><small id="referral-pending">Waiting for your first invitation</small></div>
+      </section>
+      <section class="account-grid">
+        <div class="app-card"><div class="card-heading"><div><span class="muted-label">Your activity</span><h2>Reward history</h2></div></div><div id="referral-history"><p class="referral-muted">Loading rewards…</p></div></div>
+        <div class="app-card referral-rules"><p class="eyebrow">How your credit works</p><h2>Made for using Autody.</h2>
+          <ol><li>Share your personal link with someone new to Autody.</li><li>They sign up through your link and verify their email.</li><li>You each receive $10 in platform-only credit for eligible purchases and trading.</li></ol>
+          <p>Referral credit, the assets it funds, and the proceeds from those assets cannot be withdrawn or sent to another account or wallet. Completing verification or waiting 90 days does not remove this restriction.</p>
+          <p>Referral credit is used first for USD purchases. If you combine it with your own funds, the reward-funded share stays restricted through buys, sales, and swaps. Your own eligible funds remain subject to our usual withdrawal rules.</p>
+          <p>One welcome reward per person. Self-referrals, duplicate accounts, false information, and attempts to move rewards out of Autody may result in reversed rewards and bans for every account involved.</p>
+          <a href="terms#referral-rewards" class="auth-inline-link">Read the referral terms</a>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="demo-auth.js"></script><script src="demo-sidebar.js"></script><script src="account-referrals.js"></script>
+</body>
+</html>

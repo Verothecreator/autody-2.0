@@ -315,6 +315,7 @@ function signUpPayload(form) {
     legalName: `${firstName} ${lastName}`.trim(),
     email: form.get("email"),
     leadId: new URLSearchParams(location.search).get("lead") || "",
+    referralCode: activeSignupReferral,
     countryCode: form.get("countryCode"),
     countryCodeCountry: selectedCountryCodeOption()?.dataset?.country || "",
     phone: form.get("phone"),
@@ -327,6 +328,29 @@ function signUpPayload(form) {
   };
 }
 
+let activeSignupReferral = '';
+const signupReferralParams = new URLSearchParams(location.search);
+try {
+  const incoming = signupReferralParams.get('ref');
+  if (incoming) sessionStorage.setItem('autodySignupReferral', JSON.stringify({code: incoming.trim().toUpperCase(), at: Date.now()}));
+  const saved = JSON.parse(sessionStorage.getItem('autodySignupReferral') || 'null');
+  if (saved && Date.now() - saved.at < 30 * 86400000) activeSignupReferral = saved.code;
+} catch { activeSignupReferral = (signupReferralParams.get('ref') || '').trim().toUpperCase(); }
+if (activeSignupReferral) {
+  document.getElementById('signup-referral').hidden = false;
+  document.getElementById('signup-referral-title').textContent = 'Checking your invitation…';
+  fetch('/api/referrals/validate?code=' + encodeURIComponent(activeSignupReferral), {cache:'no-store'})
+    .then(response => {if(!response.ok) throw new Error('Invitation check unavailable.');return response.json();})
+    .then(data => {
+      document.getElementById('signup-referral-title').textContent = data.valid ? 'You and your friend each get $10 in platform credit.' : 'This invitation is unavailable.';
+      document.getElementById('signup-referral-detail').textContent = data.valid ? 'Your reward arrives after email verification. Referral credit and everything it funds stay on Autody and cannot be withdrawn or transferred.' : 'Try another link, or continue without a referral.';
+    }).catch(() => {document.getElementById('signup-referral-title').textContent = 'We could not check your invitation.';document.getElementById('signup-referral-detail').textContent = 'Try again shortly to keep your referral reward.';});
+}
+document.getElementById('remove-signup-referral')?.addEventListener('click', () => {
+  activeSignupReferral = ''; try {sessionStorage.removeItem('autodySignupReferral');} catch {}
+  document.getElementById('signup-referral').hidden = true;
+  const url = new URL(location.href); url.searchParams.delete('ref'); history.replaceState(null,'',url);
+});
 populateCountryCodes();
 countryResidenceSelect?.addEventListener("change", syncCountryCodeToResidence);
 
@@ -387,6 +411,7 @@ signUpForm?.addEventListener("submit", async (event) => {
 
     window.AutodyMeta?.track?.("CompleteRegistration", { currency: "USD", status: "created" }, metaRegistration.eventId);
 
+    sessionStorage.removeItem("autodySignupReferral");
     sessionStorage.setItem("autodyPendingEmail", String(form.get("email") || ""));
     if (data.emailHandoffToken) {
       sessionStorage.setItem("autodyEmailHandoff", data.emailHandoffToken);

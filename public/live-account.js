@@ -210,18 +210,19 @@ function liveSendHoldingForSymbol(wallet = {}, symbol = "") {
 
 function liveSendBalanceForSymbol(wallet = {}, symbol = "") {
   const lookup = String(symbol || "").trim().toUpperCase();
-  if (lookup === "USD") return Number(wallet.cashBalance || 0);
-  return Number(liveSendHoldingForSymbol(wallet, lookup)?.balance || 0);
+  if (lookup === "USD") return Number(wallet.withdrawableCash ?? wallet.cashBalance ?? 0);
+  const holding = liveSendHoldingForSymbol(wallet, lookup);
+  return Math.max(0, Number(holding?.withdrawableQuantity ?? (Number(holding?.balance || 0) - Number(holding?.promotionalQuantity || 0))));
 }
 
 function liveSendValueForSymbol(wallet = {}, symbol = "") {
   const lookup = String(symbol || "").trim().toUpperCase();
-  if (lookup === "USD") return Number(wallet.cashBalance || 0);
+  if (lookup === "USD") return liveSendBalanceForSymbol(wallet, lookup);
   const holding = liveSendHoldingForSymbol(wallet, lookup);
-  const balance = Number(holding?.balance || 0);
+  const balance = liveSendBalanceForSymbol(wallet, lookup);
   const price = Number(holding?.price ?? holding?.lastPrice ?? 0);
   if (Number.isFinite(balance) && balance > 0 && Number.isFinite(price) && price > 0) return balance * price;
-  const direct = Number(holding?.valueUsd);
+  const direct = Number(holding?.valueUsd) * (Number(holding?.balance) > 0 ? balance / Number(holding.balance) : 0);
   return Number.isFinite(direct) && direct > 0 ? direct : 0;
 }
 
@@ -606,8 +607,8 @@ async function setMaxLiveSendAmount() {
     const wallet = await liveSendWallet();
     const mode = currentSendAmountMode();
     const max = mode === "usd" ? liveSendValueForSymbol(wallet, asset) : liveSendBalanceForSymbol(wallet, asset);
-    amountInput.value = mode === "usd" ? formatLiveSendUsd(max) : formatLiveSendAmount(max);
-    if (!max) showLiveNotice(`No ${asset} balance is available to send.`, "warning");
+    amountInput.value = mode === "usd" ? formatLiveSendUsd(Math.floor(max * 100) / 100) : formatLiveSendAmount(max);
+    if (!max) showLiveNotice(`No withdrawable ${asset} balance is available. Referral-funded balances stay on Autody.`, "warning");
   } catch (err) {
     showLiveNotice(err.message || "Could not load the available balance.", "warning");
   } finally {

@@ -19,6 +19,8 @@ let expandedLiveWalletGroupKey = null;
 
 const liveWalletState = {
   cashBalance: 0,
+  promotionalCash: 0,
+  withdrawableCash: 0,
   totalValue: 0,
   positionsCount: 0,
   pendingTransfers: 0,
@@ -651,6 +653,10 @@ function liveRenderDetail(asset) {
   if (!asset.isGroup && hasLiveWalletNumber(asset.unrealizedProfitLoss)) {
     rows.push(liveDetailRow("Unrealized P/L", formatLiveWalletMoney(asset.unrealizedProfitLoss), liveWalletMoveClass(asset.unrealizedProfitLoss)));
   }
+  if (!asset.isGroup && Number(asset.promotionalBalance || asset.promotionalQuantity || 0) > 0) {
+    rows.push(liveDetailRow("Platform-only rewards", asset.symbol === "USD" ? formatLiveWalletMoney(asset.promotionalBalance) : `${formatLiveWalletNumber(asset.promotionalQuantity, 10)} ${asset.symbol}`));
+    rows.push(liveDetailRow("Own funds before withdrawal checks", asset.symbol === "USD" ? formatLiveWalletMoney(asset.withdrawableBalance) : `${formatLiveWalletNumber(asset.withdrawableQuantity, 10)} ${asset.symbol}`));
+  }
   if (!asset.isGroup) rows.push(liveDetailRow("Status", asset.status || "Ready"));
 
   setLiveWalletText("live-wallet-detail-label", liveCategoryLabel(asset));
@@ -722,6 +728,10 @@ function renderLiveWallet() {
   });
   setLiveWalletText("live-wallet-topbar", balanceText);
   setLiveWalletText("live-wallet-cash", formatLiveWalletMoney(liveWalletState.cashBalance));
+  setLiveWalletText("live-wallet-cash-note", liveWalletState.promotionalCash > 0 ? `${formatLiveWalletMoney(liveWalletState.promotionalCash)} is platform-only referral credit` : "USD available for purchases");
+  const referralNote = document.getElementById("wallet-referral-note");
+  if (referralNote) referralNote.hidden = !liveWalletState.holdings.some(item => Number(item.promotionalQuantity || item.promotionalBalance || 0) > 0);
+  setLiveWalletText("wallet-referral-summary", `Platform-only credit: ${formatLiveWalletMoney(liveWalletState.promotionalCash)} · USD from your own funds: ${formatLiveWalletMoney(liveWalletState.withdrawableCash)}`);
   setLiveWalletText("live-wallet-total", formatLiveWalletMoney(liveWalletState.totalValue));
   setLiveWalletText("live-wallet-positions", String(liveWalletState.positionsCount));
   setLiveWalletText("live-wallet-positions-label", liveWalletState.positionsCount ? "Assets currently held" : "No assets held yet");
@@ -755,6 +765,8 @@ async function loadLiveWallet() {
       const walletData = await walletResponse.json();
       if (walletData?.wallet) {
         liveWalletState.cashBalance = liveWalletNumber(walletData.wallet.cashBalance, 0);
+        liveWalletState.promotionalCash = liveWalletNumber(walletData.wallet.promotionalCash, 0);
+        liveWalletState.withdrawableCash = liveWalletNumber(walletData.wallet.withdrawableCash, 0);
         liveWalletState.totalValue = liveWalletNumber(walletData.wallet.totalValue, liveWalletState.cashBalance);
         liveWalletState.positionsCount = liveWalletNumber(walletData.wallet.positionsCount, 0);
         liveWalletState.pendingTransfers = liveWalletNumber(walletData.wallet.pendingTransfers, 0);

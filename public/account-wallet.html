@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Autody Live Account | Wallet</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="referrals.css" />
 </head>
 <body class="account-body">
   <div class="app-layout">
@@ -49,7 +50,7 @@
         <div class="app-card mini-metric">
           <span class="muted-label">Available USD</span>
           <strong id="live-wallet-cash">$0.00</strong>
-          <small>Available after a verified deposit</small>
+          <small id="live-wallet-cash-note">Available after a verified deposit</small>
         </div>
         <div class="app-card mini-metric">
           <span class="muted-label">Account value</span>
@@ -68,6 +69,7 @@
         </div>
       </section>
 
+      <aside class="wallet-referral-note" id="wallet-referral-note" hidden><strong id="wallet-referral-summary"></strong><p>Referral credit and the assets or proceeds it funds stay on Autody. They cannot be withdrawn or transferred, including after the 90-day hold.</p><a href="account-referrals" class="auth-inline-link">View your referrals</a></aside>
       <section class="account-grid wallet-layout">
         <div class="app-card holdings-card">
           <div class="card-heading">

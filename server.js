@@ -7,6 +7,7 @@ const { ethers } = require("ethers");
 const { Pool } = require("pg");
 const QRCode = require("qrcode");
 const fetch = global.fetch || require("node-fetch");
+const referrals = require("./referrals");
 const bip39 = require("bip39");
 const { BIP32Factory } = require("bip32");
 const ecc = require("tiny-secp256k1");
@@ -58,7 +59,7 @@ const DEMO_DB_STORE = path.join(__dirname, "data", "demo-db.json");
 const DATABASE_SCHEMA_STORE = path.join(__dirname, "database", "schema.sql");
 const PRACTICE_USER_ID = "practice-user";
 const PRACTICE_USER_EMAIL = "ontold7@gmail.com";
-const ACCOUNT_TERMS_VERSION = "2026-06-17";
+const ACCOUNT_TERMS_VERSION = "2026-10-17";
 const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const DB_QUERY_TIMEOUT_MS = Number(process.env.DB_QUERY_TIMEOUT_MS || 15000);
 const DB_SLOW_RETRY_MS = Number(process.env.DB_SLOW_RETRY_MS || 30 * 1000);
@@ -2308,6 +2309,8 @@ function mapDbHolding(row) {
         name: row.asset_name,
         category: row.asset_type,
         balance,
+        promotionalQuantity: numberValue(row.promotional_quantity, 0),
+        withdrawableQuantity: Math.max(0, balance - numberValue(row.promotional_quantity, 0)),
         averageCost: nullableNumber(row.average_cost),
         lastPrice: nullableNumber(row.last_price),
         valueUsd,
@@ -2464,6 +2467,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
     await ensureSignUpSchemaReady();
 
     const accountMode = normalizeWatchlistMode(mode);
+    if (accountMode === "live") await referrals.settleForProfile(dbPool, profileId);
 
     let accountResult = await dbPool.query(`
         select
@@ -2488,6 +2492,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             w.id as wallet_id,
             w.currency,
             w.cash_balance,
+            w.promotional_cash,
             w.reserved_cash,
             w.starting_balance
         from profiles p
@@ -2523,6 +2528,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
                 w.id as wallet_id,
                 w.currency,
                 w.cash_balance,
+                w.promotional_cash,
                 w.reserved_cash,
                 w.starting_balance
             from profiles p
@@ -2539,7 +2545,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
 
     const [holdingsResult, ordersResult, watchlistResult, researchResult, performanceResult, settingsResult, latestKycResult, withdrawalResult, depositRequestsResult, firstLiveDepositAt] = await Promise.all([
         dbPool.query(`
-            select symbol, asset_name, asset_type, quantity, average_cost, last_price, value_usd, updated_at
+            select symbol, asset_name, asset_type, quantity, promotional_quantity, average_cost, last_price, value_usd, updated_at
             from holdings
             where wallet_id = $1
             order by case symbol when 'USD' then 0 when 'AU' then 1 when 'CRYPTO' then 2 when 'STOCKS' then 3 when 'ETFS' then 4 when 'OILMETALS' then 5 else 6 end, symbol
@@ -2623,6 +2629,8 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
         symbol: "USD",
         name: accountMode === "demo" ? "USD Cash" : "USD Funds",
         balance: cashBalance,
+        promotionalBalance: numberValue(row.promotional_cash, 0),
+        withdrawableBalance: Math.max(0, cashBalance - numberValue(row.promotional_cash, 0) - numberValue(row.reserved_cash, 0)),
         valueUsd: cashBalance,
         status: accountMode === "demo" ? "Available" : cashBalance > 0 ? "Available" : "Awaiting deposit"
     };
@@ -2643,6 +2651,7 @@ async function getDatabaseAccountByProfileId(profileId, mode = "live") {
             currency: row.currency || "USD",
             startingBalance,
             cashBalance,
+            promotionalCash: numberValue(row.promotional_cash, 0),
             reservedCash: numberValue(row.reserved_cash, 0),
             createdAt: row.created_at,
             profile: {
@@ -3033,7 +3042,9 @@ async function buildLiveWalletSnapshot(account) {
         changePct: null,
         url: liveWalletHoldingUrl({ symbol: "USD" }),
         status: numberValue(account.user?.cashBalance, baseCash.valueUsd) > 0 ? "Available" : "Awaiting deposit",
-        detail: "Verified funds"
+        detail: numberValue(account.user?.promotionalCash, 0) > 0 ? "Includes platform-only referral credit" : "Verified funds",
+        promotionalBalance: numberValue(account.user?.promotionalCash, 0),
+        withdrawableBalance: Math.max(0, numberValue(account.user?.cashBalance, baseCash.balance) - numberValue(account.user?.promotionalCash, 0) - numberValue(account.user?.reservedCash, 0))
     };
 
     const enrichHolding = (holding) => {
@@ -3124,6 +3135,9 @@ async function buildLiveWalletSnapshot(account) {
         currency: account.user?.currency || "USD",
         startingBalance: account.user?.startingBalance || 0,
         cashBalance: cash.valueUsd,
+        promotionalCash: cash.promotionalBalance,
+        withdrawableCash: cash.withdrawableBalance,
+        referralRestriction: referrals.RESTRICTION,
         reservedCash: account.user?.reservedCash || 0,
         totalValue,
         investedValue,
@@ -5477,6 +5491,7 @@ async function walletAssetInfo(symbol, existing = null) {
 }
 
 async function assertDbWalletAssetBalance(client, walletId, symbol, amount) {
+    await referrals.assertWithdrawable(client, walletId, symbol, amount);
     if (symbol === "USD") {
         const result = await client.query(`
             select cash_balance
@@ -9431,6 +9446,7 @@ async function saveDbHolding(client, walletId, asset, quantity, averageCost, pri
         set asset_name = excluded.asset_name,
             asset_type = excluded.asset_type,
             quantity = excluded.quantity,
+            promotional_quantity = least(holdings.promotional_quantity, excluded.quantity),
             average_cost = excluded.average_cost,
             last_price = excluded.last_price,
             value_usd = excluded.value_usd,
@@ -9935,7 +9951,10 @@ function attachFeeToOrder(order = {}, fee = {}) {
     };
 }
 
-async function placeDatabaseLiveOrder(body, auth = {}) {
+async function placeDatabaseLiveOrder(body, auth = {}, services = {}) {
+    const resolveAsset = services.resolveAsset || resolveTradeAsset;
+    const loadAccount = services.loadAccount || getDatabaseAccountByProfileId;
+    const applyMarketImpact = services.applyMarketImpact || applyAdminControlledTradeImpact;
     if (!databaseConfigured()) return null;
     const side = String(body.side || "buy").trim().toLowerCase();
     const client = await dbPool.connect();
@@ -9950,13 +9969,15 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
         const marketImpacts = [];
 
         if (side === "buy") {
-            const asset = await resolveTradeAsset(body.symbol);
+            const asset = await resolveAsset(body.symbol);
             const trade = calculateTradeSize(body, asset.price);
             await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
             await assertDatabaseAuFirstPurchaseMinimum(client, context, asset, trade);
+            const referralShare = await referrals.spendCash(client, context.wallet_id, trade.notionalUsd + feeUsd);
             await adjustDbCash(client, context.wallet_id, -(trade.notionalUsd + feeUsd));
             await applyDbBuy(client, context.wallet_id, asset, trade.quantity, trade.notionalUsd);
+            await referrals.addHoldingRestriction(client, context.wallet_id, asset.symbol, trade.quantity, referralShare);
             marketImpacts.push({ symbol: asset.symbol, side: "buy", notionalUsd: trade.notionalUsd, source: "live-buy" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
@@ -9968,14 +9989,16 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             });
             fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd, metadata: { mode: "live", feeSide: "cash" } };
         } else if (side === "sell") {
-            const asset = await resolveTradeAsset(body.symbol);
+            const asset = await resolveAsset(body.symbol);
             const proceedsPrice = isStablecoinSymbol(asset.symbol) ? 1 : asset.price;
             const trade = calculateTradeSize(body, proceedsPrice);
             await assertDatabaseAccountOrderLimit(auth.profileId, trade.notionalUsd);
             const feeUsd = tradingFeeUsd(trade.notionalUsd);
+            const referralShare = await referrals.takeHoldingRestriction(client, context.wallet_id, asset.symbol, trade.quantity);
             const result = await applyDbSell(client, context.wallet_id, asset, trade.quantity, { proceedsPrice });
             realizedDelta += result.realizedProfitLoss - feeUsd;
             await adjustDbCash(client, context.wallet_id, trade.notionalUsd - feeUsd);
+            await referrals.creditSaleRestriction(client, context.wallet_id, trade.notionalUsd - feeUsd, referralShare);
             marketImpacts.push({ symbol: asset.symbol, side: "sell", notionalUsd: trade.notionalUsd, source: "live-sell" });
             order = await insertDbOrder(client, context, {
                 symbol: asset.symbol,
@@ -9988,7 +10011,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             fee = { feeUsd, notionalUsd: trade.notionalUsd, netNotionalUsd: trade.notionalUsd - feeUsd, metadata: { mode: "live", feeSide: "proceeds" } };
         } else if (side === "swap") {
             const fromSymbol = normalizeTradeSymbol(body.fromSymbol || body.sourceSymbol);
-            const toAsset = await resolveTradeAsset(body.toSymbol || body.symbol);
+            const toAsset = await resolveAsset(body.toSymbol || body.symbol);
             const tradeInput = calculateTradeSize(body, 1);
             const notionalUsd = tradeInput.notionalUsd;
             await assertDatabaseAccountOrderLimit(auth.profileId, notionalUsd);
@@ -9998,9 +10021,10 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             if (!fromSymbol || fromSymbol === "USD") throw demoTradeError(400, "Use Buy when spending USD funds. Swap is crypto-to-crypto only.");
             if (fromSymbol === toAsset.symbol) throw demoTradeError(400, "Choose a different asset to receive.");
 
-            const fromAsset = await resolveTradeAsset(fromSymbol);
+            const fromAsset = await resolveAsset(fromSymbol);
             assertSwapEligibleAsset(fromAsset, fromAsset.symbol);
             const fromQuantity = notionalUsd / fromAsset.price;
+            const referralShare = await referrals.takeHoldingRestriction(client, context.wallet_id, fromAsset.symbol, fromQuantity);
             const sellResult = await applyDbSell(client, context.wallet_id, fromAsset, fromQuantity);
             realizedDelta += sellResult.realizedProfitLoss - feeUsd;
             marketImpacts.push({ symbol: fromAsset.symbol, side: "sell", notionalUsd, source: "live-swap-out" });
@@ -10008,6 +10032,7 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
             const toQuantity = netNotionalUsd / toAsset.price;
             await assertDatabaseAuFirstPurchaseMinimum(client, context, toAsset, { quantity: toQuantity, notionalUsd: netNotionalUsd });
             await applyDbBuy(client, context.wallet_id, toAsset, toQuantity, netNotionalUsd);
+            await referrals.addHoldingRestriction(client, context.wallet_id, toAsset.symbol, toQuantity, referralShare);
             marketImpacts.push({ symbol: toAsset.symbol, side: "buy", notionalUsd: netNotionalUsd, source: "live-swap-in" });
             order = await insertDbOrder(client, context, {
                 symbol: toAsset.symbol,
@@ -10027,11 +10052,11 @@ async function placeDatabaseLiveOrder(body, auth = {}) {
         await client.query("commit");
 
         for (const impact of marketImpacts) {
-            await applyAdminControlledTradeImpact(impact.symbol, impact.side, impact.notionalUsd, impact.source).catch((err) => {
+            await applyMarketImpact(impact.symbol, impact.side, impact.notionalUsd, impact.source).catch((err) => {
                 console.error("Admin controlled live trade impact failed:", err.message || err);
             });
         }
-        const account = await getDatabaseAccountByProfileId(auth.profileId, "live");
+        const account = await loadAccount(auth.profileId, "live");
         return {
             order: attachFeeToOrder(order, fee),
             account,
@@ -11709,6 +11734,12 @@ async function createDatabaseSession(profileId, sessionHours = SESSION_HOURS) {
     return createDatabaseSessionWithClient(dbPool, profileId, sessionHours);
 }
 
+let referralSchemaPromise = null;
+async function ensureReferralSchema() {
+    if (!referralSchemaPromise) referralSchemaPromise = referrals.ensureSchema(dbPool).catch(err => { referralSchemaPromise = null; throw err; });
+    return referralSchemaPromise;
+}
+
 async function ensureSignUpTables(client = dbPool) {
     await client.query(`
         create table if not exists profile_verifications (
@@ -11786,6 +11817,7 @@ async function ensureSignUpTables(client = dbPool) {
           add column if not exists price_alerts boolean not null default false,
           add column if not exists research_brief boolean not null default false;
     `);
+    if (client === dbPool) await ensureReferralSchema();
 }
 
 async function seedAccountWallet(client, profileId, mode, startingBalance) {
@@ -11829,6 +11861,7 @@ async function seedAccountWallet(client, profileId, mode, startingBalance) {
 
 async function createDatabaseAccount(signUp) {
     if (!databaseConfigured()) return null;
+    await ensureSignUpSchemaReady();
 
     const client = await dbPool.connect();
     try {
@@ -11903,6 +11936,7 @@ async function createDatabaseAccount(signUp) {
 
         const demoAccount = await seedAccountWallet(client, profile.id, "demo", 50000);
         await seedAccountWallet(client, profile.id, "live", 0);
+        await referrals.attach(client, profile.id, signUp.referralCode, signUp.email, signUp.phone);
 
         await client.query(`
             insert into demo_performance (account_mode_id, portfolio_value, starting_balance)
@@ -12464,6 +12498,9 @@ async function verifyDatabaseCode(email, channel, code, purpose = "sign_up", opt
         }
     }
 
+    if (channel === "email" && options.consumeCode !== false && options.markProfileVerified !== false) {
+        await referrals.settleForProfile(dbPool, profile.id).catch(err => console.error("Referral reward pending:", err.message));
+    }
     const updated = await databaseProfileVerification(email);
     return { success: true, profile: updated };
 }
@@ -18070,12 +18107,15 @@ app.post("/api/auth/sign-up", async (req, res) => {
     }
 
     const signUp = parseSignUpPayload(body);
+    signUp.referralCode = referrals.normalizeCode(body.referralCode);
+    if (signUp.referralCode && !databaseConfigured()) throw signUpError(503, "Referrals are temporarily unavailable. Please try again shortly.");
     signUp.leadId = /^[0-9a-f-]{36}$/i.test(normalizeText(body.leadId)) ? normalizeText(body.leadId) : "";
     let created = null;
 
     if (databaseConfigured()) {
       created = await createDatabaseAccount(signUp).catch((err) => {
         if (err.statusCode) throw err;
+        if (signUp.referralCode) throw signUpError(503, "We could not save your referral. Please try again shortly.");
         console.error("Supabase sign up failed, using JSON fallback:", err);
         return null;
       });
@@ -18586,6 +18626,27 @@ app.delete("/api/demo/watchlist/:symbol", async (req, res) => {
     console.error("Demo watchlist remove error:", err);
     return sendDemoError(res, err, "Watchlist could not be updated");
   }
+});
+
+app.get("/api/referrals/validate", async (req, res) => {
+  try {
+    if (!databaseConfigured()) throw demoTradeError(503, "Referrals are temporarily unavailable.");
+    await ensureSignUpSchemaReady();
+    const code = referrals.normalizeCode(req.query.code);
+    const valid = /^[A-F0-9]{20}$/.test(code) && Boolean(await referrals.eligibleCode(dbPool, code));
+    return res.json({ success: true, valid, rewardUsd: referrals.REWARD_USD });
+  } catch (err) { return sendDemoError(res, err, "Referrals are temporarily unavailable."); }
+});
+
+app.get("/api/account/referrals", async (req, res) => {
+  try {
+    const auth = await authenticatedAccountContext(req);
+    if (auth.source !== "supabase") throw demoTradeError(503, "Referral rewards require your live account database.");
+    await ensureSignUpSchemaReady();
+    assertLiveAccountOperational(await getPracticeDbContext(dbPool, auth.profileId, "live"), "Referral rewards");
+    const program = await referrals.summary(dbPool, auth.profileId, appBaseUrl(req));
+    return res.json({ success: true, program });
+  } catch (err) { return sendDemoError(res, err, "Referral rewards are temporarily unavailable."); }
 });
 
 app.get("/api/account/wallet", async (req, res) => {
@@ -19425,7 +19486,11 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
+if (require.main === module) startServer().catch((err) => {
   console.error("Autody startup failed:", err);
   process.exit(1);
 });
+module.exports = { app, dbPool, initializeDatabase, placeDatabaseLiveOrder, createDatabaseAccount,
+  verifyDatabaseCode, createDatabaseWithdrawalRequest, decideDatabaseWithdrawalRequest,
+  assertDbWalletAssetBalance, debitDbWalletAsset, seedAccountWallet,
+  withdrawalAccessSnapshot, assertWithdrawalDepositAgeAllowed, assertWithdrawalIdentityVerified };
