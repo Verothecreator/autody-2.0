@@ -79,12 +79,12 @@ create table if not exists referral_signals (
 create index if not exists referral_signals_match_idx on referral_signals(kind,signal_hash,created_at);
 -- Match older members too, using the same canonical keys as the signup guard.
 insert into referral_signals(profile_id,kind,signal_hash)
-select p.id,'email',encode(digest('autody-referral-v1:' || case
+select p.id,'email',encode(sha256(convert_to('autody-referral-v1:' || case
   when split_part(lower(trim(p.email)),'@',2) in ('gmail.com','googlemail.com')
     then replace(split_part(split_part(lower(trim(p.email)),'@',1),'+',1),'.','') || '@gmail.com'
-  else lower(trim(p.email)) end,'sha256'),'hex') from profiles p on conflict do nothing;
+  else lower(trim(p.email)) end,'UTF8')),'hex') from profiles p on conflict do nothing;
 insert into referral_signals(profile_id,kind,signal_hash)
-select pv.profile_id,'phone',encode(digest('autody-referral-v1:' || regexp_replace(pv.phone,'[^0-9]','','g'),'sha256'),'hex')
+select pv.profile_id,'phone',encode(sha256(convert_to('autody-referral-v1:' || regexp_replace(pv.phone,'[^0-9]','','g'),'UTF8')),'hex')
 from profile_verifications pv where regexp_replace(pv.phone,'[^0-9]','','g')<>'' on conflict do nothing;
 create table if not exists referral_risk_controls (
   profile_id uuid primary key references profiles(id) on delete cascade,
