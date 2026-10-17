@@ -183,11 +183,14 @@ async function assertWithdrawable(client, walletId, symbol, amount) {
   const usd = symbol === 'USD';
   if (usd && Math.abs(Number(amount)*100-Math.round(Number(amount)*100))>1e-7) throw failure(400, 'USD transfers must use whole cents.');
   const result = usd
-    ? await client.query(`select greatest(cash_balance-reserved_cash-promotional_cash,0) as available,
+    ? await client.query(`select promotional_cash as restricted,greatest(cash_balance-reserved_cash-promotional_cash,0) as available,
         $2::numeric>0 and $2::numeric<=greatest(cash_balance-reserved_cash-promotional_cash,0) as allowed from wallets where id=$1 for update`, [walletId,amount])
-    : await client.query(`select greatest(quantity-promotional_quantity,0) as available,
+    : await client.query(`select promotional_quantity as restricted,greatest(quantity-promotional_quantity,0) as available,
         $3::numeric>0 and $3::numeric<=greatest(quantity-promotional_quantity,0) as allowed from holdings where wallet_id=$1 and upper(symbol)=upper($2) for update`, [walletId,symbol,amount]);
-  if (!result.rows[0]?.allowed) throw failure(403, `${RESTRICTION} Available for this request: ${Number(result.rows[0]?.available||0)} ${symbol}.`);
+  if (!result.rows[0]?.allowed) {
+    if (!(Number(result.rows[0]?.restricted)>0)) throw failure(400,`Not enough ${symbol} available for this withdrawal.`);
+    throw failure(403, `${RESTRICTION} Available for this request: ${Number(result.rows[0]?.available||0)} ${symbol}.`);
+  }
 }
 module.exports = { REWARD_USD, RESTRICTION, ensureSchema, canonicalEmail, normalizeCode, restrictedPortion,
   eligibleCode, codeForProfile, attach, settleForProfile, settleOne, summary, spendCash,

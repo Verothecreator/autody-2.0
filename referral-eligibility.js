@@ -125,7 +125,7 @@ async function eligibility(client, profileId) {
     where t.profile_id=$1 and lower(o.status)='filled' and lower(o.side) in ('buy','sell','swap') and t.own_funded_usd>=0.01`, [profileId]);
   const risk = await riskStatus(client,profileId);
   return { eligible: member.status==='active' && member.email_status==='verified' && ['verified','approved'].includes(member.identity_status)
-      && !['restricted','frozen','banned','blocked','deleted','high_risk'].includes(member.risk_status)
+      && !['restricted','frozen','banned','blocked','deleted','high_risk','high','review','in_review','rejected'].includes(member.risk_status)
       && depositCents>=BigInt(MIN_DEPOSIT_USD*100) && trades.rows[0].n>=MIN_TRADES && holdPassed && risk==='clear',
     depositedUsd:Number(depositCents)/100, qualifyingTrades:trades.rows[0].n, holdPassed, risk };
 }

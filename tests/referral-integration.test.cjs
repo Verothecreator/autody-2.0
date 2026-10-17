@@ -219,4 +219,10 @@ else {
   try {for(const path of ['overview','review']){const response=await fetch(`http://127.0.0.1:${http.address().port}/api/admin/referrals/${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(response.status,403);}}
   finally {await new Promise(resolve=>http.close(resolve));}
  });
+ test('ordinary funds do not acquire referral eligibility requirements',async()=>{
+  const p=await member({cash:2}),recipient=await member();
+  await server.createDatabaseWithdrawalRequest(auth(p),{type:'internal',asset:'USD',amount:1,recipientEmail:recipient.email});
+  assert.equal(Number((await balance(recipient)).cash_balance),1);
+  await assert.rejects(server.createDatabaseWithdrawalRequest(auth(p),{type:'external',asset:'USD',amount:2,destination:'test-only'}),/Not enough USD/);
+ });
 }
